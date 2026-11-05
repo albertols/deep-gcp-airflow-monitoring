@@ -3,7 +3,7 @@
 // contains an identifier from the maintainer's git-ignored .dcam-denylist, or a generic pattern that
 // looks like a real Google Cloud identifier or secret. Matches are reported redacted.
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -72,7 +72,8 @@ function main() {
     encoding: 'utf8',
   })
     .split('\n')
-    .filter((f) => f && !SKIP.test(f) && existsSync(join(root, f)));
+    // Nested repositories (such as agent worktrees) are listed as directories: skip them.
+    .filter((f) => f && !SKIP.test(f) && existsSync(join(root, f)) && statSync(join(root, f)).isFile());
   let count = 0;
   for (const file of files) {
     for (const f of scanText(readFileSync(join(root, file), 'utf8'), patterns)) {

@@ -1,0 +1,140 @@
+import { describe, expect, it } from 'vitest';
+import type { EnvironmentConfig, LiveSnapshot, SnapshotTaskInstance, WorkerSample } from '@dcam/domain';
+import type { EnvironmentModelSource, StoredTaskTry, TaskInstanceStore } from '@dcam/ports';
+import { getBottlenecks } from '../src/index';
+
+const NOW = Date.UTC(2026, 10, 5, 12, 0, 0);
+const config: EnvironmentConfig = {
+  envId: 'acme-prod',
+  tier: 'prod',
+  composerImage: 'composer-3-airflow-2.11.1-build.22',
+  airflowVersion: '2.11.1',
+  parallelism: 100,
+  schedulers: 1,
+  maxActiveTasksPerDag: 16,
+  maxActiveRunsPerDag: 25,
+  workerConcurrency: 4,
+  minWorkers: 1,
+  maxWorkers: 2,
+  pools: [
+    { name: 'default_pool', slots: 128 },
+    { name: 'external_api', slots: 1 },
+  ],
+};
+const ti = (dagId: string, pool = 'external_api'): SnapshotTaskInstance => ({
+  dagId,
+  runId: 'r',
+  taskId: 't',
+  mapIndex: -1,
+  tryNumber: 1,
+  pool,
+  poolSlots: 1,
+  priorityWeight: 1,
+  since: NOW - 30 * 60_000,
+});
+// The last hour: 120 snapshots; three DAGs wait on the starved external_api pool, one task is queued
+// with worker slots full at max_count.
+const snapshots: LiveSnapshot[] = Array.from({ length: 120 }, (_, i) => ({
+  at: NOW - 3_600_000 + i * 30_000,
+  scheduled: [ti('partner_crm_sync'), ti('partner_crm_sync'), ti('partner_tax_sync')],
+  queued: [ti('orders_daily', 'default_pool')],
+  pools: [
+    { name: 'default_pool', slots: 128, running: 7, queued: 1, open: 120 },
+    { name: 'external_api', slots: 1, running: 1, queued: 0, open: 0 },
+  ],
+  dagActive: {},
+  executor: { running: 8, queued: 1 },
+  workers: { current: 2, target: 2 },
+}));
+const samples: WorkerSample[] = Array.from({ length: 60 }, (_, i) => ({
+  at: NOW - 3_600_000 + i * 60_000,
+  workers: 2,
+  target: 2,
+  running: 8,
+  queued: 12,
+  cpu: 0.2,
+  memory: 0.4,
+}));
+const sensor: StoredTaskTry = {
+  envId: 'acme-prod',
+  dagId: 'partner_feed_wait',
+  runId: 'r',
+  taskId: 'wait_for_1_1',
+  mapIndex: -1,
+  tryNumber: 1,
+  pool: 'default_pool',
+  poolSlots: 1,
+  state: 'success',
+  readyAt: NOW - 1_900_000,
+  queuedAt: NOW - 1_850_000,
+  startAt: NOW - 1_800_000,
+  endAt: NOW - 600_000,
+  sourceUpdatedAt: NOW - 600_000,
+  operator: 'ExternalTaskSensor',
+};
+const store: TaskInstanceStore = {
+  upsertTaskTries: async () => {},
+  taskTries: async () => [sensor],
+  countTaskTries: async () => 1,
+};
+const model: EnvironmentModelSource = {
+  config: async (id) => (id === 'acme-prod' ? config : null),
+  dags: async () => [],
+  snapshots: async (_id, from, to) => snapshots.filter((s) => s.at >= from && s.at < to),
+  workerSamples: async (_id, from, to) => samples.filter((s) => s.at >= from && s.at < to),
+  platformHealth: async () => ({
+    envHealthyRatio: null,
+    dbHealthyRatio: null,
+    heartbeatCompleteness: null,
+    webServerHealthyRatio: null,
+    dbCpuMemoryMax: null,
+    zombies24h: null,
+    workerRestarts24h: null,
+    importErrors: null,
+    parseLoopP95Seconds: null,
+  }),
+};
+const deps = { store, model, clock: { now: () => NOW } };
+
+describe('getBottlenecks use case (FR-BOTL-01/02/07/09)', () => {
+  it('FR-BOTL-01: answers which limit caused most waiting, with its share', async () => {
+    const b = await getBottlenecks(deps, { envId: 'acme-prod', range: '1h', sources: ['DEMO'] });
+    expect(b.answer.reason).toBe('pool-exhausted');
+    expect(b.answer.share).toBeCloseTo(0.75);
+    expect(b.waiting_task_seconds).toBe(120 * 4 * 30);
+    expect(b.bucket_seconds).toBe(60);
+    expect(b.series).toHaveLength(60);
+  });
+
+  it('FR-BOTL-01: lists every HM-006 reason with its phase, evaluation status and top contributors', async () => {
+    const b = await getBottlenecks(deps, { envId: 'acme-prod', range: '1h', sources: ['DEMO'] });
+    expect(b.reasons.map((r) => r.id)).toContain('triggerer-capacity');
+    expect(b.reasons.find((r) => r.id === 'triggerer-capacity')?.evaluated).toBe(false);
+    const pool = b.reasons.find((r) => r.id === 'pool-exhausted');
+    expect(pool?.phase).toBe('pre-queue');
+    expect(pool?.top_contributors[0]).toMatchObject({ dag_id: 'partner_crm_sync', share: 2 / 3 });
+    expect(b.reasons.find((r) => r.id === 'executor-slots-exhausted')?.waiting_task_seconds).toBe(120 * 30);
+  });
+
+  it('REC-CONC-02 / HM-011: reports pool starvation, minutes at max workers and capacity-bound minutes', async () => {
+    const b = await getBottlenecks(deps, { envId: 'acme-prod', range: '1h', sources: ['DEMO'] });
+    expect(b.pools.find((p) => p.name === 'external_api')).toMatchObject({ starved_minutes: 60, slots: 1 });
+    expect(b.capacity).toMatchObject({ minutes_at_max_workers: 60, capacity_bound_minutes: 60 });
+    expect(b.current).toMatchObject({ binding: 'pool-exhausted', scheduled: 3, queued: 1, worker_slots: 8 });
+  });
+
+  it('FR-BOTL-07 / HM-008: ranks poke-mode sensor slot time', async () => {
+    const b = await getBottlenecks(deps, { envId: 'acme-prod', range: '1h', sources: ['DEMO'] });
+    expect(b.sensors).toEqual([
+      { dag_id: 'partner_feed_wait', task_id: 'wait_for_1_1', slot_seconds: 1_200 },
+    ]);
+  });
+
+  it('returns an empty analysis, not an error, when nothing was collected', async () => {
+    const empty = { ...deps, model: { ...model, snapshots: async () => [], workerSamples: async () => [] } };
+    const b = await getBottlenecks(empty, { envId: 'acme-prod', range: '1h', sources: ['DEMO'] });
+    expect(b.answer.reason).toBeNull();
+    expect(b.current.at).toBeNull();
+    expect(b.series.every((s) => s.workers === null)).toBe(true);
+  });
+});

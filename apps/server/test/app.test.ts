@@ -22,6 +22,7 @@ const conforms = (schema: string, body: unknown) => {
 };
 
 let app: FastifyInstance;
+// Building the demo workspace simulates 48 h for three environments; allow for loaded CI runners.
 beforeAll(async () => {
   const workspace = await createDemoWorkspace({ now: () => NOW });
   app = await buildApp({
@@ -29,7 +30,7 @@ beforeAll(async () => {
     version: '0.0.0-test',
     allowedHosts: ['127.0.0.1:8787', 'localhost:8787'],
   });
-});
+}, 60_000);
 afterAll(async () => {
   await app.close();
 });
@@ -94,7 +95,7 @@ describe('static UI hosting', () => {
     const { join } = await import('node:path');
     const dir = mkdtempSync(join(tmpdir(), 'dcam-web-'));
     writeFileSync(join(dir, 'index.html'), '<!doctype html><title>DCAM</title>');
-    const workspace = await createDemoWorkspace({ now: () => NOW });
+    const workspace = await createDemoWorkspace({ now: () => NOW, hours: 1 }); // no data needed here
     const web = await buildApp({
       ...workspace,
       version: 't',
