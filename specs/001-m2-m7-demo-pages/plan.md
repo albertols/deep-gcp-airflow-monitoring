@@ -48,7 +48,7 @@ The wiki is static content bundled with the UI (no API until search, FR-WIKI-08)
 
 ## UI decisions
 
-- Routing: a dependency-free History-API router (`apps/web/src/router.ts`), `?env=` carries the environment; pages are
+- Routing: a dependency-free hash router (`apps/web/src/router.ts`; hash URLs keep assets relative, ARCH-EMB-02), `?env=` carries the environment; pages are
   `React.lazy` chunks (NFR-PERF-05).
 - Charts: small hand-written SVG components on the design tokens (stacked bars, treemap, Gantt, sparkline), each with
   an accessible description and a table view. No chart library: keeps the shell within the 350 KB gzip budget.
