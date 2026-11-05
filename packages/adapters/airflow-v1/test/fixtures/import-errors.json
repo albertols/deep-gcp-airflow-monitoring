@@ -1,0 +1,11 @@
+{
+  "import_errors": [
+    {
+      "import_error_id": 7,
+      "timestamp": "2026-11-05T21:40:00.000000+00:00",
+      "filename": "/opt/airflow/dags/acme_broken.py",
+      "stack_trace": "Traceback (most recent call last): ... ModuleNotFoundError: No module named 'acme_missing'"
+    }
+  ],
+  "total_entries": 3
+}
