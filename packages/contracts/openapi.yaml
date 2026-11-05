@@ -57,7 +57,126 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+  /api/v1/environments/{env_id}/dags:
+    get:
+      operationId: getDagLeague
+      summary: DAG league table for one environment (FR-DAGX-01..03)
+      description: Every DAG with its executor slot-seconds share (HM-003), runs, reliability (HM-015) and queue wait (HM-001), compared with the previous period of equal length.
+      parameters:
+        - $ref: '#/components/parameters/EnvId'
+        - $ref: '#/components/parameters/Range'
+      responses:
+        '200':
+          description: League table for the requested range.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DagLeague' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/environments/{env_id}/dags/{dag_id}:
+    get:
+      operationId: getDagDetail
+      summary: One DAG in detail (FR-DAGD-01..04)
+      parameters:
+        - $ref: '#/components/parameters/EnvId'
+        - name: dag_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 250 }
+        - $ref: '#/components/parameters/Range'
+        - name: run_id
+          in: query
+          required: false
+          description: Run shown in the Gantt chart; the latest run by default.
+          schema: { type: string, maxLength: 250 }
+      responses:
+        '200':
+          description: DAG detail for the requested range.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DagDetail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/environments/{env_id}/bottlenecks:
+    get:
+      operationId: getBottlenecks
+      summary: Why work is waiting (FR-BOTL-01/02/07/09, HM-006)
+      description: Waiting task-time attributed to the limit that binds, from live snapshots.
+      parameters:
+        - $ref: '#/components/parameters/EnvId'
+        - $ref: '#/components/parameters/Range'
+      responses:
+        '200':
+          description: Bottleneck analysis for the requested range.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Bottlenecks' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/environments/{env_id}/findings:
+    get:
+      operationId: getFindings
+      summary: Advisor findings for one environment (FR-ADV-01..04)
+      description: Findings ranked by priority score. Remediation snippets are for people to review and apply; DCAM never runs them.
+      parameters:
+        - $ref: '#/components/parameters/EnvId'
+      responses:
+        '200':
+          description: Findings over the last 24 hours.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Findings' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/alerts:
+    get:
+      operationId: getAlerts
+      summary: Local alert rules, their states and history (FR-ALRT-01/02/06)
+      parameters:
+        - name: env_id
+          in: query
+          required: false
+          description: Limit to one environment.
+          schema: { type: string, pattern: '^[a-z0-9][a-z0-9-]{0,62}$' }
+      responses:
+        '200':
+          description: Alert rules and events over the last 24 hours.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Alerts' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/fleet:
+    get:
+      operationId: getFleet
+      summary: Every environment at a glance with an explainable health score (FR-FLEET-01/02, HM-028)
+      responses:
+        '200':
+          description: One card per environment.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Fleet' }
 components:
+  parameters:
+    EnvId:
+      name: env_id
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[a-z0-9][a-z0-9-]{0,62}$' }
+    Range:
+      name: range
+      in: query
+      required: false
+      schema: { type: string, enum: ['1h', '6h', '24h'], default: '24h' }
+  responses:
+    BadRequest:
+      description: Invalid parameter.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Unknown environment or DAG.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
   schemas:
     Health:
       type: object
@@ -141,6 +260,721 @@ components:
           type: array
           maxItems: 10
           items: { $ref: '#/components/schemas/DagCapacity' }
+    SourceId:
+      type: string
+      enum: [SRC-AF-API, SRC-MON, SRC-COMPOSER, DEMO]
+    Quantile:
+      type: object
+      additionalProperties: false
+      description: A duration percentile with its sample count (spec §8.9).
+      required: [value_seconds, samples, low_sample]
+      properties:
+        value_seconds: { type: ['number', 'null'], minimum: 0 }
+        samples: { type: integer, minimum: 0 }
+        low_sample:
+          type: boolean
+          description: 'Fewer than 20 samples for a tail percentile: value_seconds is the max.'
+    Severity:
+      type: string
+      enum: [info, warning, critical]
+    FindingRef:
+      type: object
+      additionalProperties: false
+      required: [id, rule_id, title, severity]
+      properties:
+        id: { type: string }
+        rule_id: { type: string }
+        title: { type: string }
+        severity: { $ref: '#/components/schemas/Severity' }
+    DagLeague:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          env_id,
+          range,
+          previous_range,
+          data_as_of,
+          sources,
+          total_executor_slot_seconds,
+          dag_count,
+          active_dag_count,
+          pareto_80_dag_count,
+          gini,
+          rows,
+        ]
+      properties:
+        env_id: { type: string }
+        range: { $ref: '#/components/schemas/TimeRange' }
+        previous_range: { $ref: '#/components/schemas/TimeRange' }
+        data_as_of: { type: string, format: date-time }
+        sources: { type: array, items: { $ref: '#/components/schemas/SourceId' } }
+        total_executor_slot_seconds: { type: number, minimum: 0 }
+        dag_count: { type: integer, minimum: 0, description: 'DAGs known in the environment.' }
+        active_dag_count: { type: integer, minimum: 0, description: 'DAGs with slot-seconds in the range.' }
+        pareto_80_dag_count: { type: integer, minimum: 0 }
+        gini:
+          {
+            type: number,
+            minimum: 0,
+            maximum: 1,
+            description: 'Concentration of slot-seconds across active DAGs.',
+          }
+        rows: { type: array, items: { $ref: '#/components/schemas/DagLeagueRow' } }
+    DagLeagueRow:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          dag_id,
+          team,
+          owners,
+          tags,
+          schedule,
+          paused,
+          runs,
+          failed_runs,
+          success_rate,
+          tries,
+          retries,
+          flaky_rate,
+          run_duration_p50,
+          run_duration_p95,
+          executor_slot_seconds,
+          share,
+          cumulative_share,
+          previous_share,
+          peak_concurrency,
+          queue_wait_p95,
+          open_findings,
+        ]
+      properties:
+        dag_id: { type: string }
+        team: { type: string }
+        owners: { type: array, items: { type: string } }
+        tags: { type: array, items: { type: string } }
+        schedule: { type: string }
+        paused: { type: boolean }
+        runs: { type: integer, minimum: 0, description: 'Runs that started in the range.' }
+        failed_runs: { type: integer, minimum: 0 }
+        success_rate:
+          {
+            type: ['number', 'null'],
+            minimum: 0,
+            maximum: 1,
+            description: 'Successful ÷ finished runs; null without finished runs.',
+          }
+        tries: { type: integer, minimum: 0 }
+        retries: { type: integer, minimum: 0 }
+        flaky_rate:
+          type: ['number', 'null']
+          minimum: 0
+          maximum: 1
+          description: 'Task instances that succeeded after at least one failed try ÷ task instances (HM-015); null below 20 task instances.'
+        run_duration_p50: { $ref: '#/components/schemas/Quantile' }
+        run_duration_p95: { $ref: '#/components/schemas/Quantile' }
+        executor_slot_seconds: { type: number, minimum: 0, description: 'Seconds (HM-003).' }
+        share: { type: number, minimum: 0, maximum: 1 }
+        cumulative_share:
+          {
+            type: number,
+            minimum: 0,
+            maximum: 1,
+            description: 'Share of this DAG and every DAG ranked above it (Pareto).',
+          }
+        previous_share:
+          {
+            type: ['number', 'null'],
+            minimum: 0,
+            maximum: 1,
+            description: 'Share in the previous period; null when the DAG was inactive.',
+          }
+        peak_concurrency:
+          { type: integer, minimum: 0, description: 'Most running tries of this DAG in any minute.' }
+        queue_wait_p95: { $ref: '#/components/schemas/Quantile' }
+        open_findings: { type: integer, minimum: 0 }
+    DagDetail:
+      type: object
+      additionalProperties: false
+      required: [env_id, dag_id, range, data_as_of, sources, meta, stats, runs, gantt, tasks, findings]
+      properties:
+        env_id: { type: string }
+        dag_id: { type: string }
+        range: { $ref: '#/components/schemas/TimeRange' }
+        data_as_of: { type: string, format: date-time }
+        sources: { type: array, items: { $ref: '#/components/schemas/SourceId' } }
+        meta:
+          type: object
+          additionalProperties: false
+          required: [fileloc, owners, tags, team, schedule, paused, catchup, limits]
+          properties:
+            fileloc: { type: string }
+            owners: { type: array, items: { type: string } }
+            tags: { type: array, items: { type: string } }
+            team: { type: string }
+            schedule: { type: string }
+            paused: { type: boolean }
+            catchup: { type: boolean }
+            limits:
+              type: object
+              additionalProperties: false
+              description: Every limit that can throttle this DAG (FR-DAGD-01).
+              required: [max_active_tasks, max_active_runs, pools, parallelism, worker_slots]
+              properties:
+                max_active_tasks: { type: integer, minimum: 0 }
+                max_active_runs: { type: integer, minimum: 0 }
+                pools:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [name, slots, pool_slots]
+                    properties:
+                      name: { type: string }
+                      slots: { type: integer, minimum: 0 }
+                      pool_slots:
+                        { type: integer, minimum: 1, description: 'Slots each task of this DAG takes.' }
+                parallelism:
+                  { type: integer, minimum: 0, description: 'Environment-wide: parallelism × schedulers.' }
+                worker_slots:
+                  {
+                    type: integer,
+                    minimum: 0,
+                    description: 'Environment-wide: max workers × worker_concurrency.',
+                  }
+        stats:
+          type: object
+          additionalProperties: false
+          required:
+            [
+              runs,
+              success_rate,
+              executor_slot_seconds,
+              share,
+              run_duration_p95,
+              queue_wait_p95,
+              self_throttled_ratio,
+            ]
+          properties:
+            runs: { type: integer, minimum: 0 }
+            success_rate: { type: ['number', 'null'], minimum: 0, maximum: 1 }
+            executor_slot_seconds: { type: number, minimum: 0 }
+            share: { type: number, minimum: 0, maximum: 1 }
+            run_duration_p95: { $ref: '#/components/schemas/Quantile' }
+            queue_wait_p95: { $ref: '#/components/schemas/Quantile' }
+            self_throttled_ratio:
+              type: ['number', 'null']
+              minimum: 0
+              maximum: 1
+              description: 'Minutes at max_active_tasks with ready work ÷ active minutes (HM-005); null without live snapshots.'
+        runs:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [run_id, state, logical_date, start, end, duration_seconds, start_delay_seconds, tries]
+            properties:
+              run_id: { type: string }
+              state: { type: string, enum: [success, failed, running] }
+              logical_date: { type: string, format: date-time }
+              start: { type: string, format: date-time }
+              end: { type: ['string', 'null'], format: date-time }
+              duration_seconds: { type: ['number', 'null'], minimum: 0 }
+              start_delay_seconds:
+                { type: ['number', 'null'], minimum: 0, description: 'First task start − logical date.' }
+              tries: { type: integer, minimum: 0 }
+        gantt:
+          type: object
+          additionalProperties: false
+          required: [run_id, rows]
+          properties:
+            run_id: { type: ['string', 'null'] }
+            rows:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [task_id, try_number, state, ready_at, queued_at, start, end]
+                properties:
+                  task_id: { type: string }
+                  try_number: { type: integer, minimum: 1 }
+                  state: { type: ['string', 'null'] }
+                  ready_at: { type: ['string', 'null'], format: date-time }
+                  queued_at: { type: ['string', 'null'], format: date-time }
+                  start: { type: ['string', 'null'], format: date-time }
+                  end: { type: ['string', 'null'], format: date-time }
+        tasks:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              [
+                task_id,
+                tries,
+                duration_p50,
+                duration_p95,
+                queue_wait_p95,
+                retries,
+                failure_rate,
+                slot_seconds_share,
+                contribution_seconds,
+              ]
+            properties:
+              task_id: { type: string }
+              tries: { type: integer, minimum: 0 }
+              duration_p50: { $ref: '#/components/schemas/Quantile' }
+              duration_p95: { $ref: '#/components/schemas/Quantile' }
+              queue_wait_p95: { $ref: '#/components/schemas/Quantile' }
+              retries: { type: integer, minimum: 0 }
+              failure_rate:
+                {
+                  type: ['number', 'null'],
+                  minimum: 0,
+                  maximum: 1,
+                  description: 'Failed tries ÷ tries; null below 20 tries.',
+                }
+              slot_seconds_share:
+                { type: number, minimum: 0, maximum: 1, description: "Share of the DAG's slot-seconds." }
+              contribution_seconds:
+                {
+                  type: number,
+                  minimum: 0,
+                  description: 'Mean running time per run: the default sort (FR-DAGD-04).',
+                }
+        findings: { type: array, items: { $ref: '#/components/schemas/FindingRef' } }
+    WaitReasonId:
+      type: string
+      description: HM-006 reasons in evaluation order, then normal-latency (a wait below the thresholds, not a platform limit).
+      enum:
+        [
+          dag-max-active-runs,
+          pool-missing,
+          task-larger-than-pool,
+          parallelism,
+          pool-exhausted,
+          dag-max-active-tasks,
+          task-limit,
+          scheduler-throughput,
+          autoscaling-lag,
+          executor-slots-exhausted,
+          worker-pickup,
+          triggerer-capacity,
+          unknown,
+          normal-latency,
+        ]
+    Bottlenecks:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          env_id,
+          range,
+          data_as_of,
+          sources,
+          bucket_seconds,
+          snapshot_interval_seconds,
+          waiting_task_seconds,
+          normal_latency_task_seconds,
+          answer,
+          reasons,
+          series,
+          current,
+          pools,
+          capacity,
+          sensors,
+        ]
+      properties:
+        env_id: { type: string }
+        range: { $ref: '#/components/schemas/TimeRange' }
+        data_as_of: { type: string, format: date-time }
+        sources: { type: array, items: { $ref: '#/components/schemas/SourceId' } }
+        bucket_seconds: { type: integer, minimum: 1 }
+        snapshot_interval_seconds: { type: integer, minimum: 1 }
+        waiting_task_seconds:
+          {
+            type: number,
+            minimum: 0,
+            description: 'Waiting attributed to platform limits; excludes normal latency.',
+          }
+        normal_latency_task_seconds: { type: number, minimum: 0 }
+        answer:
+          type: object
+          additionalProperties: false
+          required: [reason, share, workers_at_max_share]
+          properties:
+            reason: { oneOf: [{ $ref: '#/components/schemas/WaitReasonId' }, { type: 'null' }] }
+            share: { type: number, minimum: 0, maximum: 1 }
+            workers_at_max_share:
+              {
+                type: number,
+                minimum: 0,
+                maximum: 1,
+                description: "Share of that reason's waiting while workers were at max_count.",
+              }
+        reasons:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, phase, waiting_task_seconds, share, evaluated, top_contributors]
+            properties:
+              id: { $ref: '#/components/schemas/WaitReasonId' }
+              phase: { type: string, enum: [run, pre-queue, post-queue, deferral, any] }
+              waiting_task_seconds: { type: number, minimum: 0 }
+              share: { type: number, minimum: 0, maximum: 1 }
+              evaluated:
+                { type: boolean, description: 'False when the inputs this reason needs are not collected.' }
+              top_contributors:
+                type: array
+                maxItems: 10
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [dag_id, waiting_task_seconds, share]
+                  properties:
+                    dag_id: { type: string }
+                    waiting_task_seconds: { type: number, minimum: 0 }
+                    share: { type: number, minimum: 0, maximum: 1 }
+        series:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [start, waiting_task_seconds, workers, worker_slots_used]
+            properties:
+              start: { type: string, format: date-time }
+              waiting_task_seconds:
+                type: object
+                description: Waiting task-seconds per reason in this bucket.
+                additionalProperties: { type: number, minimum: 0 }
+              workers: { type: ['number', 'null'], minimum: 0, description: 'Mean workers in the bucket.' }
+              worker_slots_used:
+                {
+                  type: ['number', 'null'],
+                  minimum: 0,
+                  maximum: 1,
+                  description: 'Mean running ÷ worker slots.',
+                }
+        current:
+          type: object
+          additionalProperties: false
+          required: [at, binding, scheduled, queued, running, workers, worker_slots]
+          properties:
+            at: { type: ['string', 'null'], format: date-time }
+            binding: { oneOf: [{ $ref: '#/components/schemas/WaitReasonId' }, { type: 'null' }] }
+            scheduled: { type: integer, minimum: 0 }
+            queued: { type: integer, minimum: 0 }
+            running: { type: integer, minimum: 0 }
+            workers:
+              type: object
+              additionalProperties: false
+              required: [current, target, min, max]
+              properties:
+                current: { type: integer, minimum: 0 }
+                target: { type: integer, minimum: 0 }
+                min: { type: integer, minimum: 0 }
+                max: { type: integer, minimum: 0 }
+            worker_slots: { type: integer, minimum: 0 }
+        pools:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, slots, waiting_task_seconds, starved_minutes, utilisation_p95]
+            properties:
+              name: { type: string }
+              slots: { type: integer, minimum: 0 }
+              waiting_task_seconds:
+                { type: number, minimum: 0, description: 'Waiting attributed to this pool being exhausted.' }
+              starved_minutes:
+                {
+                  type: number,
+                  minimum: 0,
+                  description: 'Minutes with zero open slots and work waiting (REC-CONC-02).',
+                }
+              utilisation_p95: { type: ['number', 'null'], minimum: 0, maximum: 1 }
+        capacity:
+          type: object
+          additionalProperties: false
+          required:
+            [capacity_bound_minutes, minutes_at_max_workers, scale_up_lag_p95_seconds, utilisation_p95]
+          properties:
+            capacity_bound_minutes:
+              {
+                type: number,
+                minimum: 0,
+                description: 'HM-011: workers at max_count and queued ≥ max(10, 20 % of slots).',
+              }
+            minutes_at_max_workers: { type: number, minimum: 0 }
+            scale_up_lag_p95_seconds:
+              {
+                type: ['number', 'null'],
+                minimum: 0,
+                description: 'HM-012: target rises → workers reach it.',
+              }
+            utilisation_p95: { type: ['number', 'null'], minimum: 0, maximum: 1 }
+        sensors:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            additionalProperties: false
+            required: [dag_id, task_id, slot_seconds]
+            properties:
+              dag_id: { type: string }
+              task_id: { type: string }
+              slot_seconds:
+                {
+                  type: number,
+                  minimum: 0,
+                  description: 'Worker slot time held by poke-mode sensors (HM-008).',
+                }
+    Finding:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          id,
+          rule_id,
+          title,
+          category,
+          scope,
+          severity,
+          status,
+          impact,
+          confidence,
+          effort,
+          tier_weight,
+          priority_score,
+          observation,
+          impact_text,
+          action,
+          why,
+          evidence,
+          remediation,
+          risks,
+          rollback,
+          verify,
+          affected_dags,
+          links,
+          detected_at,
+        ]
+      properties:
+        id: { type: string }
+        rule_id: { type: string, description: 'For example REC-CAP-01 (spec §13.6).' }
+        title: { type: string }
+        category: { type: string, enum: [capacity, concurrency, dag, scheduling] }
+        scope:
+          type: object
+          additionalProperties: false
+          required: [kind, id]
+          properties:
+            kind: { type: string, enum: [environment, pool, dag, task] }
+            id: { type: string }
+        severity: { $ref: '#/components/schemas/Severity' }
+        status: { type: string, enum: [open] }
+        impact: { type: integer, minimum: 1, maximum: 5 }
+        confidence: { type: number, minimum: 0, maximum: 1 }
+        effort: { type: integer, enum: [1, 2, 3, 5] }
+        tier_weight: { type: number, minimum: 0, maximum: 1 }
+        priority_score:
+          { type: number, minimum: 0, description: 'tier_weight × impact × confidence ÷ effort (§13.4).' }
+        observation: { type: string }
+        impact_text: { type: string }
+        action: { type: string }
+        why:
+          {
+            type: string,
+            description: '"Why am I seeing this?": values, thresholds and data used (FR-ADV-08).',
+          }
+        evidence:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [label, value, threshold, source]
+            properties:
+              label: { type: string }
+              value: { type: string }
+              threshold: { type: ['string', 'null'] }
+              source: { $ref: '#/components/schemas/SourceId' }
+        remediation:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, title, language, code]
+            properties:
+              kind: { type: string, enum: [gcloud, terraform, airflow-config, dag-diff] }
+              title: { type: string }
+              language: { type: string, enum: [bash, hcl, ini, diff, python] }
+              code: { type: string }
+        risks: { type: array, items: { type: string } }
+        rollback: { type: string }
+        verify: { type: string }
+        affected_dags: { type: array, items: { type: string } }
+        links:
+          type: object
+          additionalProperties: false
+          required: [wiki, docs]
+          properties:
+            wiki: { type: ['string', 'null'], description: 'Wiki page slug.' }
+            docs:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [title, url]
+                properties:
+                  title: { type: string }
+                  url: { type: string, format: uri }
+        detected_at: { type: string, format: date-time }
+    Findings:
+      type: object
+      additionalProperties: false
+      required: [env_id, data_as_of, sources, findings]
+      properties:
+        env_id: { type: string }
+        data_as_of: { type: string, format: date-time }
+        sources: { type: array, items: { $ref: '#/components/schemas/SourceId' } }
+        findings: { type: array, items: { $ref: '#/components/schemas/Finding' } }
+    AlertState:
+      type: string
+      enum: [inactive, pending, firing, resolved, unknown]
+    AlertRule:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          id,
+          name,
+          env_id,
+          severity,
+          state,
+          condition,
+          for_seconds,
+          threshold,
+          value,
+          unit,
+          since,
+          summary,
+          runbook,
+          export_cloud_monitoring,
+          fired_count_24h,
+        ]
+      properties:
+        id: { type: string, description: 'For example AL-05 (spec §16).' }
+        name: { type: string }
+        env_id: { type: string }
+        severity: { $ref: '#/components/schemas/Severity' }
+        state: { $ref: '#/components/schemas/AlertState' }
+        condition: { type: string }
+        for_seconds: { type: integer, minimum: 0 }
+        threshold: { type: ['number', 'null'] }
+        value: { type: ['number', 'null'] }
+        unit: { type: string }
+        since: { type: ['string', 'null'], format: date-time }
+        summary: { type: string }
+        runbook: { type: ['string', 'null'], description: 'Wiki page slug.' }
+        export_cloud_monitoring: { type: string, enum: ['yes', partial, 'no'] }
+        fired_count_24h: { type: integer, minimum: 0 }
+    AlertEvent:
+      type: object
+      additionalProperties: false
+      required: [id, rule_id, env_id, severity, kind, at, value]
+      properties:
+        id: { type: string }
+        rule_id: { type: string }
+        env_id: { type: string }
+        severity: { $ref: '#/components/schemas/Severity' }
+        kind: { type: string, enum: [fired, resolved] }
+        at: { type: string, format: date-time }
+        value: { type: ['number', 'null'] }
+    Alerts:
+      type: object
+      additionalProperties: false
+      required: [data_as_of, sources, rules, events]
+      properties:
+        data_as_of: { type: string, format: date-time }
+        sources: { type: array, items: { $ref: '#/components/schemas/SourceId' } }
+        rules: { type: array, items: { $ref: '#/components/schemas/AlertRule' } }
+        events: { type: array, items: { $ref: '#/components/schemas/AlertEvent' } }
+    HealthCheck:
+      type: object
+      additionalProperties: false
+      required: [id, label, state, critical, weight, threshold, value]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        state: { type: string, enum: [pass, fail, unknown] }
+        critical: { type: boolean }
+        weight: { type: integer, minimum: 0 }
+        threshold: { type: string }
+        value: { type: ['string', 'null'] }
+    FleetCard:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          env_id,
+          display_name,
+          tier,
+          composer_image,
+          airflow_version,
+          health,
+          running,
+          queued,
+          workers,
+          failures_24h,
+          slot_seconds_24h,
+          waiting_task_seconds_24h,
+          top_reason,
+          top_findings,
+          alerts_firing,
+          data_as_of,
+        ]
+      properties:
+        env_id: { type: string }
+        display_name: { type: string }
+        tier: { type: string, enum: [dev, test, uat, prod, other] }
+        composer_image: { type: string }
+        airflow_version: { type: string }
+        health:
+          type: object
+          additionalProperties: false
+          required: [score, label, evaluated, total, checks]
+          properties:
+            score: { type: ['number', 'null'], minimum: 0, maximum: 100 }
+            label: { type: string, enum: [healthy, degraded, unhealthy, unknown] }
+            evaluated: { type: integer, minimum: 0 }
+            total: { type: integer, minimum: 0 }
+            checks: { type: array, items: { $ref: '#/components/schemas/HealthCheck' } }
+        running: { type: integer, minimum: 0 }
+        queued: { type: integer, minimum: 0 }
+        workers:
+          type: object
+          additionalProperties: false
+          required: [current, min, max]
+          properties:
+            current: { type: integer, minimum: 0 }
+            min: { type: integer, minimum: 0 }
+            max: { type: integer, minimum: 0 }
+        failures_24h: { type: integer, minimum: 0, description: 'Failed task instance tries.' }
+        slot_seconds_24h: { type: number, minimum: 0 }
+        waiting_task_seconds_24h: { type: number, minimum: 0 }
+        top_reason: { oneOf: [{ $ref: '#/components/schemas/WaitReasonId' }, { type: 'null' }] }
+        top_findings: { type: array, maxItems: 3, items: { $ref: '#/components/schemas/FindingRef' } }
+        alerts_firing: { type: integer, minimum: 0 }
+        data_as_of: { type: string, format: date-time }
+    Fleet:
+      type: object
+      additionalProperties: false
+      required: [data_as_of, sources, environments]
+      properties:
+        data_as_of: { type: string, format: date-time }
+        sources: { type: array, items: { $ref: '#/components/schemas/SourceId' } }
+        environments: { type: array, items: { $ref: '#/components/schemas/FleetCard' } }
     Problem:
       type: object
       description: RFC 9457 problem details with DCAM extensions.

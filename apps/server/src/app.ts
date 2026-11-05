@@ -5,11 +5,17 @@
  */
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
-import type { Meta, Problem } from '@dcam/contracts';
-import { getEnvironmentOverview, type OverviewRange } from '@dcam/application';
+import type { Meta } from '@dcam/contracts';
 import type { Workspace } from './demo';
+import { problem } from './http';
+import { registerAlertRoutes } from './routes/alerts';
+import { registerBottleneckRoutes } from './routes/bottlenecks';
+import { registerDagRoutes } from './routes/dags';
+import { registerFindingRoutes } from './routes/findings';
+import { registerFleetRoutes } from './routes/fleet';
+import { registerOverviewRoutes } from './routes/overview';
 
 export interface AppOptions extends Workspace {
   readonly version: string;
@@ -31,12 +37,6 @@ const CSP = [
   "base-uri 'none'",
   "form-action 'self'",
 ].join('; ');
-
-const RANGES = new Set<OverviewRange>(['1h', '6h', '24h']);
-
-function problem(reply: FastifyReply, p: Problem) {
-  return reply.code(p.status).type('application/problem+json').send(p);
-}
 
 export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
@@ -68,36 +68,12 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     environments: options.environments,
   }));
 
-  app.get<{ Params: { env_id: string }; Querystring: { range?: string } }>(
-    '/api/v1/environments/:env_id/overview',
-    async (req, reply) => {
-      const env = options.environments.find((e) => e.env_id === req.params.env_id);
-      if (!env) {
-        return problem(reply, {
-          type: 'https://github.com/albertols/deep-gcp-airflow-monitoring/blob/main/docs/errors.md#unknown-environment',
-          title: 'Unknown environment',
-          status: 404,
-          detail: `No environment "${req.params.env_id}" is configured in this workspace.`,
-          fix_hint: 'Check the environment ID in dcam.config.yaml, or pick one from GET /api/v1/meta.',
-        });
-      }
-      const range = (req.query.range ?? '24h') as OverviewRange;
-      if (!RANGES.has(range)) {
-        return problem(reply, {
-          type: 'https://github.com/albertols/deep-gcp-airflow-monitoring/blob/main/docs/errors.md#invalid-range',
-          title: 'Invalid time range',
-          status: 400,
-          detail: `"${req.query.range}" is not a supported range.`,
-          fix_hint: 'Use one of 1h, 6h or 24h.',
-        });
-      }
-      return getEnvironmentOverview(options, {
-        envId: env.env_id,
-        range,
-        sources: options.mode === 'demo' ? ['DEMO'] : ['SRC-AF-API'],
-      });
-    },
-  );
+  registerOverviewRoutes(app, options);
+  registerDagRoutes(app, options);
+  registerBottleneckRoutes(app, options);
+  registerFindingRoutes(app, options);
+  registerAlertRoutes(app, options);
+  registerFleetRoutes(app, options);
 
   if (options.staticDir && existsSync(join(options.staticDir, 'index.html'))) {
     // Files are looked up per request, so a rebuilt UI is served without a restart.

@@ -1,10 +1,11 @@
 /**
- * Application shell (spec §12.2): top context bar, left navigation, demo banner, main content.
+ * Application shell (spec §12.2): top context bar, left navigation, demo banner, routed content.
+ * Pages are separate chunks loaded on first visit (NFR-PERF-05).
  *
  * @implements FR-UI-06, FR-EMU-01
  */
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { Suspense, lazy, useCallback, type ComponentType } from 'react';
 import Alert from '@mui/material/Alert';
 import AppBar from '@mui/material/AppBar';
 import Box from '@mui/material/Box';
@@ -13,29 +14,50 @@ import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemText from '@mui/material/ListItemText';
 import MenuItem from '@mui/material/MenuItem';
+import Skeleton from '@mui/material/Skeleton';
 import TextField from '@mui/material/TextField';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import type { DcamApi } from './api';
 import { OverviewPage } from './OverviewPage';
+import type { PageProps } from './pages/types';
+import { linkTo, useLocation, type Page, type Route } from './router';
 
-const NAV: ReadonlyArray<{ label: string; milestone?: string }> = [
-  { label: 'Capacity overview' },
-  { label: 'DAG league table', milestone: 'M2' },
-  { label: 'Bottlenecks', milestone: 'M3' },
-  { label: 'Fleet', milestone: 'M4' },
-  { label: 'Advisor', milestone: 'M5' },
-  { label: 'Wiki', milestone: 'M6' },
-  { label: 'Alerts', milestone: 'M7' },
+const named = <K extends string>(load: () => Promise<Record<K, ComponentType<PageProps>>>, name: K) =>
+  lazy(async () => ({ default: (await load())[name] }));
+
+const PAGES: Record<Exclude<Page, 'overview'>, ComponentType<PageProps>> = {
+  dags: named(() => import('./pages/dags/DagsPage'), 'DagsPage'),
+  dag: named(() => import('./pages/dags/DagDetailPage'), 'DagDetailPage'),
+  bottlenecks: named(() => import('./pages/bottlenecks/BottlenecksPage'), 'BottlenecksPage'),
+  fleet: named(() => import('./pages/fleet/FleetPage'), 'FleetPage'),
+  advisor: named(() => import('./pages/advisor/AdvisorPage'), 'AdvisorPage'),
+  wiki: named(() => import('./pages/wiki/WikiPage'), 'WikiPage'),
+  alerts: named(() => import('./pages/alerts/AlertsPage'), 'AlertsPage'),
+};
+
+const NAV: ReadonlyArray<{ label: string; route: Route; hint: string; matches: readonly Page[] }> = [
+  { label: 'Fleet', route: { page: 'fleet' }, hint: 'Every environment', matches: ['fleet'] },
+  { label: 'Capacity overview', route: { page: 'overview' }, hint: 'One environment', matches: ['overview'] },
+  { label: 'DAG league table', route: { page: 'dags' }, hint: 'Who uses capacity', matches: ['dags', 'dag'] },
+  { label: 'Bottlenecks', route: { page: 'bottlenecks' }, hint: 'Why work waits', matches: ['bottlenecks'] },
+  { label: 'Advisor', route: { page: 'advisor' }, hint: 'What to change', matches: ['advisor'] },
+  { label: 'Alerts', route: { page: 'alerts' }, hint: 'Local alert rules', matches: ['alerts'] },
+  { label: 'Wiki', route: { page: 'wiki' }, hint: 'How it works', matches: ['wiki'] },
 ];
 
 const NAV_WIDTH = 232;
 
 export function App({ api }: { api: DcamApi }) {
   const meta = useQuery({ queryKey: ['meta'], queryFn: () => api.getMeta() });
-  const [envId, setEnvId] = useState<string | null>(null);
+  const [location, go] = useLocation();
   const environments = meta.data?.environments ?? [];
-  const selected = envId ?? environments[0]?.env_id ?? null;
+  const envId =
+    environments.find((e) => e.env_id === location.envId)?.env_id ?? environments[0]?.env_id ?? null;
+  const link = useCallback((route: Route) => linkTo(route, envId), [envId]);
+  const navigate = useCallback((route: Route) => go(linkTo(route, envId)), [go, envId]);
+  const { route } = location;
+  const PageComponent = route.page === 'overview' ? null : PAGES[route.page];
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: 'background.default' }}>
@@ -52,13 +74,13 @@ export function App({ api }: { api: DcamApi }) {
               deep-gcp-airflow-monitoring
             </Typography>
           </Typography>
-          {environments.length > 0 && selected && (
+          {envId && (
             <TextField
               select
               size="small"
               label="Environment"
-              value={selected}
-              onChange={(e) => setEnvId(e.target.value)}
+              value={envId}
+              onChange={(e) => go(linkTo(route, e.target.value))}
               sx={{ minWidth: 200 }}
             >
               {environments.map((e) => (
@@ -104,14 +126,20 @@ export function App({ api }: { api: DcamApi }) {
           }}
         >
           <List dense>
-            {NAV.map((item) => (
-              <ListItemButton key={item.label} selected={!item.milestone} disabled={Boolean(item.milestone)}>
-                <ListItemText
-                  primary={item.label}
-                  secondary={item.milestone ? `Coming in ${item.milestone}` : undefined}
-                />
-              </ListItemButton>
-            ))}
+            {NAV.map((item) => {
+              const current = item.matches.includes(route.page);
+              return (
+                <ListItemButton
+                  key={item.label}
+                  component="a"
+                  href={link(item.route)}
+                  selected={current}
+                  aria-current={current ? 'page' : undefined}
+                >
+                  <ListItemText primary={item.label} secondary={item.hint} />
+                </ListItemButton>
+              );
+            })}
           </List>
         </Box>
         <Box component="main" sx={{ flex: 1, p: { xs: 4, md: 6 }, minWidth: 0 }}>
@@ -120,7 +148,12 @@ export function App({ api }: { api: DcamApi }) {
               Couldn't reach the DCAM server. Check that it is still running, then reload the page.
             </Alert>
           )}
-          {selected && <OverviewPage api={api} envId={selected} />}
+          {envId && route.page === 'overview' && <OverviewPage api={api} envId={envId} />}
+          {envId && PageComponent && (
+            <Suspense fallback={<Skeleton variant="rounded" height={240} aria-label="Loading page" />}>
+              <PageComponent api={api} envId={envId} route={route} linkTo={link} navigate={navigate} />
+            </Suspense>
+          )}
         </Box>
       </Box>
     </Box>

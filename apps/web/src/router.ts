@@ -1,7 +1,7 @@
 /**
- * A small History-API router (spec §12.2): every page and DAG has a shareable URL, and the selected
- * environment travels in `?env=`. Dependency-free on purpose; the server already answers unknown
- * non-API paths with index.html.
+ * A small hash router (spec §12.2): every page and DAG has a shareable URL such as
+ * `#/dags/orders_daily?env=acme-prod`. Hash URLs keep asset paths relative, so the UI also works when
+ * embedded under a sub-path (ARCH-EMB-02). Dependency-free on purpose.
  *
  * @implements FR-UI-06
  */
@@ -67,36 +67,30 @@ export function toHref(route: Route, envId: string | null): string {
   return envId ? `${path}?env=${encodeURIComponent(envId)}` : path;
 }
 
-const current = (): Location => parseLocation(window.location.pathname, window.location.search);
+/** An `href` for links: the route as a hash URL. */
+export function linkTo(route: Route, envId: string | null): string {
+  return `#${toHref(route, envId)}`;
+}
 
-/** Current location plus a navigate function; also turns clicks on internal links into navigation. */
+function current(): Location {
+  const raw = window.location.hash.replace(/^#/, '') || '/';
+  const at = raw.indexOf('?');
+  return at === -1 ? parseLocation(raw, '') : parseLocation(raw.slice(0, at), raw.slice(at));
+}
+
+/** The current location, kept in sync with the URL, and a function to go to a hash URL. */
 export function useLocation(): [Location, (href: string) => void] {
   const [location, setLocation] = useState<Location>(current);
-
   const navigate = useCallback((href: string) => {
-    window.history.pushState(null, '', href);
-    setLocation(current());
-    window.scrollTo?.(0, 0);
+    window.location.hash = href.replace(/^#/, '');
   }, []);
-
   useEffect(() => {
-    const onPop = () => setLocation(current());
-    const onClick = (e: MouseEvent) => {
-      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-      const anchor = (e.target as Element | null)?.closest?.('a');
-      if (!anchor || anchor.target || anchor.hasAttribute('download')) return;
-      const url = new URL(anchor.href, window.location.href);
-      if (url.origin !== window.location.origin || url.pathname.startsWith('/api/')) return;
-      e.preventDefault();
-      navigate(url.pathname + url.search);
+    const onChange = () => {
+      setLocation(current());
+      window.scrollTo?.(0, 0);
     };
-    window.addEventListener('popstate', onPop);
-    document.addEventListener('click', onClick);
-    return () => {
-      window.removeEventListener('popstate', onPop);
-      document.removeEventListener('click', onClick);
-    };
-  }, [navigate]);
-
+    window.addEventListener('hashchange', onChange);
+    return () => window.removeEventListener('hashchange', onChange);
+  }, []);
   return [location, navigate];
 }

@@ -58,6 +58,117 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/environments/{env_id}/dags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * DAG league table for one environment (FR-DAGX-01..03)
+         * @description Every DAG with its executor slot-seconds share (HM-003), runs, reliability (HM-015) and queue wait (HM-001), compared with the previous period of equal length.
+         */
+        get: operations["getDagLeague"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/environments/{env_id}/dags/{dag_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One DAG in detail (FR-DAGD-01..04) */
+        get: operations["getDagDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/environments/{env_id}/bottlenecks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Why work is waiting (FR-BOTL-01/02/07/09, HM-006)
+         * @description Waiting task-time attributed to the limit that binds, from live snapshots.
+         */
+        get: operations["getBottlenecks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/environments/{env_id}/findings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Advisor findings for one environment (FR-ADV-01..04)
+         * @description Findings ranked by priority score. Remediation snippets are for people to review and apply; DCAM never runs them.
+         */
+        get: operations["getFindings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Local alert rules, their states and history (FR-ALRT-01/02/06) */
+        get: operations["getAlerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/fleet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every environment at a glance with an explainable health score (FR-FLEET-01/02, HM-028) */
+        get: operations["getFleet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -108,6 +219,398 @@ export interface components {
             pareto_80_dag_count: number;
             top_dags: components["schemas"]["DagCapacity"][];
         };
+        /** @enum {string} */
+        SourceId: "SRC-AF-API" | "SRC-MON" | "SRC-COMPOSER" | "DEMO";
+        /** @description A duration percentile with its sample count (spec §8.9). */
+        Quantile: {
+            value_seconds: number | null;
+            samples: number;
+            /** @description Fewer than 20 samples for a tail percentile: value_seconds is the max. */
+            low_sample: boolean;
+        };
+        /** @enum {string} */
+        Severity: "info" | "warning" | "critical";
+        FindingRef: {
+            id: string;
+            rule_id: string;
+            title: string;
+            severity: components["schemas"]["Severity"];
+        };
+        DagLeague: {
+            env_id: string;
+            range: components["schemas"]["TimeRange"];
+            previous_range: components["schemas"]["TimeRange"];
+            /** Format: date-time */
+            data_as_of: string;
+            sources: components["schemas"]["SourceId"][];
+            total_executor_slot_seconds: number;
+            /** @description DAGs known in the environment. */
+            dag_count: number;
+            /** @description DAGs with slot-seconds in the range. */
+            active_dag_count: number;
+            pareto_80_dag_count: number;
+            /** @description Concentration of slot-seconds across active DAGs. */
+            gini: number;
+            rows: components["schemas"]["DagLeagueRow"][];
+        };
+        DagLeagueRow: {
+            dag_id: string;
+            team: string;
+            owners: string[];
+            tags: string[];
+            schedule: string;
+            paused: boolean;
+            /** @description Runs that started in the range. */
+            runs: number;
+            failed_runs: number;
+            /** @description Successful ÷ finished runs; null without finished runs. */
+            success_rate: number | null;
+            tries: number;
+            retries: number;
+            /** @description Task instances that succeeded after at least one failed try ÷ task instances (HM-015); null below 20 task instances. */
+            flaky_rate: number | null;
+            run_duration_p50: components["schemas"]["Quantile"];
+            run_duration_p95: components["schemas"]["Quantile"];
+            /** @description Seconds (HM-003). */
+            executor_slot_seconds: number;
+            share: number;
+            /** @description Share of this DAG and every DAG ranked above it (Pareto). */
+            cumulative_share: number;
+            /** @description Share in the previous period; null when the DAG was inactive. */
+            previous_share: number | null;
+            /** @description Most running tries of this DAG in any minute. */
+            peak_concurrency: number;
+            queue_wait_p95: components["schemas"]["Quantile"];
+            open_findings: number;
+        };
+        DagDetail: {
+            env_id: string;
+            dag_id: string;
+            range: components["schemas"]["TimeRange"];
+            /** Format: date-time */
+            data_as_of: string;
+            sources: components["schemas"]["SourceId"][];
+            meta: {
+                fileloc: string;
+                owners: string[];
+                tags: string[];
+                team: string;
+                schedule: string;
+                paused: boolean;
+                catchup: boolean;
+                /** @description Every limit that can throttle this DAG (FR-DAGD-01). */
+                limits: {
+                    max_active_tasks: number;
+                    max_active_runs: number;
+                    pools: {
+                        name: string;
+                        slots: number;
+                        /** @description Slots each task of this DAG takes. */
+                        pool_slots: number;
+                    }[];
+                    /** @description Environment-wide: parallelism × schedulers. */
+                    parallelism: number;
+                    /** @description Environment-wide: max workers × worker_concurrency. */
+                    worker_slots: number;
+                };
+            };
+            stats: {
+                runs: number;
+                success_rate: number | null;
+                executor_slot_seconds: number;
+                share: number;
+                run_duration_p95: components["schemas"]["Quantile"];
+                queue_wait_p95: components["schemas"]["Quantile"];
+                /** @description Minutes at max_active_tasks with ready work ÷ active minutes (HM-005); null without live snapshots. */
+                self_throttled_ratio: number | null;
+            };
+            runs: {
+                run_id: string;
+                /** @enum {string} */
+                state: "success" | "failed" | "running";
+                /** Format: date-time */
+                logical_date: string;
+                /** Format: date-time */
+                start: string;
+                /** Format: date-time */
+                end: string | null;
+                duration_seconds: number | null;
+                /** @description First task start − logical date. */
+                start_delay_seconds: number | null;
+                tries: number;
+            }[];
+            gantt: {
+                run_id: string | null;
+                rows: {
+                    task_id: string;
+                    try_number: number;
+                    state: string | null;
+                    /** Format: date-time */
+                    ready_at: string | null;
+                    /** Format: date-time */
+                    queued_at: string | null;
+                    /** Format: date-time */
+                    start: string | null;
+                    /** Format: date-time */
+                    end: string | null;
+                }[];
+            };
+            tasks: {
+                task_id: string;
+                tries: number;
+                duration_p50: components["schemas"]["Quantile"];
+                duration_p95: components["schemas"]["Quantile"];
+                queue_wait_p95: components["schemas"]["Quantile"];
+                retries: number;
+                /** @description Failed tries ÷ tries; null below 20 tries. */
+                failure_rate: number | null;
+                /** @description Share of the DAG's slot-seconds. */
+                slot_seconds_share: number;
+                /** @description Mean running time per run: the default sort (FR-DAGD-04). */
+                contribution_seconds: number;
+            }[];
+            findings: components["schemas"]["FindingRef"][];
+        };
+        /**
+         * @description HM-006 reasons in evaluation order, then normal-latency (a wait below the thresholds, not a platform limit).
+         * @enum {string}
+         */
+        WaitReasonId: "dag-max-active-runs" | "pool-missing" | "task-larger-than-pool" | "parallelism" | "pool-exhausted" | "dag-max-active-tasks" | "task-limit" | "scheduler-throughput" | "autoscaling-lag" | "executor-slots-exhausted" | "worker-pickup" | "triggerer-capacity" | "unknown" | "normal-latency";
+        Bottlenecks: {
+            env_id: string;
+            range: components["schemas"]["TimeRange"];
+            /** Format: date-time */
+            data_as_of: string;
+            sources: components["schemas"]["SourceId"][];
+            bucket_seconds: number;
+            snapshot_interval_seconds: number;
+            /** @description Waiting attributed to platform limits; excludes normal latency. */
+            waiting_task_seconds: number;
+            normal_latency_task_seconds: number;
+            answer: {
+                reason: components["schemas"]["WaitReasonId"] | null;
+                share: number;
+                /** @description Share of that reason's waiting while workers were at max_count. */
+                workers_at_max_share: number;
+            };
+            reasons: {
+                id: components["schemas"]["WaitReasonId"];
+                /** @enum {string} */
+                phase: "run" | "pre-queue" | "post-queue" | "deferral" | "any";
+                waiting_task_seconds: number;
+                share: number;
+                /** @description False when the inputs this reason needs are not collected. */
+                evaluated: boolean;
+                top_contributors: {
+                    dag_id: string;
+                    waiting_task_seconds: number;
+                    share: number;
+                }[];
+            }[];
+            series: {
+                /** Format: date-time */
+                start: string;
+                /** @description Waiting task-seconds per reason in this bucket. */
+                waiting_task_seconds: {
+                    [key: string]: number;
+                };
+                /** @description Mean workers in the bucket. */
+                workers: number | null;
+                /** @description Mean running ÷ worker slots. */
+                worker_slots_used: number | null;
+            }[];
+            current: {
+                /** Format: date-time */
+                at: string | null;
+                binding: components["schemas"]["WaitReasonId"] | null;
+                scheduled: number;
+                queued: number;
+                running: number;
+                workers: {
+                    current: number;
+                    target: number;
+                    min: number;
+                    max: number;
+                };
+                worker_slots: number;
+            };
+            pools: {
+                name: string;
+                slots: number;
+                /** @description Waiting attributed to this pool being exhausted. */
+                waiting_task_seconds: number;
+                /** @description Minutes with zero open slots and work waiting (REC-CONC-02). */
+                starved_minutes: number;
+                utilisation_p95: number | null;
+            }[];
+            capacity: {
+                /** @description HM-011: workers at max_count and queued ≥ max(10, 20 % of slots). */
+                capacity_bound_minutes: number;
+                minutes_at_max_workers: number;
+                /** @description HM-012: target rises → workers reach it. */
+                scale_up_lag_p95_seconds: number | null;
+                utilisation_p95: number | null;
+            };
+            sensors: {
+                dag_id: string;
+                task_id: string;
+                /** @description Worker slot time held by poke-mode sensors (HM-008). */
+                slot_seconds: number;
+            }[];
+        };
+        Finding: {
+            id: string;
+            /** @description For example REC-CAP-01 (spec §13.6). */
+            rule_id: string;
+            title: string;
+            /** @enum {string} */
+            category: "capacity" | "concurrency" | "dag" | "scheduling";
+            scope: {
+                /** @enum {string} */
+                kind: "environment" | "pool" | "dag" | "task";
+                id: string;
+            };
+            severity: components["schemas"]["Severity"];
+            /** @enum {string} */
+            status: "open";
+            impact: number;
+            confidence: number;
+            /** @enum {integer} */
+            effort: 1 | 2 | 3 | 5;
+            tier_weight: number;
+            /** @description tier_weight × impact × confidence ÷ effort (§13.4). */
+            priority_score: number;
+            observation: string;
+            impact_text: string;
+            action: string;
+            /** @description "Why am I seeing this?": values, thresholds and data used (FR-ADV-08). */
+            why: string;
+            evidence: {
+                label: string;
+                value: string;
+                threshold: string | null;
+                source: components["schemas"]["SourceId"];
+            }[];
+            remediation: {
+                /** @enum {string} */
+                kind: "gcloud" | "terraform" | "airflow-config" | "dag-diff";
+                title: string;
+                /** @enum {string} */
+                language: "bash" | "hcl" | "ini" | "diff" | "python";
+                code: string;
+            }[];
+            risks: string[];
+            rollback: string;
+            verify: string;
+            affected_dags: string[];
+            links: {
+                /** @description Wiki page slug. */
+                wiki: string | null;
+                docs: {
+                    title: string;
+                    /** Format: uri */
+                    url: string;
+                }[];
+            };
+            /** Format: date-time */
+            detected_at: string;
+        };
+        Findings: {
+            env_id: string;
+            /** Format: date-time */
+            data_as_of: string;
+            sources: components["schemas"]["SourceId"][];
+            findings: components["schemas"]["Finding"][];
+        };
+        /** @enum {string} */
+        AlertState: "inactive" | "pending" | "firing" | "resolved" | "unknown";
+        AlertRule: {
+            /** @description For example AL-05 (spec §16). */
+            id: string;
+            name: string;
+            env_id: string;
+            severity: components["schemas"]["Severity"];
+            state: components["schemas"]["AlertState"];
+            condition: string;
+            for_seconds: number;
+            threshold: number | null;
+            value: number | null;
+            unit: string;
+            /** Format: date-time */
+            since: string | null;
+            summary: string;
+            /** @description Wiki page slug. */
+            runbook: string | null;
+            /** @enum {string} */
+            export_cloud_monitoring: "yes" | "partial" | "no";
+            fired_count_24h: number;
+        };
+        AlertEvent: {
+            id: string;
+            rule_id: string;
+            env_id: string;
+            severity: components["schemas"]["Severity"];
+            /** @enum {string} */
+            kind: "fired" | "resolved";
+            /** Format: date-time */
+            at: string;
+            value: number | null;
+        };
+        Alerts: {
+            /** Format: date-time */
+            data_as_of: string;
+            sources: components["schemas"]["SourceId"][];
+            rules: components["schemas"]["AlertRule"][];
+            events: components["schemas"]["AlertEvent"][];
+        };
+        HealthCheck: {
+            id: string;
+            label: string;
+            /** @enum {string} */
+            state: "pass" | "fail" | "unknown";
+            critical: boolean;
+            weight: number;
+            threshold: string;
+            value: string | null;
+        };
+        FleetCard: {
+            env_id: string;
+            display_name: string;
+            /** @enum {string} */
+            tier: "dev" | "test" | "uat" | "prod" | "other";
+            composer_image: string;
+            airflow_version: string;
+            health: {
+                score: number | null;
+                /** @enum {string} */
+                label: "healthy" | "degraded" | "unhealthy" | "unknown";
+                evaluated: number;
+                total: number;
+                checks: components["schemas"]["HealthCheck"][];
+            };
+            running: number;
+            queued: number;
+            workers: {
+                current: number;
+                min: number;
+                max: number;
+            };
+            /** @description Failed task instance tries. */
+            failures_24h: number;
+            slot_seconds_24h: number;
+            waiting_task_seconds_24h: number;
+            top_reason: components["schemas"]["WaitReasonId"] | null;
+            top_findings: components["schemas"]["FindingRef"][];
+            alerts_firing: number;
+            /** Format: date-time */
+            data_as_of: string;
+        };
+        Fleet: {
+            /** Format: date-time */
+            data_as_of: string;
+            sources: components["schemas"]["SourceId"][];
+            environments: components["schemas"]["FleetCard"][];
+        };
         /** @description RFC 9457 problem details with DCAM extensions. */
         Problem: {
             /** Format: uri-reference */
@@ -121,8 +624,30 @@ export interface components {
             docs_url?: string;
         };
     };
-    responses: never;
-    parameters: never;
+    responses: {
+        /** @description Invalid parameter. */
+        BadRequest: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description Unknown environment or DAG. */
+        NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+    };
+    parameters: {
+        EnvId: string;
+        Range: "1h" | "6h" | "24h";
+    };
     requestBodies: never;
     headers: never;
     pathItems: never;
@@ -198,6 +723,154 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getDagLeague: {
+        parameters: {
+            query?: {
+                range?: components["parameters"]["Range"];
+            };
+            header?: never;
+            path: {
+                env_id: components["parameters"]["EnvId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description League table for the requested range. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DagLeague"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getDagDetail: {
+        parameters: {
+            query?: {
+                range?: components["parameters"]["Range"];
+                /** @description Run shown in the Gantt chart; the latest run by default. */
+                run_id?: string;
+            };
+            header?: never;
+            path: {
+                env_id: components["parameters"]["EnvId"];
+                dag_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description DAG detail for the requested range. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DagDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getBottlenecks: {
+        parameters: {
+            query?: {
+                range?: components["parameters"]["Range"];
+            };
+            header?: never;
+            path: {
+                env_id: components["parameters"]["EnvId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bottleneck analysis for the requested range. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Bottlenecks"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getFindings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                env_id: components["parameters"]["EnvId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Findings over the last 24 hours. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Findings"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getAlerts: {
+        parameters: {
+            query?: {
+                /** @description Limit to one environment. */
+                env_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Alert rules and events over the last 24 hours. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Alerts"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getFleet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One card per environment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Fleet"];
                 };
             };
         };

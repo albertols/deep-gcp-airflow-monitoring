@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from '@mui/material/styles';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { EnvironmentOverview, Meta } from '@dcam/contracts';
 import { createDcamTheme } from '@dcam/ui-kit';
 import type { DcamApi } from '../src/api';
@@ -14,7 +14,10 @@ const meta: Meta = {
   name: 'DCAM',
   version: '0.0.0',
   mode: 'demo',
-  environments: [{ env_id: 'acme-prod', display_name: 'acme-prod', tier: 'prod' }],
+  environments: [
+    { env_id: 'acme-prod', display_name: 'acme-prod', tier: 'prod' },
+    { env_id: 'acme-dev', display_name: 'acme-dev', tier: 'dev' },
+  ],
 };
 const overview: EnvironmentOverview = {
   env_id: 'acme-prod',
@@ -28,7 +31,20 @@ const overview: EnvironmentOverview = {
   pareto_80_dag_count: 23,
   top_dags: [{ dag_id: 'orders_daily', executor_slot_seconds: 7_200, share: 0.2 }],
 };
-const api: DcamApi = { getMeta: async () => meta, getOverview: async () => overview };
+const notYet = () => Promise.reject(new Error('not in this test'));
+const api: DcamApi = {
+  getMeta: async () => meta,
+  getOverview: async () => overview,
+  getDagLeague: notYet,
+  getDagDetail: notYet,
+  getBottlenecks: notYet,
+  getFindings: notYet,
+  getAlerts: notYet,
+  getFleet: notYet,
+};
+afterEach(() => {
+  window.location.hash = '';
+});
 
 function renderApp() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -75,5 +91,45 @@ describe('M0 app shell', () => {
       (_text, el) => el?.tagName === 'FOOTER' && /Data as of .* Source: demo data/.test(el.textContent ?? ''),
     );
     expect(footer).toBeInTheDocument();
+  });
+});
+
+describe('FR-UI-06 navigation', () => {
+  const PAGES = [
+    'Fleet',
+    'Capacity overview',
+    'DAG league table',
+    'Bottlenecks',
+    'Advisor',
+    'Alerts',
+    'Wiki',
+  ];
+
+  it('FR-UI-06: every page in the navigation is available', async () => {
+    renderApp();
+    const nav = await screen.findByRole('navigation', { name: 'Main' });
+    for (const name of PAGES) {
+      const link = within(nav).getByRole('link', { name: new RegExp(`^${name}`) });
+      expect(link).not.toHaveAttribute('aria-disabled', 'true');
+    }
+    expect(within(nav).queryByText(/Coming in/)).toBeNull();
+  });
+
+  it('FR-UI-06: links carry the selected environment and open the page', async () => {
+    renderApp();
+    await screen.findByRole('combobox', { name: 'Environment' }); // metadata loaded
+    const nav = await screen.findByRole('navigation', { name: 'Main' });
+    const link = within(nav).getByRole('link', { name: /^Bottlenecks/ });
+    expect(link).toHaveAttribute('href', '#/bottlenecks?env=acme-prod');
+    await userEvent.click(link);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Bottlenecks' })).toBeInTheDocument();
+    expect(within(nav).getByRole('link', { name: /^Bottlenecks/ })).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('FR-UI-06: opens the page and environment named in the URL', async () => {
+    window.location.hash = '#/dags?env=acme-dev';
+    renderApp();
+    expect(await screen.findByRole('heading', { level: 1, name: 'DAG league table' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Environment' })).toHaveTextContent('acme-dev');
   });
 });
