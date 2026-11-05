@@ -7,3 +7,4 @@ export * from './alert-pack';
 export * from './alerts';
 export * from './findings';
 export * from './collection';
+export * from './doctor';
