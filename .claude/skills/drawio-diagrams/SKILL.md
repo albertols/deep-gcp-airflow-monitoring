@@ -29,8 +29,14 @@ description: Create, update and export draw.io diagrams for DCAM documentation a
   macOS and in CI the script falls back to the headless Docker image
   `rlespinasse/drawio-desktop-headless:v1.77.0` (override with `$DRAWIO_DOCKER_IMAGE`). Diagrams never
   leave the machine: the hosted draw.io MCP server is not used.
-- Flags: SVG `-x -f svg -e --embed-svg-images -b 10`; PNG `-x -f png -e -s 2 -b 10`. Never group a value
-  flag (`-xf png`). Multi-page files: `-p <index>` (1-based from draw.io 27.0.2).
+- Flags: SVG `-x -f svg -e --embed-svg-images -b 10 --theme light`; PNG `-x -f png -e -s 2 -b 10 --theme light`.
+  `--theme light` keeps the authored colours: the default `auto` makes SVGs adaptive and inverts our dark
+  palette for viewers in dark mode. Never group a value flag (`-xf png`). Multi-page files: `-p <index>`
+  (1-based from draw.io 27.0.2).
+- Docker runs use `--shm-size=1g` (PNG export crashes Chromium's renderer with the default 64 MB) and a
+  120 s `DRAWIO_DESKTOP_COMMAND_TIMEOUT` (the image's 10 s default fails on a cold start).
+- SVGs with HTML labels are large (about 40 KB per label) because draw.io embeds a raster fallback for
+  each label; the CLI cannot turn this off.
 
 ## Checklist
 

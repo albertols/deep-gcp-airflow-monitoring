@@ -47,11 +47,27 @@ function exporter() {
     process.exit(1);
   }
   console.log(`Using Docker image ${IMAGE} (draw.io desktop not found).`);
+  // The image's default 10 s command timeout is too short for a cold container start.
+  const timeout = process.env.DRAWIO_DESKTOP_COMMAND_TIMEOUT ?? '120s';
   return (args) =>
-    spawnSync('docker', ['run', '--rm', '-v', `${root}:/data`, '-w', '/data', IMAGE, ...args], {
-      cwd: root,
-      stdio: 'inherit',
-    });
+    spawnSync(
+      'docker',
+      // --shm-size: Chromium's renderer crashes on PNG export with Docker's default 64 MB /dev/shm.
+      [
+        'run',
+        '--rm',
+        '--shm-size=1g',
+        '-e',
+        `DRAWIO_DESKTOP_COMMAND_TIMEOUT=${timeout}`,
+        '-v',
+        `${root}:/data`,
+        '-w',
+        '/data',
+        IMAGE,
+        ...args,
+      ],
+      { cwd: root, stdio: 'inherit' },
+    );
 }
 
 const sources = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.drawio')) : [];
@@ -79,11 +95,28 @@ if (stale.length === 0) {
 const run = exporter();
 for (const { src, out } of stale) {
   const rel = (p) => relative(root, p);
+  // --theme light keeps the authored (dark-token) colours. The default "auto" makes SVGs adaptive and
+  // inverts them for viewers in dark mode, because draw.io treats authored colours as the light theme.
   const args = out.endsWith('.svg')
-    ? ['-x', '-f', 'svg', '-e', '--embed-svg-images', '-b', '10', '-o', rel(out), rel(src)]
-    : ['-x', '-f', 'png', '-e', '-s', '2', '-b', '10', '-o', rel(out), rel(src)];
+    ? [
+        '-x',
+        '-f',
+        'svg',
+        '-e',
+        '--embed-svg-images',
+        '-b',
+        '10',
+        '--theme',
+        'light',
+        '-o',
+        rel(out),
+        rel(src),
+      ]
+    : ['-x', '-f', 'png', '-e', '-s', '2', '-b', '10', '--theme', 'light', '-o', rel(out), rel(src)];
+  const before = existsSync(out) ? statSync(out).mtimeMs : 0;
   const result = run(args);
-  if (result.status !== 0) {
+  // draw.io can exit 0 without writing the file, so check the output as well as the exit code.
+  if (result.status !== 0 || !existsSync(out) || statSync(out).mtimeMs <= before) {
     console.error(`Export failed for ${rel(out)}`);
     process.exit(1);
   }

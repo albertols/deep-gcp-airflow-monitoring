@@ -3,7 +3,11 @@ pnpm-lock.yaml
 **/src/generated/**
 docs/spec/**
 docs/diagrams/**
-.claude/hooks/**
+.remember/**
 **/*.drawio
 **/*.drawio.svg
-.remember/**
+
+# Harness guardrails change only in maintenance mode, by a human (spec §21.4), so the format check must
+# never require a Claude Code session to rewrite them.
+.claude/hooks/**
+.claude/settings*.json
