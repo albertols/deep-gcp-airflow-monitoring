@@ -50,7 +50,7 @@ apps/server (composition root) ───────────────┼�
 
 ## ADRs
 
-- ADR-0013 (proposed): credentials through `gcloud` instead of a Google auth library (no refresh-token handling,
+- ADR-0016 (proposed, authentication): credentials through `gcloud` instead of a Google auth library (no refresh-token handling,
   no token endpoint on the allowlist; costs a child process per refresh).
 - ADR-0014 already names `timeSeries.list` as the default Monitoring path.
 
