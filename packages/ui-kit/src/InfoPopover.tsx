@@ -1,7 +1,8 @@
 /**
- * The (i) explanation pattern (spec §12.9): every panel, KPI and column explains itself.
+ * The (i) explanation pattern (spec §12.9): every panel, KPI and column explains itself, and can point
+ * to the in-app wiki page that explains the concept in depth (spec §15).
  *
- * @implements FR-UI-05
+ * @implements FR-UI-05, FR-WIKI-06
  */
 import { useId, useState } from 'react';
 import IconButton from '@mui/material/IconButton';
@@ -22,6 +23,8 @@ export interface Explanation {
   readonly freshness?: string;
   readonly caveats?: readonly string[];
   readonly docs?: ReadonlyArray<{ readonly title: string; readonly url: string }>;
+  /** In-app wiki page, for example `#/wiki/executor-slot-seconds`; opens in the same tab. */
+  readonly wiki?: { readonly href: string; readonly title?: string };
 }
 
 export function InfoPopover({ explanation }: { explanation: Explanation }) {
@@ -67,6 +70,13 @@ export function InfoPopover({ explanation }: { explanation: Explanation }) {
             Source: {explanation.sources.join(', ')}
             {explanation.freshness ? ` · Freshness: ${explanation.freshness}` : ''}
           </Typography>
+          {explanation.wiki && (
+            <Link href={explanation.wiki.href} variant="body2" onClick={() => setAnchor(null)}>
+              {explanation.wiki.title
+                ? `Learn more in the wiki: ${explanation.wiki.title}`
+                : 'Learn more in the wiki'}
+            </Link>
+          )}
           {explanation.docs?.map((d) => (
             <Link key={d.url} href={d.url} target="_blank" rel="noopener noreferrer" variant="body2">
               {d.title}
