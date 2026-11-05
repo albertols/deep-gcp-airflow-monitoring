@@ -28,6 +28,7 @@ export function row(dag_id: string, p: Partial<DagLeagueRow> = {}): DagLeagueRow
     previous_share: 0.1,
     peak_concurrency: 4,
     queue_wait_p95: q(30),
+    ready_wait_p95: q(45),
     open_findings: 0,
     ...p,
   };
@@ -62,6 +63,7 @@ export const ROWS: DagLeagueRow[] = [
     cumulative_share: 1,
     previous_share: null,
     queue_wait_p95: q(540),
+    ready_wait_p95: q(840),
     run_duration_p95: q(1_500, 12, true),
   }),
   row('idle_export', {

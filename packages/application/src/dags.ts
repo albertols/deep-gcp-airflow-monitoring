@@ -118,6 +118,7 @@ export async function getDagLeague(deps: DagsDeps, q: DagLeagueQuery): Promise<D
       previous_share: r.previousShare,
       peak_concurrency: r.peakConcurrency,
       queue_wait_p95: toQuantile(r.queueWaitP95),
+      ready_wait_p95: toQuantile(r.readyWaitP95),
       open_findings: q.openFindings?.get(r.dagId) ?? 0,
     };
   });

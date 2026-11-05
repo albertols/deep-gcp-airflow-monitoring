@@ -55,11 +55,15 @@ describe('FR-DAGX-07 presets', () => {
     expect(preset('flaky')).toEqual(['fraud_scoring_hourly']);
   });
 
-  it('FR-DAGX-07: late starters have a p95 queue wait of at least 5 min from 20 or more tries', () => {
+  it('FR-DAGX-07: late starters wait at least 5 min from ready to start (p95, 20 or more tries)', () => {
     expect(preset('late-starters')).toEqual(['partner_crm_sync']);
-    const lowSample = row('few', { queue_wait_p95: q(900, 5, true) });
+    const lowSample = row('few', { ready_wait_p95: q(900, 5, true) });
+    // Queue wait alone does not make a late starter: most waiting happens before the queue.
+    const queuedOnly = row('queued', { queue_wait_p95: q(900), ready_wait_p95: q(60) });
     expect(
-      ids(filterRows([lowSample], { search: '', team: null, tag: null, preset: 'late-starters' })),
+      ids(
+        filterRows([lowSample, queuedOnly], { search: '', team: null, tag: null, preset: 'late-starters' }),
+      ),
     ).toEqual([]);
   });
 });

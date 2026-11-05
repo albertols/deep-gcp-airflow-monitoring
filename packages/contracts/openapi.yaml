@@ -346,6 +346,7 @@ components:
           previous_share,
           peak_concurrency,
           queue_wait_p95,
+          ready_wait_p95,
           open_findings,
         ]
       properties:
@@ -392,6 +393,9 @@ components:
         peak_concurrency:
           { type: integer, minimum: 0, description: 'Most running tries of this DAG in any minute.' }
         queue_wait_p95: { $ref: '#/components/schemas/Quantile' }
+        ready_wait_p95:
+          allOf: [{ $ref: '#/components/schemas/Quantile' }]
+          description: 'Wait to start, ready → start: all waiting before a try runs (HM-006). From live snapshots, so history older than collection has no samples.'
         open_findings: { type: integer, minimum: 0 }
     DagDetail:
       type: object

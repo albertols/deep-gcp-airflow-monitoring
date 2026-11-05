@@ -178,6 +178,21 @@ export const DAG_EXPLANATIONS = {
     ],
     docs: [OPTIMIZE_DOC],
   },
+  'dagx-col-ready': {
+    id: 'dagx-col-ready',
+    title: 'p95 wait to start',
+    summary:
+      'How long tries waited from becoming ready to starting, 95th percentile: every wait, before and after the queue (HM-006).',
+    formula: 'start_date − time first seen ready, per try',
+    howToRead:
+      'The "Late starters" preset lists DAGs at 5 minutes or more. The Bottlenecks page says which limit held them.',
+    sources: API,
+    caveats: [
+      'Airflow 2.11 does not record when a try became ready; DCAM sees it in its live snapshots (every 30 s), so older history has no samples.',
+      LOW_SAMPLE,
+    ],
+    docs: [OPTIMIZE_DOC],
+  },
   'dagx-col-peak': {
     id: 'dagx-col-peak',
     title: 'Peak concurrency',
@@ -364,6 +379,7 @@ export const LEAGUE_PANELS: readonly DagExplanationId[] = [
   'dagx-col-slot-hours',
   'dagx-col-share',
   'dagx-col-queue',
+  'dagx-col-ready',
   'dagx-col-peak',
   'dagx-col-findings',
 ];

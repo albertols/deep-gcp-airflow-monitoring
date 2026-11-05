@@ -46,14 +46,15 @@ interface Column {
 }
 
 const COLUMNS: readonly Column[] = [
-  { key: 'dag_id', explanation: 'dagx-col-dag', numeric: false, width: '24%' },
+  { key: 'dag_id', explanation: 'dagx-col-dag', numeric: false, width: '19%' },
   { key: 'team', explanation: 'dagx-col-team', numeric: false, width: '11%' },
   { key: 'runs', explanation: 'dagx-col-runs', numeric: true, width: '7%' },
   { key: 'success_rate', explanation: 'dagx-col-success', numeric: true, width: '8%' },
   { key: 'run_duration_p95', explanation: 'dagx-col-duration', numeric: true, width: '9%' },
   { key: 'executor_slot_seconds', explanation: 'dagx-col-slot-hours', numeric: true, width: '8%' },
   { key: 'share', explanation: 'dagx-col-share', numeric: true, width: '11%' },
-  { key: 'queue_wait_p95', explanation: 'dagx-col-queue', numeric: true, width: '9%' },
+  { key: 'queue_wait_p95', explanation: 'dagx-col-queue', numeric: true, width: '8%' },
+  { key: 'ready_wait_p95', explanation: 'dagx-col-ready', numeric: true, width: '8%' },
   { key: 'peak_concurrency', explanation: 'dagx-col-peak', numeric: true, width: '7%' },
   { key: 'open_findings', explanation: 'dagx-col-findings', numeric: true, width: '6%' },
 ];
@@ -129,6 +130,9 @@ const LeagueRow = memo(function LeagueRow({
       </TableCell>
       <TableCell sx={cellSx} align="right" title={describeQuantile(row.queue_wait_p95)}>
         {formatQuantile(row.queue_wait_p95)}
+      </TableCell>
+      <TableCell sx={cellSx} align="right" title={describeQuantile(row.ready_wait_p95)}>
+        {formatQuantile(row.ready_wait_p95)}
       </TableCell>
       <TableCell sx={cellSx} align="right">
         {formatInt(row.peak_concurrency)}

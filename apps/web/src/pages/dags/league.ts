@@ -10,7 +10,7 @@ import type { DagLeagueRow } from '@dcam/contracts';
 const MIN_SAMPLES = 20;
 /** ⚠️ Preset thresholds are calls made in specs/001 (the spec leaves them open). */
 export const FLAKY_RATE_THRESHOLD = 0.05;
-export const LATE_QUEUE_WAIT_SECONDS = 5 * 60;
+export const LATE_START_WAIT_SECONDS = 5 * 60;
 export const PARETO_SHARE = 0.8;
 
 export const PRESETS = [
@@ -30,9 +30,9 @@ export const PRESETS = [
     id: 'late-starters',
     label: 'Late starters',
     matches: (r: DagLeagueRow) =>
-      !r.queue_wait_p95.low_sample &&
-      r.queue_wait_p95.samples >= MIN_SAMPLES &&
-      (r.queue_wait_p95.value_seconds ?? 0) >= LATE_QUEUE_WAIT_SECONDS,
+      !r.ready_wait_p95.low_sample &&
+      r.ready_wait_p95.samples >= MIN_SAMPLES &&
+      (r.ready_wait_p95.value_seconds ?? 0) >= LATE_START_WAIT_SECONDS,
   },
 ] as const;
 
@@ -77,6 +77,7 @@ export type SortKey =
   | 'executor_slot_seconds'
   | 'share'
   | 'queue_wait_p95'
+  | 'ready_wait_p95'
   | 'peak_concurrency'
   | 'open_findings';
 
@@ -134,6 +135,8 @@ const CSV_COLUMNS: ReadonlyArray<readonly [string, (r: DagLeagueRow) => string |
   ['peak_concurrency', (r) => r.peak_concurrency],
   ['queue_wait_p95_seconds', (r) => r.queue_wait_p95.value_seconds],
   ['queue_wait_p95_low_sample', (r) => r.queue_wait_p95.low_sample],
+  ['ready_wait_p95_seconds', (r) => r.ready_wait_p95.value_seconds],
+  ['ready_wait_p95_low_sample', (r) => r.ready_wait_p95.low_sample],
   ['open_findings', (r) => r.open_findings],
 ];
 

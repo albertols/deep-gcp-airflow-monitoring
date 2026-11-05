@@ -5,12 +5,13 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { getDagDetail, getDagLeague } from '@dcam/application';
+import type { Memo } from '../cache';
 import type { Workspace } from '../demo';
 import { findEnvironment, notFound, parseRange, problem, sourcesFor } from '../http';
 
 const MAX_ID_LENGTH = 250;
 
-export function registerDagRoutes(app: FastifyInstance, ws: Workspace) {
+export function registerDagRoutes(app: FastifyInstance, ws: Workspace, memo: Memo) {
   app.get<{ Params: { env_id: string }; Querystring: { range?: string } }>(
     '/api/v1/environments/:env_id/dags',
     async (req, reply) => {
@@ -18,7 +19,9 @@ export function registerDagRoutes(app: FastifyInstance, ws: Workspace) {
       if (!env) return reply;
       const range = parseRange(reply, req.query.range);
       if (!range) return reply;
-      return getDagLeague(ws, { envId: env.env_id, range, sources: sourcesFor(ws, ['SRC-AF-API']) });
+      return memo(`dags:${env.env_id}:${range}`, () =>
+        getDagLeague(ws, { envId: env.env_id, range, sources: sourcesFor(ws, ['SRC-AF-API']) }),
+      );
     },
   );
 

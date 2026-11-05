@@ -51,6 +51,8 @@ export interface DagWindowStats {
   readonly peakConcurrency: number;
   /** HM-001: `start − queued` of tries starting in the window, seconds. */
   readonly queueWaitP95: Quantile;
+  /** HM-006: `start − ready` of tries starting in the window, seconds. */
+  readonly readyWaitP95: Quantile;
 }
 
 /** HM-001: queue wait in seconds of every try with both timestamps in order. */
@@ -59,6 +61,18 @@ export function queueWaitsSeconds(tries: readonly DagTaskTry[]): number[] {
   for (const t of tries)
     if (t.queuedAt !== null && t.startAt !== null && t.startAt >= t.queuedAt)
       waits.push((t.startAt - t.queuedAt) / 1000);
+  return waits;
+}
+
+/**
+ * HM-006: wait to start in seconds (`start − ready`), covering pre-queue and post-queue waiting.
+ * Tries without a ready time (history older than DCAM's live collection) are skipped.
+ */
+export function readyWaitsSeconds(tries: readonly DagTaskTry[]): number[] {
+  const waits: number[] = [];
+  for (const t of tries)
+    if (t.readyAt !== null && t.startAt !== null && t.startAt >= t.readyAt)
+      waits.push((t.startAt - t.readyAt) / 1000);
   return waits;
 }
 
@@ -93,6 +107,7 @@ export function emptyDagStats(dagId: string): DagWindowStats {
     executorSlotSeconds: 0,
     peakConcurrency: 0,
     queueWaitP95: none,
+    readyWaitP95: none,
   };
 }
 
@@ -155,6 +170,7 @@ export function dagWindowStats(
       executorSlotSeconds: slot,
       peakConcurrency: peaks.get(dagId) ?? 0,
       queueWaitP95: quantile(queueWaitsSeconds(started), 0.95),
+      readyWaitP95: quantile(readyWaitsSeconds(started), 0.95),
     });
   }
   return result;

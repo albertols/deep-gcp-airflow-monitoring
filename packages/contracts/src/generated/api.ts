@@ -281,6 +281,8 @@ export interface components {
             /** @description Most running tries of this DAG in any minute. */
             peak_concurrency: number;
             queue_wait_p95: components["schemas"]["Quantile"];
+            /** @description Wait to start, ready → start: all waiting before a try runs (HM-006). From live snapshots, so history older than collection has no samples. */
+            ready_wait_p95: components["schemas"]["Quantile"];
             open_findings: number;
         };
         DagDetail: {
