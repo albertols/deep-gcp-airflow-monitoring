@@ -506,7 +506,7 @@ Collection rules (normative):
 
    Analytics read capability flags, never raw version strings.
 3. **Graceful degradation.** A missing source disables only the dependent parts of a signal. The panel explains the cause and the fix, for example a missing permission, a disabled API or a collector that is turned off (`FR-UI-07`). Missing data is never shown as zero (`NFR-DATA-03`).
-4. **Minimal raw data.** Adapters keep only the fields they need. They drop sensitive or heavy fields at the boundary: environment variable values, rendered templates, XCom values and connection details.
+4. **Minimal raw data.** Adapters keep only the fields they need. They drop sensitive or heavy fields at the boundary: environment variable values, rendered templates, XCom values and connection details. On Airflow 2.11 the API v1 task instance list returns `rendered_fields` (and `sla_miss`, `trigger`, `triggerer_job`) on every row, because the query loads them eagerly and v1 has no field selector ([source](https://github.com/apache/airflow/blob/2.11.1/airflow/api_connexion/endpoints/task_instance_endpoint.py)); the adapter's schema drops them, and raw responses are never stored or logged.
 5. **Time.** Source timestamps are normalised to UTC. Every batch records its newest source timestamp and its fetch time, so source lag is always known (`NFR-FRESH-04`).
 
 ### 7.2 Cloud Monitoring (SRC-MON)
@@ -629,7 +629,7 @@ Google publishes no fixed `timeSeries.list` request quota; the per-project value
 
 | State | DCAM behaviour |
 |---|---|
-| `HIBERNATED` | Pause Airflow API and bucket collection; keep Composer collection; show the state in every header |
+| `HIBERNATED` | Pause Airflow API and bucket collection; keep Composer collection; show the state in every header. The v1 `state` enum has no such value (`STATE_UNSPECIFIED`, `CREATING`, `RUNNING`, `UPDATING`, `DELETING`, `ERROR`); hibernation exists only for Airflow 3 environments in development mode, through v1beta1 ([source](https://docs.cloud.google.com/composer/docs/composer-3/hibernate-environments)). Unknown states are shown as reported |
 | `UPDATING` | Keep collecting with patient-mode budgets ([§7.11](#711-observer-budget-do-no-harm)); mark the period as a change window on the timeline |
 | `ERROR` | Collect at the `eco` cadence; show the state prominently |
 
@@ -663,7 +663,7 @@ Google publishes no fixed `timeSeries.list` request quota; the per-project value
 
 **Pagination and consistency.** Paging behaviour differs by API generation (checked in the Airflow 2.11.1 and 3.3.2 source):
 
-- **Airflow 2 (API v1).** The task instance list endpoints (`GET …/taskInstances` and the batch `POST …/taskInstances/list`) return rows in no defined order: the `GET` task instance list has no `order_by` parameter (confirmed in the `v2-11-stable` OpenAPI specification and endpoint code). The DAG run list endpoints, `listMapped`, `/dagWarnings` and `/eventLogs` accept `order_by`. Draft 1.0 stated that the task instance list does not cap `limit`; the 2026-11 research found `limit` defaulting to 100 and capped by `[api] maximum_page_limit` (default 100, not blocked on Composer 3). The sources conflict, so the cap stays ⚠️ VERIFY (VC-11). DCAM always sends a page size of at most 100, so neither reading changes its behaviour.
+- **Airflow 2 (API v1).** The task instance list endpoints (`GET …/taskInstances` and the batch `POST …/taskInstances/list`) return rows in no defined order: the `GET` task instance list has no `order_by` parameter (confirmed in the `v2-11-stable` OpenAPI specification and endpoint code). The DAG run list endpoints, `listMapped`, `/dagWarnings` and `/eventLogs` accept `order_by`. Upstream Airflow 2.11.1 does not cap `limit` on the `GET` task instance list: that endpoint never calls `check_limit`, while `/dags`, `/pools` and `/importErrors` do cap it at `[api] maximum_page_limit` (default 100) ([source](https://github.com/apache/airflow/blob/2.11.1/airflow/api_connexion/endpoints/task_instance_endpoint.py), [issue #41283](https://github.com/apache/airflow/issues/41283)). Composer's behaviour stays ⚠️ VERIFY (VC-11). DCAM always sends a page size of at most 100, so neither reading changes its behaviour.
 - **Airflow 3 (API v2).** `GET` list endpoints accept `order_by`, return 50 rows unless `limit` is set, and cap `limit` at `[api] maximum_page_limit` (100 by default). The batch bodies do not cap `page_limit`. `GET` DAG runs and task instances also support keyset paging with `cursor`: Draft 1.0 dates this to 3.2.2, while the Airflow client release notes date it to 3.3.0 (apache/airflow #64845 and #65604); ⚠️ VERIFY in VC-11, and enable it only through the capability probe.
 
 Offset paging over unordered or changing data can skip or repeat rows. DCAM therefore:
@@ -3078,7 +3078,7 @@ The interactive version (`FR-CFG-03`) shows live values on each node, the comput
 |---|---|---|
 | Executor slots | `workers_current × worker_concurrency` | Upper bound for running Celery task instances at a moment |
 | Executor slots at maximum | `max_count × worker_concurrency` | Capacity ceiling for planning |
-| Global limit | `core.parallelism × number_of_schedulers` | Parallelism applies per scheduler. Composer's default matches the maximum worker concurrency (⚠️ VERIFY for Airflow 3) |
+| Global limit | `core.parallelism × number_of_schedulers` | Parallelism applies per scheduler. Composer documents no default; Google's guidance is that it is usually set to the maximum number of workers × `worker_concurrency`. Without an override DCAM infers it (`HM-032`) and never treats an unknown value as binding |
 | Inferred parallelism | `max over 24 h of (executor open_slots + running_tasks + queued_tasks)` | `HM-032`; per executor that reports the metric; provenance `inferred` |
 | Effective concurrency | `min(global limit, executor slots, Σ open pool slots, per-DAG limits…)` evaluated per scope | Computed per minute by the occupancy sweep ([§11.8](#118-analytics-pipeline-and-incremental-computation)) |
 | Composer default `worker_concurrency` | `auto`: calculated by Composer; the formula is not published | DCAM shows the supported ceiling `min(24, 12 × worker_vCPU, 8 × worker_memory_GB)` from the sizing guidance (⚠️ VERIFY), and the actual value inferred by `HM-032`; both are labelled |
@@ -4715,7 +4715,7 @@ VC-23, VC-25 and VC-26 can be resolved at M0 because they do not need a Composer
 | VC-03 | Partly resolved | Reads are billed per series returned ($0.50 per million, first million per month free). The request quota is visible only in the console |
 | VC-05 | Narrowed | `workload/scheduler/loop_duration` was added on 2026-10-13; `executor/open_slots` and `running_tasks` were fixed for Airflow 3 on 2025-12-09 |
 | VC-06 | Narrowed | OOM-event logs (2026-09-02) and start-up failure logs (2026-10-13) exist on Composer 3; exact log names still to be discovered |
-| VC-11 | Conflict | `GET` task instance lists have no `order_by` (confirmed). Whether `[api] maximum_page_limit` caps `limit` on API v1, and whether `cursor` arrived in 3.2.2 or 3.3.0, conflict between sources |
+| VC-11 | Narrowed | `GET` task instance lists have no `order_by` (confirmed). Upstream 2.11.1 does not cap `limit` on that list (the endpoint never calls `check_limit`; `/dags`, `/pools` and `/importErrors` are capped); Composer's behaviour is still to check. Whether `cursor` arrived in 3.2.2 or 3.3.0 still conflicts between sources |
 | VC-16 | Open, with conflict | Composer documents no triggerer capacity, and two pages disagree on default triggerer resources |
 | VC-17 | Narrowed | Composer 3 registers new API users as `Op` by default (documented) |
 | VC-19 | Fallback applied | Composer 3 computes `worker_concurrency` from worker resources with an unpublished formula; DCAM shows documented guidance and an inferred value |
@@ -4904,7 +4904,7 @@ This catalog lists the Cloud Monitoring metrics DCAM reads and what it uses them
 - **Retention.** Composer metrics are kept for **6 weeks**, which is why DCAM keeps its own long-term rollups.
 - **Workflow metrics** appear only for completed DAG runs and task instances.
 - **Cost.** Reads are billed per time series returned (since 2025-10-02). Per-DAG and per-task workflow metrics multiply series by DAGs and tasks, so they are read only within the series budget (`NFR-OBS-06`).
-- **Alignment used by DCAM.**
+- **Alignment used by DCAM.** Alignment periods are at least 60 s, an API rule ([source](https://docs.cloud.google.com/monitoring/api/ref_v3/rest/v3/projects.alertPolicies#Aggregation)); the 30 s `scale_factor_target` points can only be read unaligned.
 
   | Kind | Aligner | Notes |
   |---|---|---|
@@ -5111,7 +5111,7 @@ The legacy name form `composer_googleapis_com:environment_executor_queued_tasks`
 | Task logs | `GET …/logs/{try_number}` | `GET …/logs/{try_number}` | On demand only, size-limited and paged | Incident workspace (`FR-TASK-06`) |
 | Privilege probe | `GET /providers?limit=1` | `GET /providers?limit=1` | Doctor only | Detects an `Op` or higher role ([§18.3](#183-authentication-and-identity)) |
 
-**Never requested:** `/config`, `/connections`, `/variables`, XCom values, `/users`, `/roles`, `/plugins`, rendered templates, and any non-read method.
+**Never requested:** `/config`, `/connections`, `/variables`, XCom values, `/users`, `/roles`, `/plugins`, rendered templates, and any non-read method. The API v1 task instance list still returns `rendered_fields` on every row; the adapter drops them at the boundary ([§7.1](#71-source-matrix), rule 4).
 
 ### B.3 Example: incremental task instance facts (Airflow 2)
 
