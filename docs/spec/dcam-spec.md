@@ -1,24 +1,26 @@
 # deep-gcp-airflow-monitoring (DCAM)
 
-> **An open-source, local-first, read-only observability and advisory cockpit for Google Cloud Composer (managed Apache Airflow).**
+> **An open-source, local-first, read-only observability and advisory cockpit for Google Cloud's Managed Service for Apache Airflow (formerly Cloud Composer).**
 > Planning-ready product and technical specification, written to be consumed by humans *and* by Claude Code (spec-driven development, TDD, ADRs).
 
 | Field | Value |
 |---|---|
-| Document | `ready-for-planning-with-claude-code-oss-gcp-composer-deep-monitroing.md` |
-| Status | Draft 1.0 ― ready for planning |
-| Supersedes | `gcp-composer-deep-monitroing.md` (original brief, kept for history; see [Appendix I](#appendix-i-traceability-to-the-original-brief)) |
-| Working name | deep-gcp-airflow-monitoring, short **DCAM** (final OSS name is an open question, see [§25](#25-open-questions)) |
+| Document | `docs/spec/dcam-spec.md` |
+| Status | Draft 2.0 ― ready for implementation (M0) |
+| Supersedes | Draft 1.0 (*DEEP_COMPOSER_MONITORING / DCM*, kept in git history) and the original brief [`history/deep-gcp-airflow-monitoring_original_idea.md`](history/deep-gcp-airflow-monitoring_original_idea.md) (see [Appendix I](#appendix-i-traceability-to-the-original-brief)) |
+| Name | **deep-gcp-airflow-monitoring**, short **DCAM**. Chosen because Google renamed Cloud Composer to *Managed Service for Apache Airflow* (2026-04-15); see [OQ-01](#25-open-questions) for the trademark check before 1.0 |
+| What changed in v2 | [Changes in v2](#changes-in-v2) |
 | Audience | Maintainers, contributors, reviewers, and Claude Code acting as planner and implementer |
 | Normative sections | §3, §7–§11, §13–§19, §21 (requirements use RFC 2119 keywords) |
 | Informative sections | §1, §2, §4–§6, §12, §20, §22–§25 and appendices, unless a requirement ID appears |
 
-> **Trademark notice.** DCAM is an independent open-source project. It is not affiliated with, endorsed by, or sponsored by Google LLC or the Apache Software Foundation. "Google Cloud", "Cloud Composer", "Cloud Monitoring", "Cloud Logging" and "Google Kubernetes Engine" are trademarks of Google LLC. "Apache", "Apache Airflow" and "Airflow" are trademarks of The Apache Software Foundation.
+> **Trademark notice.** DCAM is an independent open-source project. It is not affiliated with, endorsed by, or sponsored by Google LLC or the Apache Software Foundation. "Google Cloud", "GCP", "Cloud Composer", "Managed Service for Apache Airflow", "Cloud Monitoring", "Cloud Logging" and "Google Kubernetes Engine" are trademarks of Google LLC. The project name uses "gcp" and "airflow" nominatively, to say what the tool works with. "Apache", "Apache Airflow" and "Airflow" are trademarks of The Apache Software Foundation.
 
 ---
 
 ## Table of contents
 
+- [Changes in v2](#changes-in-v2)
 - [0. Document control and how to use this spec](#0-document-control-and-how-to-use-this-spec)
 - [1. Executive summary](#1-executive-summary)
 - [2. Problem statement and context](#2-problem-statement-and-context)
@@ -66,9 +68,9 @@ This document is the single source of truth for **what** DCAM is, **why** it exi
 ### 0.2 How Claude Code should use this document
 
 1. **Read for context first:** §1–§6 (why, who, what, vocabulary). Do not start implementation from these sections.
-2. **Bootstrap the harness (milestone M0):** create the repository skeleton, `CLAUDE.md`, `.claude/` (settings, hooks, subagents, commands, skills), Spec Kit scaffolding and the first ADRs from [§21](#21-claude-code-harness) and the drafts in [Appendix F](#appendix-f-starter-harness-files).
-3. **Derive the constitution** (`.specify/memory/constitution.md`) from the principles in [§3.3](#33-guiding-principles) and the engineering rules in [§21.8](#218-spec-driven-development-with-spec-kit).
-4. **Plan per epic, not per document.** For each epic in [§9](#9-functional-requirements), in milestone order ([§22](#22-roadmap-and-milestones)), run the spec-driven loop from [§21.8](#218-spec-driven-development-with-spec-kit): *specify → clarify → plan → tasks → analyze → implement → converge*. Each feature spec MUST cite the requirement IDs it implements (for example `FR-BOTL-03`, `HM-006`, `NFR-RES-01`).
+2. **Bootstrap the lean harness (milestone M0):** create the repository skeleton, `CLAUDE.md`, `.claude/` (settings, hooks, the M0 core subagents, commands and skills) and the first ADRs from [§21](#21-claude-code-harness) and the drafts in [Appendix F](#appendix-f-starter-harness-files). Spec Kit is not installed at M0 ([§21.8](#218-spec-driven-development-with-spec-kit)).
+3. **Derive the constitution** (`docs/spec/constitution.md` at M0; `.specify/memory/constitution.md` once Spec Kit is adopted) from the principles in [§3.3](#33-guiding-principles) and the engineering rules in [§21.8](#218-spec-driven-development-with-spec-kit).
+4. **Plan per epic, not per document.** For each epic in [§9](#9-functional-requirements), in milestone order ([§22](#22-roadmap-and-milestones)), run the spec-driven loop from [§21.8](#218-spec-driven-development-with-spec-kit): *specify → clarify → plan → tasks → implement → verify* (Spec Kit adds *analyze* and *converge* once adopted). Each feature spec MUST cite the requirement IDs it implements (for example `FR-BOTL-03`, `HM-006`, `NFR-RES-01`).
 5. **Write tests first.** Every requirement ID gets at least one failing test before implementation ([§19](#19-testing-validation-and-quality-strategy)). EARS acceptance criteria in §9 translate 1:1 into test cases.
 6. **Record decisions.** Any decision that changes a structural choice listed in the ADR backlog ([§21.9](#219-architecture-decision-records)) MUST be captured as a MADR-format ADR before or with the implementing change.
 7. **Resolve open questions** ([§25](#25-open-questions)) before starting the milestone that depends on them, via an ADR or a spec clarification.
@@ -105,8 +107,8 @@ This document is the single source of truth for **what** DCAM is, **why** it exi
   | `ADR` | Architecture decision record | `ADR-0005` |
   | `M` | Milestone | `M3` |
 
-- **Names.** "Composer" means Google Cloud Composer. Google's documentation now calls it *Managed Service for Apache Airflow* ("Gen 3" is Composer 3), while API names, metric prefixes and `gcloud composer` commands are unchanged. "Airflow" means Apache Airflow. "Environment" means one Composer environment. "Fleet" means all environments configured in one DCAM workspace.
-- **Versions.** "Composer 3" and "Composer 2" refer to Cloud Composer major versions. "Airflow 2" means Airflow 2.10 or later 2.x; "Airflow 3" means Airflow 3.0 or later. At the time of writing, Composer 3 offers Airflow 2.11 builds (the default) and Airflow 3.2 and 3.3 builds ([§2.3](#23-composer-3-realities)).
+- **Names.** "Composer" means Google Cloud Composer, which Google renamed *Managed Service for Apache Airflow* on 2026-04-15 ("Managed Airflow (Gen 3)" is Composer 3, "(Gen 2)" is Composer 2, "(Legacy Gen 1)" is Composer 1). The Cloud Composer API (`composer.googleapis.com`), the `composer.googleapis.com/` metric prefix, the `cloud_composer_*` monitored resource types and the `gcloud composer` commands are unchanged; the Google provider for Airflow adds `ManagedAirflow*` aliases for its `CloudComposer*` operators. This document keeps the short names "Composer 3" and "Composer 2" because the APIs still use them, and writes "Gen 3" or "Gen 2" where user-facing text follows Google's new wording. "Airflow" means Apache Airflow. "Environment" means one Composer environment. "Fleet" means all environments configured in one DCAM workspace.
+- **Versions.** "Composer 3" and "Composer 2" refer to Cloud Composer major versions. "Airflow 2" means Airflow 2.10 or later 2.x; "Airflow 3" means Airflow 3.0 or later. At the time of writing (2026-11), Composer 3's default build is `composer-3-airflow-2.11.1-build.22` (default since 2026-04-28, supported until 2027-10-20), and Airflow 3 builds 3.2.2 and 3.3.1 are offered ([§2.3](#23-composer-3-realities)).
 - **Time.** All timestamps are stored in UTC with time zone-aware types. The UI displays the user's chosen time zone (default: browser), and can switch to the environment's `core.default_timezone`.
 - **Placeholders.** Example values such as `acme-data-dev`, `europe-west1` and `orders_daily` are fictitious.
 
@@ -117,6 +119,28 @@ Statements about Google Cloud and Airflow APIs, metric names, quotas and default
 - Facts marked **⚠️ VERIFY** are uncertain or version-dependent, and MUST be confirmed during the M1 "API reality check" spike ([§22.5](#225-m1-reality-check-spike)) before code depends on them.
 - Every adapter MUST encode such assumptions as **contract tests** against recorded fixtures, so drift is detected rather than silently mis-reported.
 - When reality differs from this document, the implementer MUST update this document (or a linked ADR) in the same change.
+
+---
+
+## Changes in v2
+
+Draft 2.0 (2026-11-05) keeps the structure, identifiers and requirements of Draft 1.0 and changes the following. Reviewers can read this list instead of the whole document.
+
+| # | Change | Where |
+|---|---|---|
+| V2-01 | **Renamed** DEEP_COMPOSER_MONITORING (DCM) to **deep-gcp-airflow-monitoring (DCAM)**, following Google's rename of Cloud Composer to *Managed Service for Apache Airflow*. Every identifier followed: `dcam` CLI, `DCAM_*` variables, `dcam.config.yaml`, `@dcam/*` packages, `dcam.duckdb`, `dcam-reader` role | Whole document, [§0.3](#03-conventions) |
+| V2-02 | **Re-prioritised roadmap.** The first public release (M2) is the DAG league table; M3 is bottlenecks and root causes. Fleet and cockpit move to M4, Advisor and Config Advisor to M5, wiki to M6, alerting and incidents to M7, static analysis, reports and AI to M8. All milestone columns in §5, §8.2 and §9 were remapped | [§22.2](#222-milestone-overview), [§5](#5-scope-and-release-overview) |
+| V2-03 | **First target profile:** Composer 3, Airflow 2.11.1, about 2,000 DAGs, proxy, user ADC. The Airflow API v1 adapter comes first; the v2 adapter (Airflow 3) moves to M4; impersonation (`FR-AUTH-03`) to M4; `FR-COLL-07` to M1 | [§10](#10-non-functional-requirements), [§7.11](#711-observer-budget-do-no-harm) |
+| V2-04 | **Throttle classifier mirrors Airflow 2.11's scheduler:** the `HM-006` decision table now follows the check order in `SchedulerJobRunner._executable_task_instances_to_queued`, adds "pool does not exist" from `/dagWarnings`, and states that Airflow 2.11 records no "entered scheduled" timestamp | [HM-006](#hm-006-throttle-reason-classifier), [HM-001](#hm-001-queue-wait) |
+| V2-05 | **Cloud Monitoring is billed per time series returned** (since 2025-10-02). New `NFR-OBS-06` series budget, per-DAG data primarily from the Airflow API | [§7.2](#72-cloud-monitoring-src-mon), [§7.10](#710-quotas-limits-and-cost-of-observation), [§10.5](#105-observer-budget-load-on-monitored-systems) |
+| V2-06 | **Per-task CPU and memory metrics** are documented for Airflow 2.10.5 only; VC-02 becomes the first spike item and `HM-004` Method B must be production-ready in M2 | [HM-004](#hm-004-estimated-cpu-and-memory-per-dag-and-task), [§22.5](#225-m1-reality-check-spike) |
+| V2-07 | **Fact refresh (2026-11):** confirmed and removed ⚠️ VERIFY markers for workflow-metric labels, Logging quotas, Composer 3 blocked and limited overrides, task-log location, API v1 filters and paging; added new metrics and logs (scheduler loop duration, OOM and start-up failure logs, starvation metrics); applied the VC-19 fallback for `worker_concurrency` sizing; recorded conflicts that stay ⚠️ (cursor paging version, triggerer defaults) | [§2.3](#23-composer-3-realities), [§7](#7-data-sources-and-agentless-collection), [Appendix A](#appendix-a-cloud-composer-metric-catalog), [§22.5](#225-m1-reality-check-spike) |
+| V2-08 | **Technology pins refreshed** (Node.js 22.12 minimum on Intel macOS 12, TypeScript 6.0, DuckDB 2.0 LTS because 2.1 drops macOS x64, pnpm 11, MUI 9, TanStack Table 9, Vite 8, Vitest 5, ECharts 6) | [§11.6](#116-technology-stack), [§10.9](#109-portability-and-compatibility) |
+| V2-09 | **Lean harness at M0**, with a growth path; GitHub Spec Kit (now `specify-cli` 1.3.0) is adopted at M2 only if the lightweight feature flow proves insufficient | [§21](#21-claude-code-harness) |
+| V2-10 | **Public repository from the first commit:** hygiene controls for configuration, fixtures and denylists; a guide for running DCAM against your own environment | [§18.12](#1812-public-repository-hygiene), [§17.6](#176-run-against-your-environment) |
+| V2-11 | **Landscape refresh:** Google's remote MCP server (GA 2026-08-25), the Managed Airflow Agent, Google agent skills and gcpdiag rules; confirmed that no tool offers per-DAG slot accounting or queued-work attribution | [Appendix G](#appendix-g-oss-landscape-and-positioning), [§24](#24-risks-and-mitigations) |
+| V2-12 | **Open questions resolved:** OQ-01 (working name DCAM), OQ-02 (Apache-2.0), OQ-03 (Airflow 3 adapter at M4) | [§25](#25-open-questions) |
+| V2-13 | Repaired 50 mis-encoded characters from Draft 1.0 | ― |
 
 ---
 
@@ -193,19 +217,24 @@ Statements about Google Cloud and Airflow APIs, metric names, quotas and default
 
 - **Managed infrastructure is less visible.** In Composer 3 the environment's cluster and Airflow database run in a Google-managed tenant project. Users cannot use `kubectl` against it or connect to the database directly. Insight must come from metrics and logs that Composer exports to the customer project, the Composer API and the Airflow REST API. Composer 2 environments still expose the GKE cluster in the customer project and can be inspected more deeply (optional adapter, [§7.8](#78-optional-and-future-sources)).
 - **Workloads are sized declaratively.** Scheduler, DAG processor, triggerer, web server and workers are configured by CPU, memory and count (workers by `min_count` and `max_count`). Performance depends on how these sizes interact with Airflow concurrency settings.
+- **One executor.** Composer 3 runs `CeleryKubernetesExecutor` only. Celery workers provide the slots DCAM analyses; tasks sent to the Kubernetes executor do not use Celery slots and are reported separately (`HM-011`).
+- **`worker_concurrency` is computed by Composer 3.** Unless overridden, Composer 3 derives `celery.worker_concurrency` from the worker's CPU and memory, with a formula Google does not publish. Google's guidance is that concurrency should exceed peak concurrent tasks ÷ `max_count`, and that a value set too high can stop autoscaling from ever adding workers. DCAM therefore shows the documented guidance and an inferred value (`HM-032`), never a computed ceiling.
 - **Defaults and allowed overrides differ from Composer 2** and from upstream Airflow. Composer 3 blocks overrides of many options, for example:
   - `[scheduler] parsing_processes`;
   - the whole `[metrics]` section, so there is no custom StatsD export;
   - `[logging]` and `[cli]`.
 
-  Composer 3 also limits others, for example `celery.worker_concurrency` to 1–24 and `scheduler.min_file_process_interval` to at least 30 s. See [Appendix D](#appendix-d-config-knowledge-base-seed).
+  Composer 3 also limits others: `celery.worker_concurrency` to 1–24, `scheduler.min_file_process_interval` to at least 30 s, `core.dag_file_processor_timeout` to at most 600 s and `scheduler.scheduler_heartbeat_sec` to at least 15 s. `[core] parallelism` is neither blocked nor limited. Composer's defaults include `max_active_tasks_per_dag` 16, `max_active_runs_per_dag` 25 and `task_queued_timeout` 2400 s. See [Appendix D](#appendix-d-config-knowledge-base-seed); all of this was checked against the Composer configuration page in 2026-11.
 - **The effective configuration is not readable read-only.** The Composer API returns overrides only. The Airflow `/config` endpoint needs the `Op` role, and the CLI configuration commands are blocked. DCAM therefore resolves effective values from overrides, a versioned knowledge base and inference from observed behaviour, and labels each value with its provenance ([§14.1](#141-effective-configuration-resolution), `HM-032`).
 - **Telemetry has limits.**
   - Cloud Monitoring keeps Composer metrics for six weeks.
-  - Per-DAG workflow metrics exist only for completed runs and carry no environment label.
+  - Per-DAG workflow metrics exist only for completed runs and carry no environment label (confirmed: `cloud_composer_workflow` has only `project_id`, `location` and `workflow_name`).
+  - Per-task CPU and memory metrics (`workflow/task/cpu_usage`, `workflow/task/mem_usage`) are documented for Airflow 2.10.5 only. They probably also work on 2.11.1, which keeps the same task runner, but this is undocumented (VC-02). Upstream Airflow 3 no longer emits them.
+  - Cloud Monitoring reads are billed per time series returned (since 2025-10-02), so wide per-DAG queries have a direct cost (`NFR-OBS-06`).
   - On Composer 3, task logs are stored only in Cloud Logging (not in the environment bucket), and Logging read quotas are small and shared ([§7.3](#73-cloud-logging-src-log)).
   - Long-term baselines are therefore something DCAM must keep itself.
-- **Two Airflow generations coexist.** The default Composer 3 build runs Airflow 2.11, and Airflow 3.2 and 3.3 builds are offered alongside it. Upstream, Airflow 2 reached end of life on 2026-04-22, so Airflow 3 adoption will grow. Moving to Airflow 3 is a migration to a new environment, not an in-place upgrade, so both generations often run side by side for a while. The REST API generation (v1 or v2), task states, configuration keys and some scheduler semantics differ. DCAM therefore uses separate adapters behind one port (ADR-0013) and documents every difference that changes a signal ([§7.5](#75-airflow-rest-api-src-af-api)).
+- **Two Airflow generations coexist.** The default Composer 3 build runs Airflow 2.11.1 (`composer-3-airflow-2.11.1-build.22`, default since 2026-04-28, supported until 2027-10-20). Airflow 3 became generally available on Composer on 2026-04-15, and builds 3.2.2 and 3.3.1 are offered alongside 2.11.1; the 2.10.5 builds were removed on 2026-09-25. Upstream, 2.11.2 (2026-03-14) is the last Airflow 2 release and Airflow 2 reached end of life on 2026-04-22, so Airflow 3 adoption will grow. Moving to Airflow 3 is a migration to a new environment, not an in-place upgrade, so both generations often run side by side for a while. The REST API generation (v1 or v2), task states, configuration keys and some scheduler semantics differ. DCAM therefore uses separate adapters behind one port (ADR-0013) and documents every difference that changes a signal ([§7.5](#75-airflow-rest-api-src-af-api)).
+- **Airflow API roles.** On Composer 3, a user who calls the Airflow REST API for the first time is registered with the `Op` role by default. DCAM needs only `Viewer`, so the doctor warns about broader roles ([§18.3](#183-authentication-and-identity)).
 - **A common migration pattern** is that hand-tuned Composer 2 concurrency settings perform worse on Composer 3, and teams revert to defaults, then need *evidence* to re-tune safely. DCAM exists to provide that evidence.
 
 ### 2.4 Scale realities (thousands of DAGs)
@@ -216,6 +245,7 @@ Statements about Google Cloud and Airflow APIs, metric names, quotas and default
 - **Metadata database growth** degrades the scheduler and UI unless retention is managed.
 - **Logging volume** grows with DAG count and verbosity, increasing cost and sometimes leading to exclusion filters that later hide diagnostic evidence.
 - **Human scale.** Thousands of DAGs cannot be reviewed one by one; ranking, normalisation, distributions and outlier detection are required.
+- **First target profile.** The first releases are validated on an environment with about 2,000 DAGs on Airflow 2.11.1 ([§10](#10-non-functional-requirements)). At that size the league table, the occupancy sweep and the observer budget all matter from day one.
 
 ### 2.5 Why local-first and agentless first
 
@@ -347,23 +377,21 @@ Each question MUST be answerable within three clicks from the fleet overview (`G
 
 ## 5. Scope and release overview
 
-| Capability | MVP (M1–M3) | v1.0 (M4–M8) | Future |
+The MVP is built around the two questions users ask first: *which DAGs consume the environment* (`Q-02`) and *why is work waiting* (`Q-03`). It targets one environment at a time; fleet views come after it.
+
+| Capability | MVP (M0–M3) | v1.0 (M4–M8) | Future |
 |---|---|---|---|
-| Multi-environment configuration, discovery, sign-in, doctor | ✅ | Polished wizard | Team server SSO |
-| Agentless collectors (Monitoring, Logging, Composer API, Airflow API v1, GCS) | ✅ (core set) | Full set, Airflow API v2 adapter, Composer 2 GKE adapter | In-environment listener companion |
-| Local storage, retention, rollups | ✅ | Export, import, replay | Optional BigQuery sink for team analytics |
-| Fleet overview and environment cockpit | ✅ | ✅ | |
-| DAG league table, DAG detail, task analytics | ✅ (core) | Compare, critical path, regressions | |
-| Hidden metrics | Core: `HM-001`–`HM-005`, `HM-006` v0, `HM-011`, `HM-013`, `HM-015`, `HM-016`, `HM-018`, `HM-019`, `HM-021` (estimate), `HM-022`, `HM-026` (image), `HM-028`, `HM-030`–`HM-032` | All in [§8](#8-hidden-metrics-and-derived-signals-catalog) | ML-assisted anomaly models |
-| Bottleneck analysis and schedule intelligence | Throttle classifier v0 | Full classifier, collisions, forecast, noisy neighbours | What-if simulator |
-| Advisor (recommendations) | | ✅ seed rule pack ([§13](#13-recommendation-engine-and-rule-catalog)) | Community rule packs |
-| Config Advisor | Effective config view | (i) explanations, relationships, drift, verification | |
-| Interactive wiki and runbooks | | ✅ | Community content |
-| Alerting | | Local rules, notifiers, export to Cloud Monitoring and Terraform | |
-| Change timeline | Basic | Full overlays | |
-| DAG static analysis | | ✅ | Autofix pull requests (opt-in) |
-| Reports and export | CSV | Parquet, HTML report, Prometheus endpoint | Scheduled reports in team server |
-| AI integration | | MCP server, copy-as-prompt, optional LLM explainer | |
+| Configuration, sign-in, doctor (one environment, proxy, ADC) | ✅ | Multi-environment discovery, impersonation, polished wizard | Team server SSO |
+| Agentless collectors | Airflow API v1, Cloud Monitoring (core metrics), Composer API | Cloud Logging, environment bucket, Airflow API v2 adapter, Composer 2 GKE adapter | In-environment listener companion |
+| Local storage, retention, rollups | ✅ | Export, import, replay, Parquet cold tier | Optional BigQuery sink for team analytics |
+| DAG league table, DAG detail, task analytics (M2) | ✅ League table, Pareto, treemap, DAG detail with Gantt, compare | Regressions across environments | |
+| Bottlenecks and root causes (M3) | ✅ Full throttle classifier, capacity and pools tabs, sensor waste, noisy neighbours, schedule collisions, first rules (findings list only) | Forecast and stagger suggestions in the Advisor | What-if simulator |
+| Hidden metrics | `HM-001`–`HM-012`, `HM-015`–`HM-017`, `HM-021` (estimate), `HM-023`, `HM-024`, `HM-027`, `HM-030`–`HM-032` | All in [§8](#8-hidden-metrics-and-derived-signals-catalog) | ML-assisted anomaly models |
+| Fleet overview and environment cockpit | Capacity and pools tabs only | ✅ (M4) | |
+| Advisor (recommendations) and Config Advisor | Findings list for the first rules | ✅ seed rule pack, (i) explanations, drift, verification (M5) | Community rule packs |
+| Interactive wiki and runbooks | | ✅ (M6) | Community content |
+| Alerting, incidents, change timeline | | Local rules, notifiers, export to Cloud Monitoring and Terraform; full change overlays (M4 basic, M7 full) | |
+| DAG static analysis, reports, AI integration | CSV export | Static analysis, Parquet, HTML report, Prometheus endpoint, MCP server, copy-as-prompt (M8) | Autofix pull requests (opt-in) |
 | Deployment targets | Local | Local, Docker | Cloud Run behind IAP, Airflow 3 plugin embedding |
 | Actions on environments | ❌ | ❌ | Guarded, opt-in actions |
 
@@ -447,7 +475,7 @@ DCAM v1 is **agentless**. It reads only through public Google Cloud APIs and the
 
 This section is normative for collectors. For each source it states what the source provides, how DCAM reads it, the source's limits, and how DCAM degrades when the source is unavailable. Exact metric, endpoint and query details are in [Appendix A](#appendix-a-cloud-composer-metric-catalog), [Appendix B](#appendix-b-airflow-rest-api-usage) and [Appendix C](#appendix-c-cloud-logging-query-library).
 
-> **Naming note.** Google's documentation now calls Cloud Composer *Managed Service for Apache Airflow*: Composer 3 is "Gen 3" and Composer 2 is "Gen 2". The API name (`composer.googleapis.com`), the metric prefixes and the `gcloud composer` commands are unchanged. This document keeps the Composer names.
+> **Naming note.** Since 2026-04-15 Google calls Cloud Composer *Managed Service for Apache Airflow*: Composer 3 is "Managed Airflow (Gen 3)" and Composer 2 is "(Gen 2)". The API name (`composer.googleapis.com`), the metric prefix, the `cloud_composer_*` monitored resource types and the `gcloud composer` commands are unchanged. This document keeps the Composer names because the APIs do.
 
 ### 7.1 Source matrix
 
@@ -455,13 +483,13 @@ This section is normative for collectors. For each source it states what the sou
 |---|---|---|---|---|---|
 | `SRC-COMPOSER` | Composer API v1 | `composer.googleapis.com` REST | Environments: state, configuration overrides, sizing, image, retention, maintenance. Also workload status, long-running operations, image versions and database properties | Inventory, Config Advisor, change timeline, `HM-025`, `HM-026`, `HM-028` | Core (M1) |
 | `SRC-MON` | Cloud Monitoring API v3 | `timeSeries.list`, `metricDescriptors.list`; optionally the Prometheus-compatible query API | Composer metrics at three levels: environment, workflow (per DAG and task) and workload (per component instance) | Health, capacity, scheduler, parsing, database, triggerer, per-DAG cross-checks | Core (M1) |
-| `SRC-AF-API` | Airflow REST API (v1 for Airflow 2, v2 for Airflow 3) | Environment web server (`config.airflowUri`) with a Google OAuth bearer token | DAGs, tasks, DAG runs, task instances and their tries, pools, import errors, event log, health and version. Task logs only on demand | All DAG-level analytics, the occupancy sweep and the throttle classifier | Core (v1 in M1, v2 in M3) |
-| `SRC-LOG` | Cloud Logging API v2 | `entries.list`, `logs.list` | Bounded, narrow queries for log-derived signals and samples: OOM kills, evictions, zombies, import errors, database errors. Also error signatures | `HM-015`, `HM-018`, incident workspace | Core (M3) |
-| `SRC-GCS` | Cloud Storage JSON API | Object list and get on the environment bucket | Inventory of `dags/` objects (name, size, generation, update time). DAG source for static analysis (opt-in) | `HM-014`, change timeline, `FR-SCAN-*` | Core (M2); source download (M7) |
+| `SRC-AF-API` | Airflow REST API (v1 for Airflow 2, v2 for Airflow 3) | Environment web server (`config.airflowUri`) with a Google OAuth bearer token | DAGs, tasks, DAG runs, task instances and their tries, pools, import errors, event log, health and version. Task logs only on demand | All DAG-level analytics, the occupancy sweep and the throttle classifier | Core (v1 in M1, v2 in M4) |
+| `SRC-LOG` | Cloud Logging API v2 | `entries.list`, `logs.list` | Bounded, narrow queries for log-derived signals and samples: OOM kills, evictions, zombies, import errors, database errors. Also error signatures | `HM-015`, `HM-018`, incident workspace | Core (M4) |
+| `SRC-GCS` | Cloud Storage JSON API | Object list and get on the environment bucket | Inventory of `dags/` objects (name, size, generation, update time). DAG source for static analysis (opt-in) | `HM-014`, change timeline, `FR-SCAN-*` | Core (M4); source download (M8) |
 | `SRC-AF-CLI` | Airflow CLI through the Composer API | `executeAirflowCommand`, `pollAirflowCommand` | Allowlisted read-only subcommands, for example `dags report` | Enrichment of `HM-013` | Optional and opt-in; needs an elevated permission ([§7.8](#78-optional-and-future-sources)) |
-| `SRC-AUDIT` | Cloud Audit Logs (Admin Activity), read through Cloud Logging | `entries.list` on `cloudaudit.googleapis.com%2Factivity` | Who changed an environment, and when | Change timeline actor (`FR-CHG-01`) | Optional (M6) |
-| `SRC-CAI` | Cloud Asset Inventory | `searchAllResources` | Composer environments across folders or the organization | Discovery (`FR-SETUP-04`) | Optional (M1) |
-| `SRC-BQ` | BigQuery, read-only queries | `jobs.query` with a byte cap | Cloud Billing export (actual environment cost). `INFORMATION_SCHEMA.JOBS` labels for BigQuery cost per DAG | `HM-021` | Optional (M7) |
+| `SRC-AUDIT` | Cloud Audit Logs (Admin Activity), read through Cloud Logging | `entries.list` on `cloudaudit.googleapis.com%2Factivity` | Who changed an environment, and when | Change timeline actor (`FR-CHG-01`) | Optional (M7) |
+| `SRC-CAI` | Cloud Asset Inventory | `searchAllResources` | Composer environments across folders or the organization | Discovery (`FR-SETUP-04`) | Optional (M4) |
+| `SRC-BQ` | BigQuery, read-only queries | `jobs.query` with a byte cap | Cloud Billing export (actual environment cost). `INFORMATION_SCHEMA.JOBS` labels for BigQuery cost per DAG | `HM-021` | Optional (M8) |
 | `SRC-GKE` | GKE and Kubernetes APIs (Composer 2 only) | Read-only cluster, pod and event listing | Pod states, restarts, events, node pressure | Composer 2 depth | Optional (M8) |
 | `SRC-COMPANION` | In-environment listener companion | Events from an Airflow listener plugin | Exact state transitions and timestamps | Event-level fidelity | Future ([§7.9](#79-future-in-environment-companion)) |
 
@@ -520,10 +548,11 @@ Every metric carries the metric label `image_version`. The full catalog, with ki
 
 **Gotchas (each encoded as a contract test).**
 
-1. **Workflow metrics have no `environment_name` label.** When several environments share a project and location, per-DAG workflow series can collide on DAG ID. DCAM detects DAG IDs that exist in more than one such environment, marks their series as "ambiguous", and uses Airflow API data for them instead (⚠️ VERIFY in M1 whether any label disambiguates).
+1. **Workflow metrics have no `environment_name` label.** The `cloud_composer_workflow` resource has only `project_id`, `location` and `workflow_name`, and none of its metric labels (`image_version`, `state`, `task_name`, `task_id`, …) names the environment (confirmed in the monitored-resource and metric lists, 2026-11). When several environments share a project and location, per-DAG workflow series collide on DAG ID. DCAM detects DAG IDs that exist in more than one such environment, marks their series as "ambiguous", and uses Airflow API data for them instead.
 2. **Workflow metrics exist only for completed DAG runs and task instances.** Live views therefore use the Airflow API.
-3. **Per-task CPU and memory metrics.** `workflow/task/cpu_usage` and `workflow/task/mem_usage` (percent) come from Airflow's task utilisation sampling, which uses psutil every 5 s and was added in Airflow 2.10.
-   - Upstream Airflow 3 does not emit them (checked in 3.1 and 3.3.2; ⚠️ VERIFY on Composer's Airflow 3 builds).
+3. **Per-task CPU and memory metrics.** `workflow/task/cpu_usage` and `workflow/task/mem_usage` (percent, label `task_id`) come from Airflow's task utilisation sampling, which uses psutil every 5 s and was added in Airflow 2.10. Composer added them on 2025-08-05 and documents them as "Airflow 2.10.5 only".
+   - On Airflow 2.11.1 they are probably emitted, because 2.11 keeps the 2.10 task runner, but Google does not document it (⚠️ VERIFY first in M1, VC-02).
+   - Upstream Airflow 3 does not emit them (checked in 3.1 and 3.3.2), so DCAM expects nothing on Composer's Airflow 3 builds.
    - They measure only the task process.
    - Memory is a percentage of the memory the process can see.
    - CPU can exceed 100 % on multi-core workers (`HM-004`).
@@ -533,7 +562,17 @@ Every metric carries the metric label `image_version`. The full catalog, with ki
 7. **Deprecated metrics are not used.** These include the smart-sensor metrics and the legacy web server CPU and memory metrics.
 8. **Documentation naming drift.** Some Composer pages use metric names that differ from the descriptors, for example for triggerer metrics. The descriptors are authoritative.
 
-**Cost.** Reading metrics through the API may be billed above a free allotment (⚠️ VERIFY current Cloud Monitoring read pricing). DCAM counts time series returned per project per day and shows the estimate on its health page (`FR-SELF-01`).
+**Cost.** Since 2025-10-02 Cloud Monitoring bills API reads per time series returned: $0.50 per million series, with the first million per month free. A per-task query across 2,000 DAGs can return tens of thousands of series in one call, so cost, not the request rate, is the practical limit. DCAM therefore:
+
+- counts time series returned per project and day and shows the month-to-date estimate on its health page (`FR-SELF-01`);
+- enforces the series budget `NFR-OBS-06` (default: the free tier);
+- reduces environment-level views server-side with `crossSeriesReducer`;
+- reads workflow (per-DAG and per-task) metrics only in `mon.slow`, and only for DAGs in view or the top N by slot-seconds;
+- takes per-DAG facts from the Airflow API and uses workflow metrics as cross-checks only.
+
+Google publishes no fixed `timeSeries.list` request quota; the per-project value is shown in the console (`gcloud alpha services quota list`), and responses are capped at 200 MB.
+
+**Metrics added since Draft 1.0** (to the capability probe and [Appendix A](#appendix-a-cloud-composer-metric-catalog)): `workload/scheduler/loop_duration` (2026-10-13), the starvation metrics `environment/scheduler/tasks` with `state = starving` and `environment/pool/starving_tasks`, `workflow/task_instance/queued_duration`, `workflow/task/schedule_delay` and `workflow/dependency_check_duration`. On Airflow 3 builds, `executor/open_slots` and `executor/running_tasks` were missing until a fix on 2025-12-09, so `HM-032` treats their absence on older builds as a capability gap, not as zero.
 
 ### 7.3 Cloud Logging (SRC-LOG)
 
@@ -541,12 +580,12 @@ Every metric carries the metric label `image_version`. The full catalog, with ki
 
 - Composer logs use the `cloud_composer_environment` resource type, with `environment_name` and `location` labels.
 - Confirmed log names include `airflow-scheduler`, `airflow-worker`, `airflow-webserver` and `dag-processor-manager`.
-- Other log names MUST be discovered with `projects.logs.list` rather than hard-coded (⚠️ VERIFY names in M1). Examples are triggerer logs, database retention logs, and the OOM-event and workload start-up failure logs added in 2026.
+- Other log names MUST be discovered with `projects.logs.list` rather than hard-coded (⚠️ VERIFY exact names in M1). Examples are triggerer logs and database retention logs. Composer 3 added OOM-event logs on 2026-09-02, and workload start-up failure logs (quota, capacity and internal errors; KubernetesPodOperator and Kubernetes executor failures excluded) on 2026-10-13. Both feed `HM-018`.
 - Task log entries carry labels such as `workflow` (the DAG ID), `execution-date` and `try-number`. `task-id` and `map-index` labels are expected but not confirmed (⚠️ VERIFY).
 
-**Composer 3 specifics.** Task logs are stored only in Cloud Logging, not in the environment bucket. How long they remain available depends on the log bucket's retention, which is 30 days by default for the `_Default` bucket.
+**Composer 3 specifics.** Task logs are stored only in Cloud Logging, not in the environment bucket (confirmed; Google's supported workaround is a log sink). How long they remain available depends on the log bucket's retention, which is 30 days by default for the `_Default` bucket. Because of this and the read quota below, a user-owned log sink to BigQuery or Log Analytics is the recommended path for log-heavy analysis (OQ-09).
 
-**Quota is the binding constraint.** `entries.list` allows **60 requests per minute per project, and this quota cannot be increased**. Every reader of that project's logs shares it. Live tailing is limited to 10 sessions per project. Therefore:
+**Quota is the binding constraint.** `entries.list` allows **60 requests per minute per project, and this quota cannot be increased** (confirmed 2026-11; at most 100 resource names per request). Every reader of that project's logs shares it. Live tailing is limited to 10 sessions per project. Therefore:
 
 - **Budget.** By default DCAM uses at most 20 % of the quota, shared fairly across environments in the same project (`NFR-OBS-02`).
 - **Metrics before logs for counts.** DCAM counts these events from metrics:
@@ -596,7 +635,7 @@ Every metric carries the metric label `image_version`. The full catalog, with ki
 
 ### 7.5 Airflow REST API (SRC-AF-API)
 
-**Access.** The base URL is `{config.airflowUri}/api/v1` for Airflow 2 or `/api/v2` for Airflow 3. Requests carry a Google OAuth 2.0 access token. The identity needs `composer.environments.get` plus an Airflow role. The `Viewer` role covers everything DCAM reads ([§18.3](#183-authentication-and-identity)).
+**Access.** The base URL is `{config.airflowUri}/api/v1` for Airflow 2 or `/api/v2` for Airflow 3. Requests carry a Google OAuth 2.0 access token. The identity needs `composer.environments.get` plus an Airflow role. The `Viewer` role covers everything DCAM reads ([§18.3](#183-authentication-and-identity)). Composer 3 registers a user who first calls the API with the `Op` role by default, so the doctor warns when the role is broader than `Viewer`.
 
 **Load model.** The API is served by the environment's Airflow web server (Airflow 2) or API server (Airflow 3), and it queries the metadata database. Every DCAM call therefore costs the environment CPU and database time, and the web server's IP access rules apply. For this reason the Airflow API has the tightest budget (`NFR-OBS-01`).
 
@@ -624,8 +663,8 @@ Every metric carries the metric label `image_version`. The full catalog, with ki
 
 **Pagination and consistency.** Paging behaviour differs by API generation (checked in the Airflow 2.11.1 and 3.3.2 source):
 
-- **Airflow 2 (API v1).** The task instance list endpoints (`GET …/taskInstances` and the batch `POST …/taskInstances/list`) return rows in no defined order and do not cap `limit`. The DAG run list endpoints and `listMapped` accept `order_by`.
-- **Airflow 3 (API v2).** `GET` list endpoints accept `order_by`, return 50 rows unless `limit` is set, and cap `limit` at `[api] maximum_page_limit` (100 by default). The batch bodies do not cap `page_limit`. From Airflow 3.2.2, `GET` DAG runs and task instances also support keyset paging with `cursor`.
+- **Airflow 2 (API v1).** The task instance list endpoints (`GET …/taskInstances` and the batch `POST …/taskInstances/list`) return rows in no defined order: the `GET` task instance list has no `order_by` parameter (confirmed in the `v2-11-stable` OpenAPI specification and endpoint code). The DAG run list endpoints, `listMapped`, `/dagWarnings` and `/eventLogs` accept `order_by`. Draft 1.0 stated that the task instance list does not cap `limit`; the 2026-11 research found `limit` defaulting to 100 and capped by `[api] maximum_page_limit` (default 100, not blocked on Composer 3). The sources conflict, so the cap stays ⚠️ VERIFY (VC-11). DCAM always sends a page size of at most 100, so neither reading changes its behaviour.
+- **Airflow 3 (API v2).** `GET` list endpoints accept `order_by`, return 50 rows unless `limit` is set, and cap `limit` at `[api] maximum_page_limit` (100 by default). The batch bodies do not cap `page_limit`. `GET` DAG runs and task instances also support keyset paging with `cursor`: Draft 1.0 dates this to 3.2.2, while the Airflow client release notes date it to 3.3.0 (apache/airflow #64845 and #65604); ⚠️ VERIFY in VC-11, and enable it only through the capability probe.
 
 Offset paging over unordered or changing data can skip or repeat rows. DCAM therefore:
 
@@ -648,7 +687,7 @@ Live snapshots take exact counts from `total_entries`; when a state has more row
 | Health | `/health` | `/monitor/health` |
 | Scheduled timestamp on task instances | Not exposed (capability off) | `scheduled_when` (with `queued_when` and `run_after`) |
 | Per-task CPU and memory metrics | Emitted from Airflow 2.10 | Not emitted upstream (⚠️ VERIFY on Composer) |
-| Paging | Task instance lists have no defined order and no `limit` cap | `GET` lists: 50 rows by default, at most 100, with `order_by`; `cursor` from 3.2.2 |
+| Paging | Task instance lists have no defined order and no `order_by`; `limit` default 100 (cap ⚠️ VC-11) | `GET` lists: 50 rows by default, at most 100, with `order_by`; `cursor` from 3.2.2 or 3.3.0 (⚠️ VC-11) |
 | DAG run queue time | Not exposed | `queued_at` |
 | `max_active_tasks` scope | Per DAG | Per DAG run ([HM-005](#hm-005-dag-self-throttling)) |
 | Task-level limits (`max_active_tis_per_dag`, `max_active_tis_per_dagrun`) | Count running and queued tries | Also count deferred tries from 3.2.2, and awaiting-input tries from 3.3 |
@@ -675,7 +714,7 @@ Cadences come from the active profile ([§17.2](#172-annotated-example)). When n
 | `af.live` | Airflow API: non-terminal task instances and runs, pools | `airflowLive` | 10 s / 30 s / 120 s | Snapshot, diffed into state transitions | ― |
 | `af.facts` | Airflow API: finished task instances and runs, import errors, event log, health | `airflowFacts` | 30 s / 60 s / 300 s | `updated_at` watermark per environment, finished states only | 10 min |
 | `af.inventory` | Airflow API: DAGs, details, tasks | `airflowFacts` × 10 | 5 / 10 / 50 min | Snapshot and diff; details on change | ― |
-| `mon.core` | Monitoring: environment and workload metrics | `monitoring` | 60 s / 60 s / 300 s | Window ends at now − ingestion delay; trailing re-read | 10 min |
+| `mon.core` | Monitoring: environment and workload metrics | `monitoring` | 60 s / 60 s (stretched by the series governor, `NFR-OBS-06`) / 300 s | Window ends at now − ingestion delay; each call reads the full window since the previous call; trailing re-read | 10 min |
 | `mon.slow` | Monitoring: 600-second health metrics, workflow metrics, per-file parse metrics | `monitoring` × 5 | 5 / 5 / 25 min | Same as `mon.core` | 20 min |
 | `composer.config` | Composer API: environment and operations (workloads use the `airflowFacts` cadence) | `composer` | 5 / 10 / 30 min | Snapshot hash; operations by `createTime` | 1 h |
 | `gcs.dags` | Bucket listing | `bucket` | 5 / 15 / 60 min | Generation diff | ― |
@@ -764,7 +803,7 @@ This also lowers DCAM's observer load at very large scale.
 |---|---|---|---|
 | Cloud Logging `entries.list` | 60 requests/min per project; not adjustable | ≤ 12/min per project (20 %) | Shared with every reader of the project's logs; ≤ 100 resource names per request; page tokens valid for 24 h |
 | Cloud Logging tail | 10 sessions per project | Not used | ― |
-| Cloud Monitoring reads | Per-project quota shown in the console (⚠️ VERIFY the value in M1) | ≤ 30 requests/min per project | 200 MB maximum response size; a metrics scope can hold up to 375 projects |
+| Cloud Monitoring reads | Request quota per project shown in the console only (⚠️ VERIFY the value in M1). Billing per time series returned: $0.50 per million, first million per month free (⚠️ VERIFY whether the free tier is per billing account) | ≤ 30 requests/min per project; series budget `NFR-OBS-06` | 200 MB maximum response size; a metrics scope can hold up to 375 projects |
 | Composer API | Per-project quotas (⚠️ VERIFY) | ≤ 6 requests/min per environment | ― |
 | Airflow REST API | No Google quota; limited by web server and database capacity | ≤ 12 requests/min per environment (`standard`), at most 2 concurrent | See [§7.11](#711-observer-budget-do-no-harm) |
 | Cloud Storage | Operations are billed per 10,000 | Listing every 15 min (`standard`) | Generation diffs avoid downloads |
@@ -830,6 +869,29 @@ Principle `P-2`: DCAM must never be the reason an environment is slow or a quota
 
 This fits the 12 requests/min budget. At peaks the snapshot pages are capped, and the cheap `/pools` aggregates plus Cloud Monitoring executor metrics keep the live view accurate.
 
+**Budget arithmetic for the first target profile.** One environment with about 2,000 DAGs on Airflow 2.11.1, `standard` profile. Task instance volume is not yet known; the table assumes 40,000 per day (about 28 per minute) and the M1 spike replaces it with the measured value.
+
+| Call group | Requests per minute |
+|---|---|
+| `GET /pools` every 30 s | 2 |
+| Non-terminal task instance snapshot, 1 page every 30 s | 2 |
+| Non-terminal DAG run snapshot every 60 s | 1 |
+| Finished task instances: about 28 per minute on average, about 5 × at peaks, 100 per page | 1–2 |
+| Finished DAG runs | 1 |
+| Import errors, `/dagWarnings`, event log and health | about 1.5 |
+| DAG inventory: 20 pages trickled across the hour | about 0.3 |
+| **Total** | **about 8.8–9.8** |
+
+**Series arithmetic (`NFR-OBS-06`).** Cloud Monitoring charges per series returned, not per point, so the cost of a collector is *metric types × series per type × calls per month*. Reading about 25 environment and workload metric types, reduced server-side to about 2 series each, once a minute returns about 25 × 2 × 43,200 ≈ 2.2 million series per month, roughly twice the free tier. The series budget therefore drives the Monitoring cadence:
+
+| Option | Effect | Approximate series per month |
+|---|---|---|
+| `mon.core` every 60 s | Freshest environment metrics | 2.2 M (about $0.60 above the free tier) |
+| `mon.core` every 3 min, each call reading the full 3-minute window | Same data, lower freshness; live counts still come from the Airflow API every 30 s | 0.7 M |
+| Workflow metrics (`mon.slow`) for the top 50 DAGs every 25 min | Per-DAG cross-checks | about 0.1 M per metric type, more with the `task_id` label |
+
+By default DCAM keeps `mon.core` at 60 s only for the focused environment (`live` profile), and lets a budget governor lengthen the `standard` and `background` Monitoring cadences so that the projected monthly series stay within the budget. Each call reads the full window since the previous call, so a longer cadence never loses points. The health page shows the projection, and users who accept the cost can raise the budget. The M1 spike measures the real series counts.
+
 ---
 
 ## 8. Hidden metrics and derived signals catalog
@@ -874,38 +936,38 @@ The UI renders `approximate` values with a "≈" prefix and the method in the to
 
 | ID | Signal | Answers | Primary sources | First milestone |
 |---|---|---|---|---|
-| HM-001 | Queue wait | Q-03 | `SRC-AF-API`, `SRC-MON` | M3 |
-| HM-002 | Scheduling delay (late starts) | Q-08 | `SRC-AF-API`, `SRC-MON` | M3 |
-| HM-003 | Slot-seconds per DAG | Q-02 | `SRC-AF-API` | M3 |
-| HM-004 | Estimated CPU and memory per DAG and task | Q-02 | `SRC-MON`, `SRC-AF-API` | M3 |
-| HM-005 | DAG self-throttling | Q-03 | `SRC-AF-API` | M3 |
-| HM-006 | Throttle reason classifier (binding limit) | Q-03, Q-08 | `SRC-AF-API`, `SRC-MON`, `SRC-COMPOSER` | M3 (v0), M4 (full) |
-| HM-007 | Critical path | Q-16 | `SRC-AF-API` | M4 |
-| HM-008 | Sensor and long-wait slot waste | Q-15 | `SRC-AF-API`, `SRC-MON` | M4 |
-| HM-009 | Schedule collision density | Q-09 | `SRC-AF-API` | M4 |
-| HM-010 | 24-hour load forecast | Q-10 | `SRC-AF-API`, history | M4 |
-| HM-011 | Capacity utilisation and saturation | Q-04 | `SRC-MON`, `SRC-COMPOSER`, `SRC-AF-API` | M2 |
-| HM-012 | Autoscaling responsiveness | Q-04 | `SRC-MON`, `SRC-COMPOSER` | M4 |
-| HM-013 | Parse cost per file and stale-DAG risk | Q-05 | `SRC-MON`, `SRC-AF-API`, `SRC-GCS` | M2 |
-| HM-014 | Deploy propagation latency | Q-05 | `SRC-GCS`, `SRC-AF-API`, `SRC-MON` | M5 |
-| HM-015 | Failures, retries, flakiness and error signatures | Q-06 | `SRC-AF-API`, `SRC-LOG` | M3 |
-| HM-016 | Duration regression | Q-07 | `SRC-AF-API` | M3 |
-| HM-017 | Noisy-neighbour effect | Q-11 | Derived from HM-001 and occupancy | M4 |
-| HM-018 | Task disruption (zombies, kills, OOM, evictions) | Q-01, Q-06 | `SRC-MON`, `SRC-AF-API`, `SRC-LOG` | M3 |
-| HM-019 | Metadata database growth and retention health | Q-17 | `SRC-MON`, `SRC-COMPOSER` | M2 |
-| HM-020 | Log volume attribution | Q-18 | `SRC-MON`, `SRC-LOG` | M6 |
-| HM-021 | Cost attribution | Q-02, Q-18 | Manual rates or `SRC-BQ`, plus HM-003 and HM-004 | M3 (estimate), M7 (billing export) |
-| HM-022 | Triggerer utilisation | Q-04 | `SRC-MON`, `SRC-AF-API`, `SRC-COMPOSER` | M2 |
-| HM-023 | Priority fairness and starvation | Q-03 | `SRC-AF-API` | M4 |
-| HM-024 | Catchup and backfill storm risk | Q-08 | `SRC-AF-API` | M4 |
+| HM-001 | Queue wait | Q-03 | `SRC-AF-API`, `SRC-MON` | M2 |
+| HM-002 | Scheduling delay (late starts) | Q-08 | `SRC-AF-API`, `SRC-MON` | M2 |
+| HM-003 | Slot-seconds per DAG | Q-02 | `SRC-AF-API` | M2 |
+| HM-004 | Estimated CPU and memory per DAG and task | Q-02 | `SRC-MON`, `SRC-AF-API` | M2 |
+| HM-005 | DAG self-throttling | Q-03 | `SRC-AF-API` | M2 |
+| HM-006 | Throttle reason classifier (binding limit) | Q-03, Q-08 | `SRC-AF-API`, `SRC-MON`, `SRC-COMPOSER` | M2 (v0), M3 (full) |
+| HM-007 | Critical path | Q-16 | `SRC-AF-API` | M3 |
+| HM-008 | Sensor and long-wait slot waste | Q-15 | `SRC-AF-API`, `SRC-MON` | M3 |
+| HM-009 | Schedule collision density | Q-09 | `SRC-AF-API` | M3 |
+| HM-010 | 24-hour load forecast | Q-10 | `SRC-AF-API`, history | M3 |
+| HM-011 | Capacity utilisation and saturation | Q-04 | `SRC-MON`, `SRC-COMPOSER`, `SRC-AF-API` | M3 |
+| HM-012 | Autoscaling responsiveness | Q-04 | `SRC-MON`, `SRC-COMPOSER` | M3 |
+| HM-013 | Parse cost per file and stale-DAG risk | Q-05 | `SRC-MON`, `SRC-AF-API`, `SRC-GCS` | M4 |
+| HM-014 | Deploy propagation latency | Q-05 | `SRC-GCS`, `SRC-AF-API`, `SRC-MON` | M6 |
+| HM-015 | Failures, retries, flakiness and error signatures | Q-06 | `SRC-AF-API`, `SRC-LOG` | M2 |
+| HM-016 | Duration regression | Q-07 | `SRC-AF-API` | M2 |
+| HM-017 | Noisy-neighbour effect | Q-11 | Derived from HM-001 and occupancy | M3 |
+| HM-018 | Task disruption (zombies, kills, OOM, evictions) | Q-01, Q-06 | `SRC-MON`, `SRC-AF-API`, `SRC-LOG` | M4 |
+| HM-019 | Metadata database growth and retention health | Q-17 | `SRC-MON`, `SRC-COMPOSER` | M4 |
+| HM-020 | Log volume attribution | Q-18 | `SRC-MON`, `SRC-LOG` | M7 |
+| HM-021 | Cost attribution | Q-02, Q-18 | Manual rates or `SRC-BQ`, plus HM-003 and HM-004 | M2 (estimate), M8 (billing export) |
+| HM-022 | Triggerer utilisation | Q-04 | `SRC-MON`, `SRC-AF-API`, `SRC-COMPOSER` | M4 |
+| HM-023 | Priority fairness and starvation | Q-03 | `SRC-AF-API` | M3 |
+| HM-024 | Catchup and backfill storm risk | Q-08 | `SRC-AF-API` | M3 |
 | HM-025 | Configuration and environment drift | Q-13, Q-14 | `SRC-COMPOSER`, `SRC-AF-API`, config KB | M5 |
-| HM-026 | Upgrade readiness | Q-20 | `SRC-COMPOSER`, `SRC-GCS`, config KB | M2 (image), M7 (code) |
-| HM-027 | Worker packing efficiency | Q-04 | `SRC-MON`, `SRC-AF-API` | M4 |
-| HM-028 | Explainable health score | Q-01 | `SRC-MON`, `SRC-AF-API`, `SRC-COMPOSER` | M2 |
-| HM-029 | Timeliness target adherence | Q-08 | `SRC-AF-API`, user targets | M4 |
+| HM-026 | Upgrade readiness | Q-20 | `SRC-COMPOSER`, `SRC-GCS`, config KB | M4 (image), M8 (code) |
+| HM-027 | Worker packing efficiency | Q-04 | `SRC-MON`, `SRC-AF-API` | M3 |
+| HM-028 | Explainable health score | Q-01 | `SRC-MON`, `SRC-AF-API`, `SRC-COMPOSER` | M4 |
+| HM-029 | Timeliness target adherence | Q-08 | `SRC-AF-API`, user targets | M5 |
 | HM-030 | Observer footprint | Self | DCAM request log, `SRC-MON` | M1 |
-| HM-031 | Scheduler loop health | Q-01, Q-03 | `SRC-MON` | M2 |
-| HM-032 | Effective capacity inference | Q-04, Q-13 | `SRC-MON`, `SRC-AF-API`, `SRC-COMPOSER` | M2 |
+| HM-031 | Scheduler loop health | Q-01, Q-03 | `SRC-MON` | M3 |
+| HM-032 | Effective capacity inference | Q-04, Q-13 | `SRC-MON`, `SRC-AF-API`, `SRC-COMPOSER` | M3 |
 
 Card format: each card below lists **Answers**, **Definition**, **Method**, **Sources**, **Quality and caveats** and **Used by**. Scopes and grains are in the `metrics-pack` definitions.
 
@@ -922,6 +984,7 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
 - **Sources.** `SRC-AF-API` (primary). `workflow/task_instance/queued_duration` in `SRC-MON` is a cross-check for completed tries only. Disagreements above 10 % are logged as data-quality events.
 - **Quality and caveats.**
   - Queue wait covers only the executor phase. Waiting before queueing (pools, DAG limits, parallelism) appears in HM-006 as pre-queue wait.
+  - Airflow 2.11 records no "entered scheduled" timestamp, so pre-queue wait can only be measured from DCAM's live snapshots, never reconstructed from history ([HM-006](#hm-006-throttle-reason-classifier)).
   - Rescheduled sensors re-enter the queue on each poke; each poke is counted.
 - **Used by.** `FR-BOTL-02`, `AL-06`, HM-006, HM-017, HM-023, `REC-CONC-04`.
 
@@ -940,11 +1003,11 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
 #### HM-004 Estimated CPU and memory per DAG and task
 
 - **Definition.** Estimated CPU-seconds and memory GB-seconds attributable to each task and DAG.
-- **Method A (preferred; per-task metrics).** Uses `workflow/task/cpu_usage` and `workflow/task/mem_usage` (percent, label `task_id`, emitted by Airflow 2.10 and later).
+- **Method A (preferred; per-task metrics).** Uses `workflow/task/cpu_usage` and `workflow/task/mem_usage` (percent, label `task_id`). Google documents them for Airflow 2.10.5 only; on 2.11.1 they are expected but unconfirmed (VC-02), and they are absent on Airflow 3. Because of the series cost (`NFR-OBS-06`), Method A reads them only in `mon.slow`, for the top N DAGs by slot-seconds.
   - CPU-seconds = Σ mean CPU % ÷ 100 × running time.
   - Memory GB-seconds = Σ mean memory % ÷ 100 × reference memory × running time.
   - The reference memory is the worker memory limit until the M1 spike confirms what the percentage is relative to.
-- **Method B (fallback; pro-rata).** Each worker's measured CPU (`workload/cpu/usage_time`) and memory (`workload/memory/bytes_used`) per minute are split across the task instances running on that worker in that minute, weighted equally per try.
+- **Method B (pro-rata; production-ready in M2, not only a fallback).** Each worker's measured CPU (`workload/cpu/usage_time`) and memory (`workload/memory/bytes_used`) per minute are split across the task instances running on that worker in that minute, weighted equally per try.
   - Workers are matched through the task instance `hostname` and the workload `workload_name` (⚠️ VERIFY the mapping on Composer 3).
   - Idle and overhead consumption is reported as "unattributed".
 - **Sources.** `SRC-MON`, `SRC-AF-API`.
@@ -983,27 +1046,38 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
   - Airflow 3's API v2 returns `scheduled_when` on task instances (checked in the Airflow 3.0.0, 3.1.0 and 3.3.2 OpenAPI specifications); when it is populated, the scheduler's own timestamp is used.
   - On Airflow 2 it is inferred as `max(run start, latest end of direct upstream tries)`. It is labelled approximate for trigger rules other than `all_success`.
 - **Ordered decision table.** For each waiting minute, the first matching reason wins. Other matching reasons are kept as secondary evidence.
+- **Why this order.** The pre-queue reasons follow the order in which Airflow 2.11's scheduler checks them, so DCAM's answer is the limit the scheduler itself hit. The source is `SchedulerJobRunner._critical_section_enqueue_task_instances` and `_executable_task_instances_to_queued` in `airflow/jobs/scheduler_job_runner.py` at `v2-11-stable`; `SCHEDULER_QUEUED_DEPS` in `airflow/ti_deps/dependencies_deps.py` is the per-task view of the same checks. In each scheduler loop:
+  1. The batch size is capped at `min(max_tis_per_query, parallelism − executor slots occupied)`; when the cap is zero, nothing is queued.
+  2. If every pool is full, nothing is queued; otherwise the batch is also capped at the free pool slots.
+  3. Candidates are `scheduled` task instances in running, non-backfill runs of unpaused DAGs, ordered by `priority_weight` (highest first), then logical date, then map index (input to `HM-023`).
+  4. Each candidate is checked in turn for: pool missing; pool with no open slots; `pool_slots` larger than the pool; `pool_slots` larger than the open slots; DAG `max_active_tasks`; `max_active_tis_per_dag`; `max_active_tis_per_dagrun`; executor slots.
+  5. `max_active_runs` is enforced earlier, when `_start_queued_dagruns` refuses to start queued runs.
+
+  Only `running` and `queued` tries count towards these limits on Airflow 2.11 (`EXECUTION_STATES`); deferred tries do not. DCAM deviates from the scheduler order in one place: the two structural misconfigurations (a missing pool, and a task that needs more slots than its pool has) are reported first, because they never resolve on their own. The classifier carries the version tag `scheduler-order@2.11`, so Airflow 3 can use a different order after VC-13.
 
 | # | Reason | Phase | Condition in that minute (defaults) | Evidence shown |
 |---|---|---|---|---|
 | 1 | DAG `max_active_runs` | Run | Run is queued and the DAG's running runs ≥ `max_active_runs` | Run counts, limit |
-| 2 | Task-level limit | Pre-queue | Running and queued tries of the task ≥ `max_active_tis_per_dag` or `max_active_tis_per_dagrun`; from Airflow 3.2.2 deferred tries also count, and from 3.3 awaiting-input tries | Task attributes, occupancy |
-| 3 | DAG `max_active_tasks` | Pre-queue | The DAG's running and queued task instances ≥ `max_active_tasks` (per DAG on Airflow 2, per DAG run on Airflow 3) | HM-005 |
-| 4 | Pool | Pre-queue | Pool open slots < the task's `pool_slots` | `/pools` history, `pool/starving_tasks` |
-| 5 | Global parallelism | Pre-queue | Executor running + queued ≥ parallelism (per scheduler; from overrides or HM-032) | `executor/*` metrics, HM-032 |
-| 6 | Scheduler throughput | Pre-queue | Reasons 1–5 do not apply, yet the try is not queued within 30 s of ready | HM-031 |
-| 7 | Autoscaling lag | Post-queue | Worker slots are full, workers < `max_count`, and the scale target is above the current worker count | `num_celery_workers`, `worker/scale_factor_target` |
-| 8 | Executor slots exhausted | Post-queue | Worker slots are full and workers = `max_count` | HM-011 |
-| 9 | Worker pickup | Post-queue | Free worker slots exist but the try stays queued for ≥ 60 s, or no worker consumes the try's queue | `executor/open_slots`, `task_queue_length` by queue |
-| 10 | Triggerer capacity | Deferral | The try is deferred while running triggers ≥ 95 % of triggerer capacity | HM-022 |
-| 11 | Unknown | Any | None of the above can be evaluated or matched | Gaps listed |
+| 2 | Pool does not exist | Pre-queue | The task's pool is not defined; `GET /dagWarnings` reports `non-existent pool` (the only warning type in Airflow 2.11) | DAG warning, pool list |
+| 3 | Task larger than its pool | Pre-queue | The task's `pool_slots` exceed the pool's total slots, so it can never run | Task attributes, pool size |
+| 4 | Global parallelism | Pre-queue | Executor running + queued ≥ parallelism (per scheduler; from overrides or `HM-032`) | `executor/*` metrics, `HM-032` |
+| 5 | Pool exhausted | Pre-queue | Pool open slots < the task's `pool_slots` (including zero open slots) | `/pools` history, `pool/starving_tasks` |
+| 6 | DAG `max_active_tasks` | Pre-queue | The DAG's running and queued task instances ≥ `max_active_tasks` (per DAG on Airflow 2, per DAG run on Airflow 3) | `HM-005` |
+| 7 | Task-level limit | Pre-queue | Running and queued tries of the task ≥ `max_active_tis_per_dag` or `max_active_tis_per_dagrun`; from Airflow 3.2.2 deferred tries also count, and from 3.3 awaiting-input tries | Task attributes, occupancy |
+| 8 | Scheduler throughput | Pre-queue | Reasons 1–7 do not apply, yet the try is not queued within 30 s of ready | `HM-031`, `scheduler/tasks{starving}` |
+| 9 | Autoscaling lag | Post-queue | Worker slots are full, workers < `max_count`, and the scale target is above the current worker count | `num_celery_workers`, `worker/scale_factor_target` |
+| 10 | Executor slots exhausted | Post-queue | Worker slots are full and workers = `max_count` | `HM-011` |
+| 11 | Worker pickup | Post-queue | Free worker slots exist but the try stays queued for ≥ 60 s, or no worker consumes the try's queue | `executor/open_slots`, `task_queue_length` by queue |
+| 12 | Triggerer capacity | Deferral | The try is deferred while running triggers ≥ 95 % of triggerer capacity | `HM-022` |
+| 13 | Unknown | Any | None of the above can be evaluated or matched | Gaps listed |
 
-- **Not throttling.** Dependency waits are reported separately as "dependency wait (not a platform limit)": upstream tasks, `depends_on_past`, sensors waiting for external events, and asset or dataset triggers. Together with the 11 reasons this covers the categories in `FR-BOTL-01`.
+- **What can be measured after the fact.** Airflow 2.11 records no timestamp for entering the `scheduled` state, so pre-queue reasons (2–8) are evaluated only from live snapshots taken while the work waits. For history older than DCAM's own snapshots, only the post-queue phase (`queued_when` → `start_date`) and run-level waits are available, and the pre-queue share is labelled "not observed".
+- **Not throttling.** Dependency waits are reported separately as "dependency wait (not a platform limit)": upstream tasks, `depends_on_past`, sensors waiting for external events, and asset or dataset triggers. Together with the 13 reasons this covers the categories in `FR-BOTL-01`.
 - **Output.**
   - Stacked waiting task-minutes per reason, per environment, pool, DAG and hour.
   - Top contributors per reason.
   - Current binding limit for the live view and the concurrency stack ([§14.3](#143-relationship-graph-concurrency-stack)).
-- **v0 (M3).** Reasons 3, 4, 7, 8 and 11, from live snapshots and metrics. The full table follows in M4.
+- **v0 (M2).** Reasons 5, 6, 9, 10 and 13, from live snapshots and metrics. The full table follows in M3.
 - **Quality and caveats.**
   - Each minute records which reasons could be evaluated. If limits are unknown (for example parallelism before HM-032 has confidence), the reason is marked unevaluated rather than guessed.
   - Golden tests use the emulator scenarios ([§20.4](#204-scenario-library)).
@@ -1018,7 +1092,7 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
     - observed `deferred` means deferrable;
     - otherwise poke mode.
 
-    Static analysis confirms the mode from M7.
+    Static analysis confirms the mode from M8.
   - **Waste.** Poke-mode slot-seconds, plus reschedule-mode poke time.
   - **Long waits.** Non-sensor tries running ≥ 10 min with mean CPU < 5 %, from HM-004 Method A. These are typically synchronous operators that poll external jobs and are candidates for deferrable mode.
 - **Sources.** `SRC-AF-API`, `SRC-MON`.
@@ -1075,7 +1149,7 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
 - **Definition.** Running triggers relative to triggerer capacity, and triggerer health.
 - **Method.**
   - Utilisation = Σ `workload/trigger/num_running` ÷ (triggerer count × trigger capacity per triggerer).
-  - Capacity comes from the override or the knowledge base default: Airflow 2 `[triggerer] default_capacity`, renamed `[triggerer] capacity` in Airflow 3; default 1000 in both (⚠️ VERIFY Composer's default, VC-16).
+  - Capacity comes from the override or the knowledge base default: Airflow 2 `[triggerer] default_capacity`, renamed `[triggerer] capacity` in Airflow 3; upstream default 1000 in both. Composer documents no triggerer capacity, and its pages disagree on default triggerer resources (0.5 vCPU and 1 GB on the scaling page; 1 vCPU and 2 GB for Airflow 2 since the 2026-07-29 release note), so the value stays ⚠️ VERIFY (VC-16).
   - Also reported: blocking and failed triggers (`trigger/*`), triggerer CPU and memory versus limit, and deferred task instances by DAG.
 - **Sources.** `SRC-MON`, `SRC-AF-API`, `SRC-COMPOSER`.
 - **Quality and caveats.** Documentation names some triggerer metrics differently from the descriptors; descriptors are authoritative ([§7.2](#72-cloud-monitoring-src-mon)).
@@ -1105,7 +1179,7 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
     | Over-packed | CPU p95 ≥ 90 % or memory p95 ≥ 85 %, or OOM signals |
     | Balanced | Otherwise |
 
-  - Sizing check against Composer guidance: `worker_concurrency` ≤ min(24, 12 × worker vCPU, 8 × worker memory GB) (⚠️ VERIFY current guidance). This is shown as the "supported concurrency ceiling".
+  - Sizing check against Composer guidance. Composer 3 computes `worker_concurrency` from worker resources with an unpublished formula (the older documented formula, min(32, 12 × vCPU, 8 × memory GB), may no longer apply and can exceed the override cap of 24). DCAM therefore shows the documented guidance instead of a computed ceiling: concurrency should exceed peak concurrent tasks ÷ `max_count`, and a value set too high can stop the autoscaler from adding workers. The resolved value comes from `HM-032` with its provenance (VC-19 fallback applied).
 - **Sources.** `SRC-MON` (`workload/*` for workers), `SRC-AF-API`, HM-032.
 - **Quality and caveats.** Composer 3 accepts `worker_concurrency` from 1 to 24; recommendations never exceed this range.
 - **Used by.** `REC-CAP-03`, `REC-CAP-04`, `REC-CAP-05`, `REC-COST-01`.
@@ -1366,7 +1440,7 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
 - **Method.**
   - **Environment cost:**
     - **Actual.** From the Cloud Billing export (`SRC-BQ`, M7): Composer SKUs filtered by environment resource name or labels. Labels appear in billing data within about a day.
-    - **Manual.** A configured monthly cost, or DCU-hour rates × observed hours (M3).
+    - **Manual.** A configured monthly cost, or DCU-hour rates × observed hours (M2).
 
     DCAM does not derive DCUs from workload sizes, because Google does not publish the conversion.
   - **Variable compute allocation:** by executor slot-seconds share (HM-003), or by CPU share (HM-004 Method A) when available.
@@ -1396,9 +1470,9 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
 
 - **Definition.** How urgent an upgrade is, and what blocks it.
 - **Method.**
-  - **Image (M2).** Current build; release date from `imageVersions.list`; support end = release date + 12 months (Composer 3); newer builds available; upgrade-disabled flags; days to end of support.
-  - **Known issues (M2).** Known issues that match the build and installed packages, from a curated knowledge base (`REC-UPG-03`).
-  - **Code (M7).**
+  - **Image (M4).** Current build; release date from `imageVersions.list`; support end = release date + 12 months (Composer 3); newer builds available; upgrade-disabled flags; days to end of support.
+  - **Known issues (M4).** Known issues that match the build and installed packages, from a curated knowledge base (`REC-UPG-03`).
+  - **Code (M8).**
     - Airflow 3 readiness blockers from static analysis (`REC-CODE-04`).
     - Features Composer 3 does not support with Airflow 3, such as custom timetables and scheduler plugins.
     - Package compatibility with the target constraints.
@@ -1469,22 +1543,22 @@ Requirements are grouped by epic. Each epic becomes one or more Spec Kit feature
 | Collection engine | `COLL` | Collectors, scheduling, watermarks, budgets | M1 |
 | Storage | `STORE` | Embedded analytics store, retention, export | M1 |
 | Application shell | `UI` | Global context, deep links, (i) explanations, themes | M1 |
-| Fleet overview | `FLEET` | All environments at a glance | M2 |
-| Environment cockpit | `ENV` | Capacity, scheduler, DAG processing, triggerer, database, pools | M2 |
-| DAG explorer and league table | `DAGX` | Thousands of DAGs ranked and compared | M3 |
-| DAG detail and comparison | `DAGD` | Runs, Gantt, critical path, compare | M3 |
-| Task analytics and reliability | `TASK` | Durations, failures, flakiness, logs | M3 |
-| Bottlenecks and schedule intelligence | `BOTL` | Throttle reasons, collisions, forecast, noisy neighbours | M4 |
-| Advisor | `ADV` | Evidence-backed recommendations | M4 |
-| Config Advisor and drift | `CFG` | Effective config, explanations, drift | M5 |
-| Wiki and runbooks | `WIKI` | Interactive architecture, flows, runbooks | M5 |
-| Alerting | `ALRT` | Local alerts, notifiers, export | M6 |
-| Change intelligence | `CHG` | Unified change timeline | M2 |
-| Incident workspace and logs | `INC` | Correlated triage | M6 |
-| DAG static analysis | `SCAN` | Code insights from the bucket | M7 |
-| Reports and export | `RPT` | Reports, Prometheus endpoint, snapshots | M7 |
-| AI integrations | `AI` | MCP server, copy as prompt, optional LLM | M7 |
-| Extensibility | `EXT` | Plugin SDK | M4 |
+| Fleet overview | `FLEET` | All environments at a glance | M4 |
+| Environment cockpit | `ENV` | Capacity, scheduler, DAG processing, triggerer, database, pools | M3 |
+| DAG explorer and league table | `DAGX` | Thousands of DAGs ranked and compared | M2 |
+| DAG detail and comparison | `DAGD` | Runs, Gantt, critical path, compare | M2 |
+| Task analytics and reliability | `TASK` | Durations, failures, flakiness, logs | M2 |
+| Bottlenecks and schedule intelligence | `BOTL` | Throttle reasons, collisions, forecast, noisy neighbours | M2 |
+| Advisor | `ADV` | Evidence-backed recommendations | M5 |
+| Config Advisor and drift | `CFG` | Effective config, explanations, drift | M4 |
+| Wiki and runbooks | `WIKI` | Interactive architecture, flows, runbooks | M6 |
+| Alerting | `ALRT` | Local alerts, notifiers, export | M7 |
+| Change intelligence | `CHG` | Unified change timeline | M4 |
+| Incident workspace and logs | `INC` | Correlated triage | M4 |
+| DAG static analysis | `SCAN` | Code insights from the bucket | M6 |
+| Reports and export | `RPT` | Reports, Prometheus endpoint, snapshots | M8 |
+| AI integrations | `AI` | MCP server, copy as prompt, optional LLM | M8 |
+| Extensibility | `EXT` | Plugin SDK | M5 |
 | Self-observability | `SELF` | DCAM's own health and footprint | M1 |
 | Demo and emulator | `EMU` | Synthetic data, local Airflow target | M0 |
 
@@ -1495,11 +1569,11 @@ Requirements are grouped by epic. Each epic becomes one or more Spec Kit feature
 | FR-SETUP-01 | Start DCAM with one command from a fresh clone (`pnpm dcam` or `./dcam start`); bind to `127.0.0.1`; open the browser. | When the user runs the start command with prerequisites installed, the system shall serve the UI at `http://127.0.0.1:<port>` and print the URL. If the port is busy, then the system shall select the next free port and report it. | M | M0 |
 | FR-SETUP-02 | Load workspace configuration from `dcam.config.yaml` (override with `--config` or `DCAM_CONFIG`), validated by JSON Schema ([§17](#17-configuration-reference)). | If the configuration is invalid, then the system shall not start collectors, shall list each error with its path and a fix hint, and shall keep the UI available in setup mode. | M | M1 |
 | FR-SETUP-03 | Configure any number of environments by `projectId`, `location` and `environment`, with labels (tier, team, display name, colour). Project IDs are always user-configurable. | When the user adds an environment in the UI, the system shall validate access, persist it to the configuration file while preserving comments, and start collection without a restart. | M | M1 |
-| FR-SETUP-04 | Discover Composer environments in configured projects (all or listed locations); optionally across a folder or organization via Cloud Asset Inventory. | When discovery runs, the system shall list environments with Composer version, location and state, and let the user select which to monitor. If a project denies access, then the system shall show the missing permission and continue with other projects. | M (projects), C (asset inventory) | M1 |
+| FR-SETUP-04 | Discover Composer environments in configured projects (all or listed locations); optionally across a folder or organization via Cloud Asset Inventory. | When discovery runs, the system shall list environments with Composer version, location and state, and let the user select which to monitor. If a project denies access, then the system shall show the missing permission and continue with other projects. | M (projects), C (asset inventory) | M4 |
 | FR-SETUP-05 | Collection profiles per environment: `live`, `standard`, `eco`, `off`; defaults by tier (for example production `standard`, development `eco`). | When a profile changes, the system shall apply the new cadences within one collection cycle. | S | M1 |
-| FR-SETUP-06 | Environment groups (by tier, team, region) for fleet comparisons. | When a group is selected, the system shall aggregate fleet views to the group's environments. | S | M2 |
+| FR-SETUP-06 | Environment groups (by tier, team, region) for fleet comparisons. | When a group is selected, the system shall aggregate fleet views to the group's environments. | S | M4 |
 | FR-SETUP-07 | Settings UI generated from the configuration schema; the file remains the source of truth and is safe to commit (no secrets). | When the user saves settings in the UI, the system shall write a valid configuration file and show a diff before saving. | S | M1 |
-| FR-SETUP-08 | Export and import a sanitized workspace configuration to share with teammates. | When the user exports, the system shall exclude credentials, notifier secrets and local paths. | C | M7 |
+| FR-SETUP-08 | Export and import a sanitized workspace configuration to share with teammates. | When the user exports, the system shall exclude credentials, notifier secrets and local paths. | C | M8 |
 
 ### 9.2 AUTH ― Authentication, identity and preflight
 
@@ -1507,7 +1581,7 @@ Requirements are grouped by epic. Each epic becomes one or more Spec Kit feature
 |---|---|---|---|---|
 | FR-AUTH-01 | Authenticate with Google Application Default Credentials (ADC). DCAM never persists credentials or tokens. | The system shall obtain and refresh access tokens in memory only. | M | M1 |
 | FR-AUTH-02 | Sign in from the GUI or the terminal. The GUI button runs `gcloud auth application-default login` as a child process with fixed arguments and no shell. | If no valid ADC is found, then the system shall show **Sign in with Google Cloud** and terminal instructions. When sign-in completes, the system shall detect the new credentials without a restart. If `gcloud` is not installed, then the system shall show OS-specific installation instructions. | M | M1 |
-| FR-AUTH-03 | Optional service account impersonation per environment (least-privilege read-only identities). | Where impersonation is configured, the system shall call APIs as the target service account and display it as the active principal. | S | M1 |
+| FR-AUTH-03 | Optional service account impersonation per environment (least-privilege read-only identities). | Where impersonation is configured, the system shall call APIs as the target service account and display it as the active principal. | S | M4 |
 | FR-AUTH-04 | Quota project handling (`quotaProjectId` per workspace or environment). | If an API rejects a call because no quota project is set, then the system shall explain the cause and show the fix command `gcloud auth application-default set-quota-project <project>`. | M | M1 |
 | FR-AUTH-05 | Doctor (UI page and `dcam doctor` CLI): `gcloud` presence, ADC validity and account, quota project, required APIs enabled, IAM permissions (`testIamPermissions`), Airflow web server reachability, Airflow role sufficiency, proxy and CA configuration, clock skew, disk space, Node.js version. | When the doctor runs, the system shall report pass, warn or fail for each check with evidence, a copyable fix and a documentation link, within 30 seconds per environment. | M | M1 |
 | FR-AUTH-06 | Classify VPC Service Controls and organization policy denials. | If a call fails with a VPC Service Controls violation, then the system shall show the violation reason and unique identifier, explain that the caller's network or identity must satisfy the perimeter's access levels, and shall not retry until the user re-runs the check. | M | M1 |
@@ -1521,13 +1595,13 @@ Requirements are grouped by epic. Each epic becomes one or more Spec Kit feature
 | FR-COLL-01 | Each source is a collector behind a port, declaring capabilities, cadence, budget, watermark strategy and output schema. | The system shall refuse to register a collector whose manifest lacks a budget or output schema. | M | M1 |
 | FR-COLL-02 | Central scheduler with jitter, per-environment concurrency limits and priorities (`live` > `standard` > `background`). | While two collectors compete for the same API budget, the system shall serve the higher-priority collector first. | M | M1 |
 | FR-COLL-03 | Incremental fetch with persisted watermarks, an overlap window for late updates, and idempotent upserts. | When DCAM restarts, the system shall resume from persisted watermarks without creating duplicate rows (enforced by unique keys). | M | M1 |
-| FR-COLL-04 | Backfill on first add (default 7 days of runs and task instances, 14 days of metrics; configurable) at background priority, within budget, with progress in the UI. | When an environment is added, the system shall show backfill progress and complete it without exceeding the observer budget. | M | M3 |
-| FR-COLL-05 | Adaptive cadence driven by UI visibility and focus. | While no UI client is visible, the system shall use the `background` cadence. While an environment is focused, the system shall use the `live` cadence for that environment only. | M | M2 |
+| FR-COLL-04 | Backfill on first add (default 7 days of runs and task instances, 14 days of metrics; configurable) at background priority, within budget, with progress in the UI. | When an environment is added, the system shall show backfill progress and complete it without exceeding the observer budget. | M | M2 |
+| FR-COLL-05 | Adaptive cadence driven by UI visibility and focus. | While no UI client is visible, the system shall use the `background` cadence. While an environment is focused, the system shall use the `live` cadence for that environment only. | M | M4 |
 | FR-COLL-06 | Observer budget enforcement: token buckets per environment and API, hard caps, circuit breakers on 429 and 5xx, exponential backoff with jitter, `Retry-After` support. | If a budget is exhausted, then the system shall reduce fidelity (longer intervals, fewer pages) and show a "reduced fidelity" banner rather than exceed the budget. | M | M1 |
-| FR-COLL-07 | Granularity-aware Cloud Monitoring queries: cadence never shorter than the metric's sampling period; windows end at `now − ingestion delay`; trailing windows re-read to fill late points. | The system shall never display a metric point as final before its documented ingestion delay has elapsed. | M | M2 |
-| FR-COLL-08 | Detect the Airflow version and REST API generation (v1 or v2) and select the adapter; expose capabilities (for example availability of a scheduled timestamp on task instances) to analytics. | When an environment runs Airflow 3, the system shall use the v2 adapter and mark capability-dependent signals accordingly. | M | M1 (v1), M3 (v2) |
+| FR-COLL-07 | Granularity-aware Cloud Monitoring queries: cadence never shorter than the metric's sampling period; windows end at `now − ingestion delay`; trailing windows re-read to fill late points. | The system shall never display a metric point as final before its documented ingestion delay has elapsed. | M | M1 |
+| FR-COLL-08 | Detect the Airflow version and REST API generation (v1 or v2) and select the adapter; expose capabilities (for example availability of a scheduled timestamp on task instances) to analytics. | When an environment runs Airflow 3, the system shall use the v2 adapter and mark capability-dependent signals accordingly. | M | M1 (v1), M4 (v2) |
 | FR-COLL-09 | Detect Composer 2 versus 3 from the image version and enable collectors accordingly (the GKE adapter only for Composer 2). | When an environment is Composer 3, the system shall not attempt GKE API calls. | M | M1 |
-| FR-COLL-10 | Sleep, resume and offline handling. | If the machine sleeps or loses connectivity, then on resume the system shall record the gap explicitly (no synthetic zeros) and backfill within budget. | M | M2 |
+| FR-COLL-10 | Sleep, resume and offline handling. | If the machine sleeps or loses connectivity, then on resume the system shall record the gap explicitly (no synthetic zeros) and backfill within budget. | M | M4 |
 | FR-COLL-11 | Collector health: last success, lag, error rate and budget use per collector and environment. | When a collector fails three consecutive cycles, the system shall surface it in the environment header and on the DCAM health page. | M | M1 |
 | FR-COLL-12 | Opt-in execution of allowlisted, read-only Airflow CLI commands through the Composer API (`dags report`, `dags list-import-errors`, `dags list`, `version`), at low frequency with a dedicated budget. The required permission `composer.environments.executeAirflowCommand` is only in editor-level and administrator-level predefined roles, so this needs a dedicated identity ([§7.8](#78-optional-and-future-sources)). | Where enabled for an environment, the system shall run at most one command per configured interval (default 60 minutes), label the data source, and show that the command consumes environment resources. If a requested subcommand is not on the allowlist, then the system shall refuse it before any network call. | C | M5 |
 
@@ -1537,9 +1611,9 @@ Requirements are grouped by epic. Each epic becomes one or more Spec Kit feature
 |---|---|---|---|---|
 | FR-STORE-01 | Embedded analytical store (DuckDB) in a configurable data directory, with versioned schema migrations. | When DCAM starts with an older schema, the system shall back up the store and migrate it automatically. | M | M1 |
 | FR-STORE-02 | Tiered retention (defaults): raw runs and task instances 90 days; raw metric points 14 days; 5-minute rollups 90 days; 1-hour rollups 400 days; log signatures 30 days with bounded samples; findings and alert history 400 days. All configurable per environment. | When retention runs, the system shall delete or compact expired data and keep rollups consistent with raw data (golden tests). | M | M2 |
-| FR-STORE-03 | Cold tier: older partitions are written to Parquet (daily partitions) and queried transparently. | When a query spans hot and cold data, the system shall return a single consistent result. | S | M7 |
-| FR-STORE-04 | Export any table view (with filters) to CSV, Parquet or JSON; full export per environment and time range. | When the user exports a view, the system shall produce a file whose rows equal the filtered view. | M (CSV), S (Parquet, JSON) | M3 / M7 |
-| FR-STORE-05 | Import an export bundle for offline analysis; powers demo mode and incident sharing. | When a bundle is imported, the system shall mark the environment as "imported (read-only snapshot)". | S | M7 |
+| FR-STORE-03 | Cold tier: older partitions are written to Parquet (daily partitions) and queried transparently. | When a query spans hot and cold data, the system shall return a single consistent result. | S | M8 |
+| FR-STORE-04 | Export any table view (with filters) to CSV, Parquet or JSON; full export per environment and time range. | When the user exports a view, the system shall produce a file whose rows equal the filtered view. | M (CSV), S (Parquet, JSON) | M2 (CSV) / M8 |
+| FR-STORE-05 | Import an export bundle for offline analysis; powers demo mode and incident sharing. | When a bundle is imported, the system shall mark the environment as "imported (read-only snapshot)". | S | M8 |
 | FR-STORE-06 | Crash safety through transactional writes. | If the process crashes, then on restart the store shall be consistent and collectors shall resume from the last committed watermark. | M | M1 |
 | FR-STORE-07 | Disk budget. | If usage exceeds 90 % of the configured budget, then the system shall warn and downsample before deleting by age. | S | M2 |
 
@@ -1549,112 +1623,112 @@ Requirements are grouped by epic. Each epic becomes one or more Spec Kit feature
 |---|---|---|---|---|
 | FR-UI-01 | Global context bar: environment selector (multi-select for comparisons), time range picker (relative and absolute; presets from 15 minutes to 90 days), time zone toggle, live or paused mode, freshness indicator. | When the time range changes, the system shall update every panel on the page consistently. | M | M1 |
 | FR-UI-02 | URL as state: filters, time range, selection and tabs are encoded in the URL. | When a user opens a shared link, the system shall restore the same view. | M | M1 |
-| FR-UI-03 | Command palette (Ctrl/Cmd + K) to jump to environments, DAGs, tasks, config options, wiki pages and rules. | When the user types three characters, the system shall show ranked matches within 100 ms. | S | M3 |
+| FR-UI-03 | Command palette (Ctrl/Cmd + K) to jump to environments, DAGs, tasks, config options, wiki pages and rules. | When the user types three characters, the system shall show ranked matches within 100 ms. | S | M2 |
 | FR-UI-04 | "Open in" deep links: Cloud console (Composer environment, Metrics Explorer, Logs Explorer with a prefilled query) and Airflow UI (DAG, run, task log). | The system shall generate deep links that open the corresponding resource with the same time range. | M | M2 |
 | FR-UI-05 | (i) explanation on every metric, chart, KPI, config option and finding: definition, formula, source, freshness, documentation link. | The system shall fail the UI test suite if a registered panel lacks an explanation entry. | M | M2 |
 | FR-UI-06 | Dark (default, blueish) and light themes; high-contrast option; colour-blind-safe palette option. | When the theme changes, the system shall re-theme charts and diagrams without a reload. | M | M1 |
 | FR-UI-07 | Standard empty, loading, partial and error states; charts are never silently blank. | If a panel has no data, then the system shall explain why (no data, no permission, source lag, collector disabled) and how to fix it. | M | M1 |
 | FR-UI-08 | Data provenance footer per panel: sources and "data as of". | The system shall show source and freshness for every data panel. | M | M2 |
-| FR-UI-09 | Local annotations on time ranges, DAGs and environments; exportable. | When the user adds an annotation, the system shall overlay it on related charts. | C | M6 |
+| FR-UI-09 | Local annotations on time ranges, DAGs and environments; exportable. | When the user adds an annotation, the system shall overlay it on related charts. | C | M7 |
 
 ### 9.6 FLEET ― Fleet overview
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-FLEET-01 | One card per environment: health status, running and queued tasks, open slots, workers (current, min, max), failures in the last 24 hours, scheduler heartbeat, parse loop duration, database health, top three findings, freshness. | When an environment degrades, the system shall update its card within one live cycle. | M | M2 |
-| FR-FLEET-02 | Explainable health score composed from component checks. | When the user opens the health score, the system shall list each contributing check with its state, threshold and evidence. | M | M2 |
-| FR-FLEET-03 | Normalized fleet comparisons (per DAG, per slot, per worker). | When two or more environments are selected, the system shall show KPIs side by side with normalised values. | S | M3 |
-| FR-FLEET-04 | Fleet-wide top issues ranked by severity and impact. | The system shall rank findings across environments using the advisor ranking ([§13.4](#134-prioritisation)). | S | M4 |
+| FR-FLEET-01 | One card per environment: health status, running and queued tasks, open slots, workers (current, min, max), failures in the last 24 hours, scheduler heartbeat, parse loop duration, database health, top three findings, freshness. | When an environment degrades, the system shall update its card within one live cycle. | M | M4 |
+| FR-FLEET-02 | Explainable health score composed from component checks. | When the user opens the health score, the system shall list each contributing check with its state, threshold and evidence. | M | M4 |
+| FR-FLEET-03 | Normalized fleet comparisons (per DAG, per slot, per worker). | When two or more environments are selected, the system shall show KPIs side by side with normalised values. | S | M4 |
+| FR-FLEET-04 | Fleet-wide top issues ranked by severity and impact. | The system shall rank findings across environments using the advisor ranking ([§13.4](#134-prioritisation)). | S | M5 |
 
 ### 9.7 ENV ― Environment cockpit
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-ENV-01 | Overview tab: Composer and Airflow versions, image, environment size, resilience mode, workloads table, maintenance window, network summary, health components, KPIs, findings. | The system shall render the overview from the latest environment snapshot and show its age. | M | M2 |
-| FR-ENV-02 | Capacity tab: slot capacity versus used (workers × concurrency, parallelism, pools), queued tasks, worker count versus min and max, scale events, CPU and memory per workload type (usage versus limit), saturation heatmap (hour of day × day). | While workers are at `max_count` and tasks are queued, the system shall highlight the period as "capacity-bound". | M | M2 |
-| FR-ENV-03 | Scheduler tab: heartbeat, tasks by state, scheduling delay distribution, scheduler CPU and memory, restarts. | If the scheduler heartbeat is missing for longer than the configured threshold, then the system shall mark the scheduler component unhealthy. | M | M2 |
-| FR-ENV-04 | DAG processing tab: total parse time trend against Google's 5-minute guidance, DagBag size, import errors with file and trace, per-file parse cost from Cloud Monitoring (`HM-013`), stale-risk gauge (parse loop versus `dag_stale_not_seen_duration`), deploy propagation latency (`HM-014`). | When the parse loop exceeds 80 % of `dag_stale_not_seen_duration`, the system shall raise `REC-PARSE-02`. | M | M2 (core and per file), M5 (propagation) |
-| FR-ENV-05 | Triggerer tab: running triggers, capacity, blocking and failed triggers, deferred task instances by DAG. | The system shall show triggerer utilisation as running triggers ÷ total capacity when capacity is known. | S | M2 |
-| FR-ENV-06 | Database tab: CPU, memory, disk, connections, Airflow database size and growth, health, retention configuration status. | When the database size growth rate predicts reaching the configured threshold within 30 days, the system shall raise `REC-DB-01`. | M | M2 |
-| FR-ENV-07 | Web server tab: health, CPU and memory, restarts, Airflow API latency as observed by DCAM. | The system shall chart DCAM's own Airflow API latency percentiles per endpoint. | S | M2 |
-| FR-ENV-08 | Pools tab: slots, occupied, running, queued, scheduled, open, deferred; starvation over time; top DAGs per pool. | When a pool has zero open slots and queued work for longer than the threshold, the system shall flag starvation. | M | M2 |
-| FR-ENV-09 | Restarts and evictions per workload correlated with task failures (zombies, killed externally, OOM). | When a worker eviction precedes task failures within five minutes, the system shall link them as correlated evidence. | M | M3 |
+| FR-ENV-01 | Overview tab: Composer and Airflow versions, image, environment size, resilience mode, workloads table, maintenance window, network summary, health components, KPIs, findings. | The system shall render the overview from the latest environment snapshot and show its age. | M | M4 |
+| FR-ENV-02 | Capacity tab: slot capacity versus used (workers × concurrency, parallelism, pools), queued tasks, worker count versus min and max, scale events, CPU and memory per workload type (usage versus limit), saturation heatmap (hour of day × day). | While workers are at `max_count` and tasks are queued, the system shall highlight the period as "capacity-bound". | M | M3 |
+| FR-ENV-03 | Scheduler tab: heartbeat, tasks by state, scheduling delay distribution, scheduler CPU and memory, restarts. | If the scheduler heartbeat is missing for longer than the configured threshold, then the system shall mark the scheduler component unhealthy. | M | M4 |
+| FR-ENV-04 | DAG processing tab: total parse time trend against Google's 5-minute guidance, DagBag size, import errors with file and trace, per-file parse cost from Cloud Monitoring (`HM-013`), stale-risk gauge (parse loop versus `dag_stale_not_seen_duration`), deploy propagation latency (`HM-014`). | When the parse loop exceeds 80 % of `dag_stale_not_seen_duration`, the system shall raise `REC-PARSE-02`. | M | M4 (core and per file), M6 (propagation) |
+| FR-ENV-05 | Triggerer tab: running triggers, capacity, blocking and failed triggers, deferred task instances by DAG. | The system shall show triggerer utilisation as running triggers ÷ total capacity when capacity is known. | S | M4 |
+| FR-ENV-06 | Database tab: CPU, memory, disk, connections, Airflow database size and growth, health, retention configuration status. | When the database size growth rate predicts reaching the configured threshold within 30 days, the system shall raise `REC-DB-01`. | M | M4 |
+| FR-ENV-07 | Web server tab: health, CPU and memory, restarts, Airflow API latency as observed by DCAM. | The system shall chart DCAM's own Airflow API latency percentiles per endpoint. | S | M4 |
+| FR-ENV-08 | Pools tab: slots, occupied, running, queued, scheduled, open, deferred; starvation over time; top DAGs per pool. | When a pool has zero open slots and queued work for longer than the threshold, the system shall flag starvation. | M | M3 |
+| FR-ENV-09 | Restarts and evictions per workload correlated with task failures (zombies, killed externally, OOM). | When a worker eviction precedes task failures within five minutes, the system shall link them as correlated evidence. | M | M4 |
 
 ### 9.8 DAGX ― DAG explorer and league table
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-DAGX-01 | Inventory of all DAGs with virtualised rendering, server-side filtering and sorting; facets for tags, owners, paused or active, schedule type, folder, team, import errors. | While 5,000 DAGs are loaded, the system shall filter and sort within `NFR-PERF-03`. | M | M3 |
-| FR-DAGX-02 | League table per DAG for the selected range: runs, success rate, failed runs, retries, p50 and p95 run duration, slot-seconds, share of environment slot-seconds, peak concurrent task instances, p95 queue wait, p95 scheduling delay, sensor slot-seconds, estimated CPU-seconds and memory GB-seconds, estimated cost share, parse time of its file, change versus previous period, open findings. Configurable columns. | When the time range changes, the system shall recompute all columns server-side and show the comparison period used for deltas. | M | M3 |
-| FR-DAGX-03 | Pareto chart of slot-seconds and concentration KPIs (top-N share, Gini). | The system shall state how many DAGs account for 80 % of slot-seconds. | M | M3 |
-| FR-DAGX-04 | Treemap by team, tag or folder → DAG, sized by slot-seconds and coloured by failure rate or queue wait. | When the user clicks a tile, the system shall drill down one level or open the DAG. | S | M3 |
-| FR-DAGX-05 | Scatter and bubble explorer: user-selected X, Y, size and colour among DAG metrics; lasso selection filters the table. | When the user lassos points, the system shall filter the league table to those DAGs. | S | M3 |
-| FR-DAGX-06 | DAG × hour-of-day load heatmap for the top N DAGs. | The system shall render the heatmap from 5-minute rollups. | S | M4 |
-| FR-DAGX-07 | Saved views and presets ("Capacity hogs", "Flaky", "Late starters", "Sensor heavy", "Parse heavy"). | When the user saves a view, the system shall store filters, columns and sort locally and in the URL. | S | M3 |
-| FR-DAGX-08 | Team mapping rules (tags, owners, path regex) used by all showback features. | When mapping rules change, the system shall recompute team attribution for the selected range. | S | M3 |
+| FR-DAGX-01 | Inventory of all DAGs with virtualised rendering, server-side filtering and sorting; facets for tags, owners, paused or active, schedule type, folder, team, import errors. | While 5,000 DAGs are loaded, the system shall filter and sort within `NFR-PERF-03`. | M | M2 |
+| FR-DAGX-02 | League table per DAG for the selected range: runs, success rate, failed runs, retries, p50 and p95 run duration, slot-seconds, share of environment slot-seconds, peak concurrent task instances, p95 queue wait, p95 scheduling delay, sensor slot-seconds, estimated CPU-seconds and memory GB-seconds, estimated cost share, parse time of its file, change versus previous period, open findings. Configurable columns. | When the time range changes, the system shall recompute all columns server-side and show the comparison period used for deltas. | M | M2 |
+| FR-DAGX-03 | Pareto chart of slot-seconds and concentration KPIs (top-N share, Gini). | The system shall state how many DAGs account for 80 % of slot-seconds. | M | M2 |
+| FR-DAGX-04 | Treemap by team, tag or folder → DAG, sized by slot-seconds and coloured by failure rate or queue wait. | When the user clicks a tile, the system shall drill down one level or open the DAG. | S | M2 |
+| FR-DAGX-05 | Scatter and bubble explorer: user-selected X, Y, size and colour among DAG metrics; lasso selection filters the table. | When the user lassos points, the system shall filter the league table to those DAGs. | S | M2 |
+| FR-DAGX-06 | DAG × hour-of-day load heatmap for the top N DAGs. | The system shall render the heatmap from 5-minute rollups. | S | M3 |
+| FR-DAGX-07 | Saved views and presets ("Capacity hogs", "Flaky", "Late starters", "Sensor heavy", "Parse heavy"). | When the user saves a view, the system shall store filters, columns and sort locally and in the URL. | S | M2 |
+| FR-DAGX-08 | Team mapping rules (tags, owners, path regex) used by all showback features. | When mapping rules change, the system shall recompute team attribution for the selected range. | S | M2 |
 
 ### 9.9 DAGD ― DAG detail and comparison
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-DAGD-01 | Header: file, schedule or timetable, owners, tags, limits, catchup, paused, next run, last parsed; findings; links to Airflow UI, bucket source and Logs Explorer. | The system shall show every DAG-level limit that can throttle the DAG. | M | M3 |
-| FR-DAGD-02 | Runs timeline: duration, state and start delay per run, with change-event overlays. | When a change event falls in range, the system shall mark it on the timeline. | M | M3 |
-| FR-DAGD-03 | Run Gantt with queue wait and run time per task instance, retries, deferral periods and the critical path highlighted. | The system shall render queue wait and run time in visually distinct, accessible styles. | M | M3 (Gantt), M4 (critical path) |
-| FR-DAGD-04 | Task statistics: p50 and p95 duration, queue wait, retries, failure rate, share of the DAG's slot-seconds, baseline delta. | The system shall sort tasks by contribution to run duration by default. | M | M3 |
-| FR-DAGD-05 | Concurrency profile: concurrent running task instances over time versus `max_active_tasks` and pool limits. | When the DAG hits its `max_active_tasks` limit for more than 10 % of its active time, the system shall raise `REC-DAG-01`. | M | M4 |
-| FR-DAGD-06 | Impact on the environment: share of load over time and noisy-neighbour score. | The system shall show the DAG's noisy-neighbour score with confidence. | S | M4 |
-| FR-DAGD-07 | Graph view coloured by a selected metric (duration, failure rate, queue wait); fan-out sizes of mapped tasks. | When the user selects a metric, the system shall recolour nodes and show a legend. | S | M4 |
-| FR-DAGD-08 | Compare 2 to 4 DAGs (same or different environments): aligned KPIs, overlaid duration distributions, hourly load profiles, resource shares. | When DAGs from different environments are compared, the system shall normalise time zones and show each environment's capacity context. | M | M3 |
-| FR-DAGD-09 | Compare two runs of a DAG: per-task deltas of duration and queue wait. | The system shall rank tasks by their contribution to the run duration difference. | S | M4 |
-| FR-DAGD-10 | Code insights panel from static analysis. | Where static analysis is enabled, the system shall list findings with file line references. | S | M7 |
+| FR-DAGD-01 | Header: file, schedule or timetable, owners, tags, limits, catchup, paused, next run, last parsed; findings; links to Airflow UI, bucket source and Logs Explorer. | The system shall show every DAG-level limit that can throttle the DAG. | M | M2 |
+| FR-DAGD-02 | Runs timeline: duration, state and start delay per run, with change-event overlays. | When a change event falls in range, the system shall mark it on the timeline. | M | M2 |
+| FR-DAGD-03 | Run Gantt with queue wait and run time per task instance, retries, deferral periods and the critical path highlighted. | The system shall render queue wait and run time in visually distinct, accessible styles. | M | M2 (Gantt), M3 (critical path) |
+| FR-DAGD-04 | Task statistics: p50 and p95 duration, queue wait, retries, failure rate, share of the DAG's slot-seconds, baseline delta. | The system shall sort tasks by contribution to run duration by default. | M | M2 |
+| FR-DAGD-05 | Concurrency profile: concurrent running task instances over time versus `max_active_tasks` and pool limits. | When the DAG hits its `max_active_tasks` limit for more than 10 % of its active time, the system shall raise `REC-DAG-01`. | M | M3 |
+| FR-DAGD-06 | Impact on the environment: share of load over time and noisy-neighbour score. | The system shall show the DAG's noisy-neighbour score with confidence. | S | M3 |
+| FR-DAGD-07 | Graph view coloured by a selected metric (duration, failure rate, queue wait); fan-out sizes of mapped tasks. | When the user selects a metric, the system shall recolour nodes and show a legend. | S | M3 |
+| FR-DAGD-08 | Compare 2 to 4 DAGs (same or different environments): aligned KPIs, overlaid duration distributions, hourly load profiles, resource shares. | When DAGs from different environments are compared, the system shall normalise time zones and show each environment's capacity context. | M | M2 |
+| FR-DAGD-09 | Compare two runs of a DAG: per-task deltas of duration and queue wait. | The system shall rank tasks by their contribution to the run duration difference. | S | M3 |
+| FR-DAGD-10 | Code insights panel from static analysis. | Where static analysis is enabled, the system shall list findings with file line references. | S | M8 |
 
 ### 9.10 TASK ― Task analytics and reliability
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-TASK-01 | Duration distribution per task with a baseline band and regression flags (`HM-016`). | When the p95 duration over the selected window exceeds the baseline p95 by the configured margin with sufficient samples, the system shall flag a regression. | M | M3 |
-| FR-TASK-02 | Failure analytics: failure rate, retry rate, flakiness score, mean time to recovery per DAG and task, by operator type and hour. | The system shall compute flakiness only for tasks with at least the configured minimum number of tries. | M | M3 |
-| FR-TASK-03 | Error signatures: cluster failure log lines into templates; top signatures by count and DAG; first and last seen; samples with deep links. | When a new signature appears in production, the system shall mark it "new" for 24 hours. | S | M6 |
-| FR-TASK-04 | Operator analytics: statistics per operator class (sensors, transfers, compute, external jobs). | The system shall group task instances by operator class name. | S | M3 |
-| FR-TASK-05 | Timeliness targets per DAG ("expected completion by", similar to deadlines) and adherence statistics (`HM-029`). | When a run misses its target, the system shall record the miss and expose it to alerting. | S | M4 |
-| FR-TASK-06 | Task log viewer for a selected try, fetched on demand from the Airflow API or Cloud Logging, with redaction and size limits. | If a log exceeds the size limit, then the system shall show the head and tail and a deep link to the full log. | M | M3 |
+| FR-TASK-01 | Duration distribution per task with a baseline band and regression flags (`HM-016`). | When the p95 duration over the selected window exceeds the baseline p95 by the configured margin with sufficient samples, the system shall flag a regression. | M | M2 |
+| FR-TASK-02 | Failure analytics: failure rate, retry rate, flakiness score, mean time to recovery per DAG and task, by operator type and hour. | The system shall compute flakiness only for tasks with at least the configured minimum number of tries. | M | M2 |
+| FR-TASK-03 | Error signatures: cluster failure log lines into templates; top signatures by count and DAG; first and last seen; samples with deep links. | When a new signature appears in production, the system shall mark it "new" for 24 hours. | S | M7 |
+| FR-TASK-04 | Operator analytics: statistics per operator class (sensors, transfers, compute, external jobs). | The system shall group task instances by operator class name. | S | M2 |
+| FR-TASK-05 | Timeliness targets per DAG ("expected completion by", similar to deadlines) and adherence statistics (`HM-029`). | When a run misses its target, the system shall record the miss and expose it to alerting. | S | M5 |
+| FR-TASK-06 | Task log viewer for a selected try, fetched on demand from the Airflow API or Cloud Logging, with redaction and size limits. | If a log exceeds the size limit, then the system shall show the head and tail and a deep link to the full log. | M | M2 |
 
 ### 9.11 BOTL ― Bottlenecks, contention and schedule intelligence
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-BOTL-01 | Throttle reason classifier (`HM-006`): per time bucket, attribute waiting task-minutes to the binding limit (pool exhausted, DAG `max_active_tasks`, DAG `max_active_runs`, global parallelism, executor slots exhausted, autoscaling lag, triggerer capacity, dependency wait, unknown); stacked chart and top contributors. | Given the emulator "saturated pool" scenario, the system shall attribute at least 90 % of waiting task-minutes to "pool exhausted". | M | M4 |
-| FR-BOTL-02 | Queue wait analytics (`HM-001`) by pool, queue, DAG and hour; correlation with worker count. | The system shall show p50 and p95 queue wait with sample counts. | M | M3 |
-| FR-BOTL-03 | Schedule collision heatmap (`HM-009`): minute-of-hour × hour-of-day density of planned and actual run starts; most colliding schedules. | When more than the configured share of DAG runs start in the same minute, the system shall raise `REC-SCHED-01`. | M | M4 |
-| FR-BOTL-04 | Stagger suggestions to flatten peaks, respecting pinned DAGs and data-interval semantics; expected peak reduction; copyable schedule changes. | When the user accepts a suggestion preview, the system shall recompute the forecast with the proposed offsets. | S | M4 |
-| FR-BOTL-05 | 24-hour load forecast (`HM-010`): expected slot demand from schedules and historical duration profiles versus capacity; predicted saturation windows. | The system shall display forecast uncertainty bands and the history window used. | S | M4 |
-| FR-BOTL-06 | Noisy neighbours (`HM-017`): rank DAGs by association with increased queue wait of other DAGs. | The system shall show the evidence (overlap windows, effect size, confidence) for each ranked DAG. | S | M4 |
-| FR-BOTL-07 | Sensor and long-wait waste (`HM-008`): rank poke-mode sensors and waiting tasks by slot-seconds; suggest `reschedule` mode or deferrable operators. | When a sensor consumes more than the configured slot-seconds per day, the system shall raise `REC-DAG-05`. | M | M4 |
-| FR-BOTL-08 | Critical path per run and aggregated across runs (most frequently critical tasks). | The system shall compute the critical path only from completed runs and label partial results. | S | M4 |
-| FR-BOTL-09 | Autoscaling analysis (`HM-012`): lag from demand increase to added capacity, time at `max_count`, scale-down events correlated with task failures. | When tasks are queued while workers are at `max_count` for longer than the threshold, the system shall raise `REC-CAP-01`. | M | M4 |
+| FR-BOTL-01 | Throttle reason classifier (`HM-006`): per time bucket, attribute waiting task-minutes to the binding limit (missing pool, task larger than its pool, pool exhausted, DAG `max_active_tasks`, DAG `max_active_runs`, global parallelism, executor slots exhausted, autoscaling lag, triggerer capacity, dependency wait, unknown); stacked chart and top contributors. | Given the emulator "saturated pool" scenario, the system shall attribute at least 90 % of waiting task-minutes to "pool exhausted". | M | M3 |
+| FR-BOTL-02 | Queue wait analytics (`HM-001`) by pool, queue, DAG and hour; correlation with worker count. | The system shall show p50 and p95 queue wait with sample counts. | M | M2 |
+| FR-BOTL-03 | Schedule collision heatmap (`HM-009`): minute-of-hour × hour-of-day density of planned and actual run starts; most colliding schedules. | When more than the configured share of DAG runs start in the same minute, the system shall raise `REC-SCHED-01`. | M | M3 |
+| FR-BOTL-04 | Stagger suggestions to flatten peaks, respecting pinned DAGs and data-interval semantics; expected peak reduction; copyable schedule changes. | When the user accepts a suggestion preview, the system shall recompute the forecast with the proposed offsets. | S | M3 |
+| FR-BOTL-05 | 24-hour load forecast (`HM-010`): expected slot demand from schedules and historical duration profiles versus capacity; predicted saturation windows. | The system shall display forecast uncertainty bands and the history window used. | S | M3 |
+| FR-BOTL-06 | Noisy neighbours (`HM-017`): rank DAGs by association with increased queue wait of other DAGs. | The system shall show the evidence (overlap windows, effect size, confidence) for each ranked DAG. | S | M3 |
+| FR-BOTL-07 | Sensor and long-wait waste (`HM-008`): rank poke-mode sensors and waiting tasks by slot-seconds; suggest `reschedule` mode or deferrable operators. | When a sensor consumes more than the configured slot-seconds per day, the system shall raise `REC-DAG-05`. | M | M3 |
+| FR-BOTL-08 | Critical path per run and aggregated across runs (most frequently critical tasks). | The system shall compute the critical path only from completed runs and label partial results. | S | M3 |
+| FR-BOTL-09 | Autoscaling analysis (`HM-012`): lag from demand increase to added capacity, time at `max_count`, scale-down events correlated with task failures. | When tasks are queued while workers are at `max_count` for longer than the threshold, the system shall raise `REC-CAP-01`. | M | M3 |
 
 ### 9.12 ADV ― Advisor
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-ADV-01 | Rules engine evaluating declarative rules ([§13](#13-recommendation-engine-and-rule-catalog)) on schedule and on demand, producing findings with scope, severity, confidence, impact and evidence. | When a rule's condition holds, the system shall create or update exactly one finding per rule and scope (deduplicated). | M | M4 |
-| FR-ADV-02 | Reproducible evidence: query, parameters, result snapshot and chart specification; "Show query" reveals the SQL. | When the user re-runs the evidence, the system shall reproduce the stored result for the stored window. | M | M4 |
-| FR-ADV-03 | Remediation snippets: Terraform (`airflow_config_overrides` keys in `section-key` form, workloads blocks), `gcloud composer environments update --update-airflow-configs=…`, DAG code diffs; risks, trade-offs and rollback. Copy only. | The system shall never execute a remediation; it shall only offer copy and download actions. | M | M4 |
-| FR-ADV-04 | Prioritisation by impact × confidence ÷ effort; "Top actions this week". | The system shall show the ranking factors for each item. | M | M4 |
-| FR-ADV-05 | Finding lifecycle: open → acknowledged → snoozed (until a date or condition) → resolved (automatically when the condition clears) → verified; dismiss with reason. | When a snoozed finding's condition worsens beyond its severity band, the system shall reopen it. | M | M4 |
+| FR-ADV-01 | Rules engine evaluating declarative rules ([§13](#13-recommendation-engine-and-rule-catalog)) on schedule and on demand, producing findings with scope, severity, confidence, impact and evidence. | When a rule's condition holds, the system shall create or update exactly one finding per rule and scope (deduplicated). | M | M5 |
+| FR-ADV-02 | Reproducible evidence: query, parameters, result snapshot and chart specification; "Show query" reveals the SQL. | When the user re-runs the evidence, the system shall reproduce the stored result for the stored window. | M | M5 |
+| FR-ADV-03 | Remediation snippets: Terraform (`airflow_config_overrides` keys in `section-key` form, workloads blocks), `gcloud composer environments update --update-airflow-configs=…`, DAG code diffs; risks, trade-offs and rollback. Copy only. | The system shall never execute a remediation; it shall only offer copy and download actions. | M | M5 |
+| FR-ADV-04 | Prioritisation by impact × confidence ÷ effort; "Top actions this week". | The system shall show the ranking factors for each item. | M | M5 |
+| FR-ADV-05 | Finding lifecycle: open → acknowledged → snoozed (until a date or condition) → resolved (automatically when the condition clears) → verified; dismiss with reason. | When a snoozed finding's condition worsens beyond its severity band, the system shall reopen it. | M | M5 |
 | FR-ADV-06 | Verification loop: on a related change event, compare before and after windows and report improved, regressed or inconclusive using a stated statistical test. | When a configuration change related to an open finding is detected, the system shall create a verification card that completes after the configured observation window. | S | M5 |
-| FR-ADV-07 | Thresholds configurable per environment and tier; rule packs can be enabled or disabled. | When a threshold changes, the system shall re-evaluate affected rules in the next cycle. | M | M4 |
-| FR-ADV-08 | "Why am I seeing this?" for every finding: rationale, thresholds, data used, documentation links. | The system shall render rationale text from the rule template with actual values. | M | M4 |
+| FR-ADV-07 | Thresholds configurable per environment and tier; rule packs can be enabled or disabled. | When a threshold changes, the system shall re-evaluate affected rules in the next cycle. | M | M5 |
+| FR-ADV-08 | "Why am I seeing this?" for every finding: rationale, thresholds, data used, documentation links. | The system shall render rationale text from the rule template with actual values. | M | M5 |
 
 ### 9.13 CFG ― Config Advisor and drift
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-CFG-01 | Effective configuration with provenance: Airflow default (for the running version), Composer default or managed value, environment override, environment variable, unknown. Sensitive values masked. | When an option is overridden, the system shall show both the default and the override, and the source of each. | M | M2 (basic), M5 |
+| FR-CFG-01 | Effective configuration with provenance: Airflow default (for the running version), Composer default or managed value, environment override, environment variable, unknown. Sensitive values masked. | When an option is overridden, the system shall show both the default and the override, and the source of each. | M | M4 (basic), M5 |
 | FR-CFG-02 | (i) explanation per option: description, Composer notes (managed or blocked), effect of increasing and decreasing, related options and formulas, risks, live evidence widgets, official Airflow and Composer documentation links. | The system shall provide an explanation entry for every option in the seed set ([Appendix D](#appendix-d-config-knowledge-base-seed)). | M | M5 |
 | FR-CFG-03 | Interactive relationship graph of concurrency-related options and workloads, with live values and computed effective limits. | When the user hovers a node, the system shall highlight the options that bound it. | S | M5 |
-| FR-CFG-04 | Composer settings: workloads, environment size, resilience mode, image version with support status, maintenance window, PyPI packages, environment variable names (values masked by default), network summary. | The system shall show image version support information from the Composer image versions API. | M | M2 |
-| FR-CFG-05 | Configuration change history from Composer operations and snapshot diffs. | When two snapshots differ, the system shall record a change event with a field-level diff. | M | M2 (basic), M6 |
+| FR-CFG-04 | Composer settings: workloads, environment size, resilience mode, image version with support status, maintenance window, PyPI packages, environment variable names (values masked by default), network summary. | The system shall show image version support information from the Composer image versions API. | M | M4 |
+| FR-CFG-05 | Configuration change history from Composer operations and snapshot diffs. | When two snapshots differ, the system shall record a change event with a field-level diff. | M | M4 (basic), M7 |
 | FR-CFG-06 | Drift across environments: effective configuration, workloads, image, packages; classify differences as expected (per tier rules) or suspicious. | When the user compares environments, the system shall list differences grouped by category with severity. | M | M5 |
 | FR-CFG-07 | Pools and DAG-level limit distributions across DAGs. | The system shall show how many DAGs override `max_active_tasks` and `max_active_runs`, and their distributions. | S | M5 |
 | FR-CFG-08 | Snippet generation for configuration changes consistent with `FR-ADV-03`. | The system shall generate both Terraform and `gcloud` forms for every recommended override. | M | M5 |
@@ -1663,81 +1737,81 @@ Requirements are grouped by epic. Each epic becomes one or more Spec Kit feature
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-WIKI-01 | MDX content organised as in [§15](#15-interactive-wiki-and-runbooks), tagged with applicability (Composer 2 or 3, Airflow 2 or 3). | When the selected environment is Composer 3, the system shall hide or mark content that applies only to Composer 2. | M | M5 |
-| FR-WIKI-02 | Interactive architecture diagrams for Composer 3 and Composer 2 with clickable components opening a drawer: explanation, configuration knobs, live metrics for the selected environment, log links, runbooks, documentation links. | When an environment is selected, the system shall colour diagram components by live health. | M | M5 |
-| FR-WIKI-03 | Step-through flows: DAG file lifecycle, scheduling loop, Celery execution, deferral, autoscaling, logging pipeline. | The system shall allow stepping forward and backward through each flow with keyboard controls. | S | M5 |
-| FR-WIKI-04 | Live state machines for task instances and DAG runs with current counts per state. | When counts change, the system shall update the diagram on the next live cycle. | S | M5 |
-| FR-WIKI-05 | Runbooks: symptom → automated checks (evaluated with live data where possible) → causes → fixes → links. | When a runbook is opened from a finding, the system shall pre-evaluate its checks for the finding's scope and time window. | M | M5 |
-| FR-WIKI-06 | Best-practice pages cross-linked with rules (each rule links to a page and vice versa). | The system shall fail the content build if a rule lacks a linked wiki page. | M | M5 |
-| FR-WIKI-07 | Glossary with hover definitions across the application. | The system shall underline glossary terms in explanations and show definitions on hover and focus. | S | M5 |
-| FR-WIKI-08 | Unified search across wiki, glossary, config knowledge base and rules. | The system shall return results within 200 ms for the bundled corpus. | S | M5 |
-| FR-WIKI-09 | Content in plain MDX in the repository, also rendered by the documentation site. | The system shall build the wiki and the documentation site from the same sources. | M | M5 |
+| FR-WIKI-01 | MDX content organised as in [§15](#15-interactive-wiki-and-runbooks), tagged with applicability (Composer 2 or 3, Airflow 2 or 3). | When the selected environment is Composer 3, the system shall hide or mark content that applies only to Composer 2. | M | M6 |
+| FR-WIKI-02 | Interactive architecture diagrams for Composer 3 and Composer 2 with clickable components opening a drawer: explanation, configuration knobs, live metrics for the selected environment, log links, runbooks, documentation links. | When an environment is selected, the system shall colour diagram components by live health. | M | M6 |
+| FR-WIKI-03 | Step-through flows: DAG file lifecycle, scheduling loop, Celery execution, deferral, autoscaling, logging pipeline. | The system shall allow stepping forward and backward through each flow with keyboard controls. | S | M6 |
+| FR-WIKI-04 | Live state machines for task instances and DAG runs with current counts per state. | When counts change, the system shall update the diagram on the next live cycle. | S | M6 |
+| FR-WIKI-05 | Runbooks: symptom → automated checks (evaluated with live data where possible) → causes → fixes → links. | When a runbook is opened from a finding, the system shall pre-evaluate its checks for the finding's scope and time window. | M | M6 |
+| FR-WIKI-06 | Best-practice pages cross-linked with rules (each rule links to a page and vice versa). | The system shall fail the content build if a rule lacks a linked wiki page. | M | M6 |
+| FR-WIKI-07 | Glossary with hover definitions across the application. | The system shall underline glossary terms in explanations and show definitions on hover and focus. | S | M6 |
+| FR-WIKI-08 | Unified search across wiki, glossary, config knowledge base and rules. | The system shall return results within 200 ms for the bundled corpus. | S | M6 |
+| FR-WIKI-09 | Content in plain MDX in the repository, also rendered by the documentation site. | The system shall build the wiki and the documentation site from the same sources. | M | M6 |
 
 ### 9.15 ALRT ― Alerting
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-ALRT-01 | Alert rules on any metric, signal or finding: threshold, rate of change, absence (no data), anomaly; aggregation; `for` duration; hysteresis; severity; scope; labels. | When a condition holds for the configured duration, the system shall fire exactly one alert per rule and scope until it resolves. | M | M6 |
-| FR-ALRT-02 | Default alert pack ([§16.4](#164-default-alert-pack)) enabled per tier. | When an environment is added, the system shall enable the default pack for its tier, editable by the user. | M | M6 |
-| FR-ALRT-03 | Notifiers: in-app inbox, desktop notifications, generic webhook (JSON template) (Must); email over SMTP, Slack, Microsoft Teams, Google Chat (Should); PagerDuty Events v2 (Could). Secrets from environment variables or the OS keychain. | If a notifier secret is configured in plain text, then the system shall refuse to save it and explain the alternatives. | M / S / C | M6 |
-| FR-ALRT-04 | Grouping, deduplication, rate limiting, re-notification interval, resolution messages. | While an alert is firing, the system shall not send more than one notification per re-notification interval. | M | M6 |
-| FR-ALRT-05 | Silences and maintenance windows (manual, and imported from the Composer maintenance window). | While a silence matches an alert, the system shall record but not notify. | M | M6 |
-| FR-ALRT-06 | Alert history and one-click incident workspace. | When the user opens an alert, the system shall open the incident workspace for the alert's scope and window. | M | M6 |
-| FR-ALRT-07 | Export to Cloud Monitoring: alert policy JSON and Terraform `google_monitoring_alert_policy` for rules expressible on Cloud Monitoring metrics or log-based metrics. Preview and copy only. | When a rule is not expressible in Cloud Monitoring, the system shall explain why and suggest the closest equivalent. | S | M6 |
-| FR-ALRT-08 | Test notification and dry run against history. | When the user dry-runs a rule, the system shall report how many times it would have fired in the selected window. | S | M6 |
+| FR-ALRT-01 | Alert rules on any metric, signal or finding: threshold, rate of change, absence (no data), anomaly; aggregation; `for` duration; hysteresis; severity; scope; labels. | When a condition holds for the configured duration, the system shall fire exactly one alert per rule and scope until it resolves. | M | M7 |
+| FR-ALRT-02 | Default alert pack ([§16.4](#164-default-alert-pack)) enabled per tier. | When an environment is added, the system shall enable the default pack for its tier, editable by the user. | M | M7 |
+| FR-ALRT-03 | Notifiers: in-app inbox, desktop notifications, generic webhook (JSON template) (Must); email over SMTP, Slack, Microsoft Teams, Google Chat (Should); PagerDuty Events v2 (Could). Secrets from environment variables or the OS keychain. | If a notifier secret is configured in plain text, then the system shall refuse to save it and explain the alternatives. | M / S / C | M7 |
+| FR-ALRT-04 | Grouping, deduplication, rate limiting, re-notification interval, resolution messages. | While an alert is firing, the system shall not send more than one notification per re-notification interval. | M | M7 |
+| FR-ALRT-05 | Silences and maintenance windows (manual, and imported from the Composer maintenance window). | While a silence matches an alert, the system shall record but not notify. | M | M7 |
+| FR-ALRT-06 | Alert history and one-click incident workspace. | When the user opens an alert, the system shall open the incident workspace for the alert's scope and window. | M | M7 |
+| FR-ALRT-07 | Export to Cloud Monitoring: alert policy JSON and Terraform `google_monitoring_alert_policy` for rules expressible on Cloud Monitoring metrics or log-based metrics. Preview and copy only. | When a rule is not expressible in Cloud Monitoring, the system shall explain why and suggest the closest equivalent. | S | M7 |
+| FR-ALRT-08 | Test notification and dry run against history. | When the user dry-runs a rule, the system shall report how many times it would have fired in the selected window. | S | M7 |
 
 ### 9.16 CHG ― Change intelligence
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-CHG-01 | Change events: Composer operations (create, update, upgrade, snapshots), configuration and workload diffs, image changes, PyPI package changes, DAG file changes (object create, update, delete with generations), Airflow audit events (pause, unpause, trigger, clear, mark state), maintenance windows, and optionally Cloud Audit Logs admin activity. | When a change event is detected, the system shall store it with source, actor (when available), time and diff. | M | M2 (operations, config diffs), M6 (all) |
-| FR-CHG-02 | Timeline view with filters, and toggleable overlays on all time-series charts. | When overlays are enabled, the system shall render change markers on every time-series chart in the view. | M | M2 |
-| FR-CHG-03 | "What changed?" for a selected window: changes ranked by proximity and relevance to the affected signals. | When the user selects an anomaly window, the system shall list candidate changes in the preceding configurable lookback. | S | M6 |
+| FR-CHG-01 | Change events: Composer operations (create, update, upgrade, snapshots), configuration and workload diffs, image changes, PyPI package changes, DAG file changes (object create, update, delete with generations), Airflow audit events (pause, unpause, trigger, clear, mark state), maintenance windows, and optionally Cloud Audit Logs admin activity. | When a change event is detected, the system shall store it with source, actor (when available), time and diff. | M | M4 (operations, config diffs), M7 (all) |
+| FR-CHG-02 | Timeline view with filters, and toggleable overlays on all time-series charts. | When overlays are enabled, the system shall render change markers on every time-series chart in the view. | M | M4 |
+| FR-CHG-03 | "What changed?" for a selected window: changes ranked by proximity and relevance to the affected signals. | When the user selects an anomaly window, the system shall list candidate changes in the preceding configurable lookback. | S | M7 |
 
 ### 9.17 INC ― Incident workspace and logs
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-INC-01 | Incident workspace for a scope and window: key metrics, throttle reasons, failures, error signatures, change events, alerts, related findings, suggested runbooks; shareable link and export bundle. | When opened from an alert, the system shall pre-select the alert's scope and a window starting 30 minutes before it fired. | M | M6 |
-| FR-INC-02 | Bounded log search using a template library ([Appendix C](#appendix-c-cloud-logging-query-library)) with budget-aware paging, redaction and a Logs Explorer deep link. | If a log query would exceed the logging budget, then the system shall ask the user to narrow the window or confirm a slower, budgeted fetch. | M | M6 |
-| FR-INC-03 | Log-derived signals: OOM kills, evictions, zombie or heartbeat-timeout tasks, import errors, task timeouts, "killed externally", database connection errors, Celery errors; counts with samples. | The system shall count each signal per environment and time bucket and keep at most the configured number of samples. | M | M3 |
-| FR-INC-04 | Copy incident context (sanitised Markdown) for tickets or AI prompts. | When copying, the system shall apply the redaction policy and show what was redacted. | S | M6 |
+| FR-INC-01 | Incident workspace for a scope and window: key metrics, throttle reasons, failures, error signatures, change events, alerts, related findings, suggested runbooks; shareable link and export bundle. | When opened from an alert, the system shall pre-select the alert's scope and a window starting 30 minutes before it fired. | M | M7 |
+| FR-INC-02 | Bounded log search using a template library ([Appendix C](#appendix-c-cloud-logging-query-library)) with budget-aware paging, redaction and a Logs Explorer deep link. | If a log query would exceed the logging budget, then the system shall ask the user to narrow the window or confirm a slower, budgeted fetch. | M | M7 |
+| FR-INC-03 | Log-derived signals: OOM kills, evictions, zombie or heartbeat-timeout tasks, import errors, task timeouts, "killed externally", database connection errors, Celery errors; counts with samples. | The system shall count each signal per environment and time bucket and keep at most the configured number of samples. | M | M4 |
+| FR-INC-04 | Copy incident context (sanitised Markdown) for tickets or AI prompts. | When copying, the system shall apply the redaction policy and show what was redacted. | S | M7 |
 
 ### 9.18 SCAN ― DAG static analysis
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-SCAN-01 | Read-only incremental sync of `dags/` (optionally `plugins/`) from the environment bucket into a local cache using object generations and hashes; size and path filters; `.airflowignore` awareness. | When nothing changed in the bucket, the system shall issue only listing calls and download nothing. | M | M7 |
-| FR-SCAN-02 | Analyzer rules on Python syntax trees (parsed in TypeScript, for example with tree-sitter): top-level code (`Variable.get`, connections, network or database calls, heavy imports at module level), dynamic DAG generation loops, deprecated APIs for Airflow 3 readiness (for example `schedule_interval`, `days_ago`, legacy import paths), missing `retries`, `retry_delay` or `execution_timeout`, `catchup=True` with long histories, poke-mode sensors with long timeouts, non-deterministic `start_date`, unbounded dynamic task mapping, large XCom patterns. | When a rule matches, the system shall report file, line, rule ID, explanation and a suggested fix. | M | M7 |
-| FR-SCAN-03 | Optional external linters: where a local Python environment exists, run `ruff` with its Airflow (`AIR`) rules and merge results. | If Python or `ruff` is unavailable, then the system shall skip this step and say so in the doctor. | C | M7 |
-| FR-SCAN-04 | Correlate file findings with parse cost, failures and durations; rank files by parse cost × findings. | The system shall show, for each file, its parse time and its findings together. | S | M7 |
-| FR-SCAN-05 | Code insights in DAG detail with line references and suggested diffs. | The system shall render diffs read-only with a copy action. | S | M7 |
-| FR-SCAN-06 | Deploy propagation latency (`HM-014`): bucket object update time versus the DAG's last parsed time. | When propagation exceeds the configured threshold, the system shall raise `REC-PARSE-05`. | S | M5 |
+| FR-SCAN-01 | Read-only incremental sync of `dags/` (optionally `plugins/`) from the environment bucket into a local cache using object generations and hashes; size and path filters; `.airflowignore` awareness. | When nothing changed in the bucket, the system shall issue only listing calls and download nothing. | M | M8 |
+| FR-SCAN-02 | Analyzer rules on Python syntax trees (parsed in TypeScript, for example with tree-sitter): top-level code (`Variable.get`, connections, network or database calls, heavy imports at module level), dynamic DAG generation loops, deprecated APIs for Airflow 3 readiness (for example `schedule_interval`, `days_ago`, legacy import paths), missing `retries`, `retry_delay` or `execution_timeout`, `catchup=True` with long histories, poke-mode sensors with long timeouts, non-deterministic `start_date`, unbounded dynamic task mapping, large XCom patterns. | When a rule matches, the system shall report file, line, rule ID, explanation and a suggested fix. | M | M8 |
+| FR-SCAN-03 | Optional external linters: where a local Python environment exists, run `ruff` with its Airflow (`AIR`) rules and merge results. | If Python or `ruff` is unavailable, then the system shall skip this step and say so in the doctor. | C | M8 |
+| FR-SCAN-04 | Correlate file findings with parse cost, failures and durations; rank files by parse cost × findings. | The system shall show, for each file, its parse time and its findings together. | S | M8 |
+| FR-SCAN-05 | Code insights in DAG detail with line references and suggested diffs. | The system shall render diffs read-only with a copy action. | S | M8 |
+| FR-SCAN-06 | Deploy propagation latency (`HM-014`): bucket object update time versus the DAG's last parsed time. | When propagation exceeds the configured threshold, the system shall raise `REC-PARSE-05`. | S | M6 |
 
 ### 9.19 RPT ― Reports and export
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-RPT-01 | Environment report (HTML, printable to PDF): KPIs, top consumers, top findings, changes; on demand or scheduled while DCAM runs. | When generated, the report shall contain no live links that require DCAM to be running, except optional deep links. | S | M7 |
-| FR-RPT-02 | Opt-in Prometheus/OpenMetrics endpoint on localhost exposing selected derived signals. | Where enabled, the system shall expose only allowlisted signals with bounded label cardinality. | C | M7 |
-| FR-RPT-03 | Self-contained HTML snapshot of a view for sharing. | The snapshot shall render offline. | C | M7 |
-| FR-RPT-04 | Team showback report: slot-seconds, estimated CPU, memory and cost per team. | The system shall label all cost figures as estimates and show the pricing inputs. | S | M7 |
+| FR-RPT-01 | Environment report (HTML, printable to PDF): KPIs, top consumers, top findings, changes; on demand or scheduled while DCAM runs. | When generated, the report shall contain no live links that require DCAM to be running, except optional deep links. | S | M8 |
+| FR-RPT-02 | Opt-in Prometheus/OpenMetrics endpoint on localhost exposing selected derived signals. | Where enabled, the system shall expose only allowlisted signals with bounded label cardinality. | C | M8 |
+| FR-RPT-03 | Self-contained HTML snapshot of a view for sharing. | The snapshot shall render offline. | C | M8 |
+| FR-RPT-04 | Team showback report: slot-seconds, estimated CPU, memory and cost per team. | The system shall label all cost figures as estimates and show the pricing inputs. | S | M8 |
 
 ### 9.20 AI ― AI integrations (optional, off by default)
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-AI-01 | Built-in MCP server (stdio and localhost Streamable HTTP) exposing read-only tools: list environments, environment health, league table query, DAG details and statistics, findings, config option explanations, bounded analytics queries from an allowlist, incident context; wiki pages and the config knowledge base as resources. Ready-to-paste client configuration for Claude Code, GitHub Copilot (CLI and IDEs) and Gemini CLI. | Where the MCP server is enabled, the system shall expose only read-only tools, apply redaction to outputs, and log each tool call on the DCAM health page. | M | M7 |
-| FR-AI-02 | "Copy as prompt" on findings, DAGs, incidents and config options: sanitised Markdown with context, evidence and a question template; "Save as `.prompt.md`" for GitHub Copilot prompt files. | When the user copies a prompt, the system shall show a preview with redactions highlighted. | M | M7 |
-| FR-AI-03 | Optional LLM explainer with pluggable providers: none (default), GitHub Copilot CLI (if installed), Vertex AI Gemini, Anthropic API, OpenAI-compatible endpoint, local model server. One settings screen with **Test connection**. | Where a provider is enabled, the system shall show exactly what will be sent and require an explicit user action for every request. | S | M7 |
-| FR-AI-04 | Redaction policy (emails, tokens, connection strings, IP addresses, custom patterns) applied to prompts, exports and MCP outputs. | The system shall pass a redaction test suite with known secret formats. | M | M7 |
-| FR-AI-05 | AI output is labelled and never alters findings, thresholds or configuration. | The system shall store AI explanations separately from findings. | M | M7 |
+| FR-AI-01 | Built-in MCP server (stdio and localhost Streamable HTTP) exposing read-only tools: list environments, environment health, league table query, DAG details and statistics, findings, config option explanations, bounded analytics queries from an allowlist, incident context; wiki pages and the config knowledge base as resources. Ready-to-paste client configuration for Claude Code, GitHub Copilot (CLI and IDEs) and Gemini CLI. | Where the MCP server is enabled, the system shall expose only read-only tools, apply redaction to outputs, and log each tool call on the DCAM health page. | M | M8 |
+| FR-AI-02 | "Copy as prompt" on findings, DAGs, incidents and config options: sanitised Markdown with context, evidence and a question template; "Save as `.prompt.md`" for GitHub Copilot prompt files. | When the user copies a prompt, the system shall show a preview with redactions highlighted. | M | M8 |
+| FR-AI-03 | Optional LLM explainer with pluggable providers: none (default), GitHub Copilot CLI (if installed), Vertex AI Gemini, Anthropic API, OpenAI-compatible endpoint, local model server. One settings screen with **Test connection**. | Where a provider is enabled, the system shall show exactly what will be sent and require an explicit user action for every request. | S | M8 |
+| FR-AI-04 | Redaction policy (emails, tokens, connection strings, IP addresses, custom patterns) applied to prompts, exports and MCP outputs. | The system shall pass a redaction test suite with known secret formats. | M | M8 |
+| FR-AI-05 | AI output is labelled and never alters findings, thresholds or configuration. | The system shall store AI explanations separately from findings. | M | M8 |
 
 ### 9.21 EXT ― Extensibility (plugin SDK)
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-EXT-01 | Extension points: collectors, metric definitions (YAML + SQL), rules (YAML + SQL), panels (React components via manifest), notifiers, wiki pages (MDX), config knowledge base entries, exporters. | The system shall load built-in features through the same extension points as third-party plugins. | M (internal), S (public) | M4 / M8 |
+| FR-EXT-01 | Extension points: collectors, metric definitions (YAML + SQL), rules (YAML + SQL), panels (React components via manifest), notifiers, wiki pages (MDX), config knowledge base entries, exporters. | The system shall load built-in features through the same extension points as third-party plugins. | M (internal), S (public) | M5 / M8 |
 | FR-EXT-02 | Plugin manifest with JSON Schema, semantic-version compatibility range, declared sources, permissions and budgets. | If a plugin's compatibility range excludes the running DCAM version, then the system shall not load it and shall explain why. | M | M8 |
 | FR-EXT-03 | Install from a local directory or npm; disabled until the user enables it; integrity hash displayed. | When a plugin is installed, the system shall show its manifest and require explicit enablement. | S | M8 |
 | FR-EXT-04 | Trust model: declarative plugins preferred; code plugins run in process and are documented as trusted code. | The system shall label code plugins as "runs with DCAM's permissions". | M | M8 |
@@ -1748,7 +1822,7 @@ Requirements are grouped by epic. Each epic becomes one or more Spec Kit feature
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
 | FR-SELF-01 | DCAM health page: process CPU and memory, store size, collector status, API calls per minute per API and environment, budget consumption, errors, lag, MCP calls. | The system shall update the page every 10 seconds while visible. | M | M1 |
-| FR-SELF-02 | Eco mode: one switch for the lowest footprint (longest cadences, no backfill, static analysis paused). | When eco mode is enabled, the system shall reduce API calls by at least 70 % compared with the `standard` profile. | S | M2 |
+| FR-SELF-02 | Eco mode: one switch for the lowest footprint (longest cadences, no backfill, static analysis paused). | When eco mode is enabled, the system shall reduce API calls by at least 70 % compared with the `standard` profile. | S | M4 |
 | FR-SELF-03 | Structured JSON logs; redacted debug bundle export for bug reports. | When the user exports a debug bundle, the system shall exclude tokens, configuration secrets and raw log content. | M | M1 |
 
 ### 9.23 EMU ― Demo mode and emulator integration
@@ -1757,13 +1831,15 @@ Requirements are grouped by epic. Each epic becomes one or more Spec Kit feature
 |---|---|---|---|---|
 | FR-EMU-01 | Demo mode with a synthetic workspace (no Google Cloud access needed), clearly labelled. | When started with `--demo`, the system shall load synthetic environments and show a persistent "demo data" banner. | M | M0 |
 | FR-EMU-02 | Monitor a local Airflow (Docker Compose) through the same Airflow adapter, with Google Cloud collectors replaced by fakes. | When pointed at the local emulator, the system shall populate DAG, run, task instance and pool views. | M | M1 |
-| FR-EMU-03 | Scenario library reproducing bottlenecks ([§20.4](#204-scenario-library)) for demos and end-to-end tests. | When a scenario runs, the corresponding rule shall fire within the scenario's expected window. | M | M3–M4 |
+| FR-EMU-03 | Scenario library reproducing bottlenecks ([§20.4](#204-scenario-library)) for demos and end-to-end tests. | When a scenario runs, the corresponding rule shall fire within the scenario's expected window. | M | M2–M3 |
 
 ---
 
 ## 10. Non-functional requirements
 
 Reference hardware for budgets: a laptop with 4 performance cores and 16 GB RAM. Reference scale: 3 environments, 5,000 DAGs and 100,000 task instances per day each, 90 days of history (about 27 million task instances in total).
+
+**First target profile (v0.x).** The first releases are validated against one real environment with this shape: Composer 3 (Gen 3), Airflow 2.11.1 (`composer-3-airflow-2.11.1-build.*`), about 2,000 DAGs, Airflow web server reachable from the laptop through a corporate HTTP(S) proxy, user credentials (ADC). The reference scale above stays the ceiling that performance tests prove; the first target profile is what the M1 spike and the M2 and M3 demos run against.
 
 ### 10.1 Performance
 
@@ -1811,6 +1887,7 @@ Reference hardware for budgets: a laptop with 4 performance cores and 16 GB RAM.
 | NFR-OBS-01 | Airflow REST API default budget per environment: ≤ 60 requests/min at `live`, ≤ 12 requests/min at `standard`, ≤ 4 requests/min at `eco`; maximum 2 concurrent requests; page size ≤ the server's maximum page limit. |
 | NFR-OBS-02 | Cloud Logging reads: by default ≤ 20 % of the per-project `entries.list` quota (60 requests per minute per project; not adjustable; shared by every reader of the project's logs), and never more than 50 %. Counts of events MUST come from metrics where available, with logs used for samples and attribution ([§7.3](#73-cloud-logging-src-log)). |
 | NFR-OBS-03 | Cloud Monitoring reads: batched queries; ≤ 30 requests/min per project by default. |
+| NFR-OBS-06 | Cloud Monitoring series budget. Since 2025-10-02 Cloud Monitoring bills reads per time series returned ($0.50 per million, first million per billing account per month free). DCAM MUST count series returned per project and per day, MUST stay within a configurable monthly series budget (default 1,000,000 per workspace, the free tier), MUST use `crossSeriesReducer` for environment-level views, MUST read per-DAG and per-task workflow metrics only in `mon.slow` and only for DAGs in view or the top N by slot-seconds, and MUST show the month-to-date estimate on the health page (`FR-SELF-01`). When the budget is reached, DCAM reduces fidelity (`FR-COLL-06`) instead of exceeding it. |
 | NFR-OBS-04 | Composer API: ≤ 6 requests/min per environment; opt-in Airflow CLI execution ≤ 1 command per 30 min per environment. |
 | NFR-OBS-05 | Budgets MUST be verified by automated tests against the emulator and fakes ([§19](#19-testing-validation-and-quality-strategy)). |
 
@@ -1857,9 +1934,10 @@ Details in [§18](#18-security-privacy-and-compliance).
 | ID | Requirement |
 |---|---|
 | NFR-PORT-01 | macOS (arm64, x64) and Linux (x64, arm64) are first-class; Windows through WSL2 is supported; native Windows is best effort. |
-| NFR-PORT-02 | Runtime: Node.js Active LTS (Node.js 26 at the time of writing), with Node.js 22 as the minimum because the Google Cloud client libraries require it; pnpm pinned through the `packageManager` field (Corepack, or a standalone pnpm where Corepack is not bundled); no native toolchain needed beyond prebuilt binaries (DuckDB). |
+| NFR-PORT-02 | Runtime: Node.js 22.12 or later (the minimum, because `google-auth-library` requires Node.js 22 and Intel Macs on macOS 12 cannot run newer majors ⚠️ VERIFY in ADR-0002); CI tests Node.js 22, 24 and 26 (26 is Active LTS since 2026-10-28). pnpm 11 pinned through the `packageManager` field (Corepack, or a standalone pnpm where Corepack is not bundled); no native toolchain needed beyond prebuilt binaries (DuckDB). |
+| NFR-PORT-04 | DuckDB stays on the 2.0 LTS line while macOS x64 is supported, because DuckDB 2.1 drops macOS x64 prebuilt binaries (ADR-0005). The store records the DuckDB storage version and refuses to open a newer file with an older engine. |
 | NFR-PORT-03 | A Docker image is provided as an alternative launch method. |
-| NFR-COMP-01 | Composer 3 with Airflow 2.10 or later 2.x: first-class. Airflow 3.x: supported through the API v2 adapter, and tested against the Airflow 3 versions of Composer's current builds (3.2 and 3.3 at the time of writing); OQ-03 decides when it becomes first-class. Composer 2: optional adapter. |
+| NFR-COMP-01 | Composer 3 with Airflow 2.11 (Composer's default build, 2.11.1): first-class from M1. Airflow 3.x: supported through the API v2 adapter from M4, and tested against the Airflow 3 versions of Composer's current builds (3.2.2 and 3.3.1 at the time of writing); OQ-03 decides when it becomes first-class. Composer 2: optional adapter. |
 | NFR-COMP-02 | Browsers: latest two versions of Chrome, Edge, Firefox and Safari. |
 
 ### 10.10 Maintainability, documentation and OSS readiness
@@ -1871,7 +1949,8 @@ Details in [§18](#18-security-privacy-and-compliance).
 | NFR-MAINT-03 | Every HTTP endpoint is documented in OpenAPI with examples; contract tests pass. |
 | NFR-MAINT-04 | Every structural decision has an ADR. |
 | NFR-DOC-01 | Documentation site with quickstart, configuration, IAM, troubleshooting, architecture (draw.io diagrams with PNG and SVG exports) and contribution guide. |
-| NFR-OSS-01 | Apache-2.0 license (proposed, ADR-0020), DCO sign-off, code of conduct, `SECURITY.md`, `CONTRIBUTING.md`, issue and PR templates, semantic versioning, changelog. |
+| NFR-OSS-01 | Apache-2.0 license (decided, ADR-0020), DCO sign-off, code of conduct, `SECURITY.md`, `CONTRIBUTING.md`, issue and PR templates, semantic versioning, changelog. The repository is public from the first commit. |
+| NFR-OSS-02 | Nothing organisation-specific is ever committed: no real project IDs, environment names, bucket names, DAG IDs, hostnames, user names or captured API responses. Enforced by the public-repository hygiene controls in [§18.12](#1812-public-repository-hygiene). |
 
 ---
 
@@ -2061,32 +2140,32 @@ dcam/
 
 ### 11.6 Technology stack
 
-Versions are "latest stable at M0, pinned in the lockfile" unless stated. Items marked ⚠️ VERIFY must be confirmed in the M0 ADRs.
+Versions were checked on 2026-11-05 against release pages and the npm registry; the major versions named here are pinned exactly in the lockfile at M0. Items marked ⚠️ VERIFY must be confirmed in the M0 ADRs, starting with a smoke test of the native dependencies on the oldest supported machine (Intel macOS 12, Node.js 22).
 
 | Concern | Choice | Rationale | Alternatives considered | ADR |
 |---|---|---|---|---|
-| Runtime | Node.js Active LTS (minimum 22, required by the Google Cloud client libraries) | One language end to end; mature Google auth libraries | Bun, Deno (less mature support for the Google SDKs and DuckDB bindings) | ADR-0002 |
-| Language | TypeScript, `strict` | Type safety across contract, server and UI. TypeScript 7 (the native compiler) is current, but `typescript-eslint` supported TypeScript only up to 6.0 at the time of writing; ADR-0002 picks the major that the lint and test tooling supports | ― | ADR-0002 |
-| Monorepo | pnpm workspaces + Turborepo | Fast, cache-friendly, simple | Nx | ADR-0002 |
-| HTTP server | Fastify | Performance, JSON Schema validation, plugin model | Hono, Express | ADR-0003 |
+| Runtime | Node.js 22.12 or later (minimum: `google-auth-library` 11 needs Node.js 22, and Intel Macs on macOS 12 cannot run newer majors ⚠️ VERIFY); CI on 22, 24 and 26 (Active LTS since 2026-10-28) | One language end to end; mature Google auth libraries | Bun, Deno (less mature support for the Google SDKs and DuckDB bindings) | ADR-0002 |
+| Language | TypeScript 6.0, `strict`, with a tsconfig that already follows TypeScript 7 rules (no `baseUrl`, no node10 resolution) | TypeScript 7.0 (native compiler) is released but has no compiler API yet, so `typescript-eslint` (accepts < 6.1), `openapi-typescript` and `dependency-cruiser` cannot use it. The native `tsgo` MAY be added later for fast type checks; ADR-0002 revisits when TypeScript 7.1 ships the API | ― | ADR-0002 |
+| Monorepo | pnpm 11 workspaces + Turborepo 2 | Fast, cache-friendly, simple. pnpm 12 is a Rust rewrite with breaking configuration changes; revisit after M2 | Nx | ADR-0002 |
+| HTTP server | Fastify 5 | Performance, JSON Schema validation, plugin model (v6 is still alpha) | Hono, Express | ADR-0003 |
 | Contract | OpenAPI 3.1 (JSON Schema 2020-12) with generated types (`openapi-typescript`) and client (`openapi-fetch`) | Contract-first; one schema dialect for API, configuration and plugin manifests | tRPC (TypeScript-only, blocks a Python twin) | ADR-0003 |
-| Runtime validation | Ajv (server, configuration), Zod at adapter boundaries for third-party responses | Strict validation of untrusted inputs | ― | ADR-0003 |
+| Runtime validation | Ajv 8 (server, configuration), Zod 4 at adapter boundaries for third-party responses | Strict validation of untrusted inputs; Zod 4 converts to and from JSON Schema | ― | ADR-0003 |
 | Architecture enforcement | `dependency-cruiser` | Codifies [§11.4](#114-hexagonal-components-and-dependency-rules) | ESLint boundaries plugin | ADR-0004 |
-| Analytical store | DuckDB through `@duckdb/node-api`; Parquet cold tier | Embedded, columnar, fast window functions and time bucketing; the same SQL runs in Python | SQLite (row store, slow analytics), ClickHouse (server), Postgres | ADR-0005 |
+| Analytical store | DuckDB 2.0 LTS through `@duckdb/node-api` (exact pin); Parquet cold tier | Embedded, columnar, fast window functions and time bucketing; the same SQL runs in Python. DuckDB 2.1 drops macOS x64, so DCAM stays on the 2.0 LTS line while Intel Macs are supported, with 1.5 as the fallback (ADR-0005, `NFR-PORT-04`). Files written by 2.0 cannot be read by older engines | SQLite (row store, slow analytics), ClickHouse (server), Postgres | ADR-0005 |
 | Outbound access | REST through one guarded client using `google-auth-library` | Single read-only choke point; works with proxies; no gRPC dependency | Official gRPC client libraries (harder to guard and proxy) | ADR-0006 |
 | Live updates | Server-Sent Events | One-directional, proxy-friendly, simple reconnection | WebSocket | ADR-0008 |
-| UI framework | React + Vite | Ecosystem; Airflow 3's UI is also React | ― | ADR-0009 |
-| Component library | MUI (Material UI) with DCAM design tokens | Material conventions close to Google Cloud console; accessible primitives; dense data tables | Chakra UI (used by the Airflow 3 UI), Mantine | ADR-0009 |
-| Routing and data | TanStack Router, TanStack Query, TanStack Table, TanStack Virtual | Type-safe URL state, caching, virtualisation | React Router, SWR, AG Grid | ADR-0009 |
-| Charts | Apache ECharts (rich charts, heatmaps, treemaps, Gantt, large datasets on canvas) and uPlot (dense time series) | Performance and breadth | Recharts, Visx, Highcharts (licence) | ADR-0010 |
-| Graphs and diagrams | React Flow (`@xyflow/react`) with dagre layout (`@dagrejs/dagre`) | Interactive DAG graphs, relationship graphs and architecture diagrams; MIT-licensed | Cytoscape.js; ELK (`elkjs`, EPL-2.0 or GPL-3.0, outside the licence allowlist in [§21.11](#2111-coding-standards-and-quality-gates)) | ADR-0010 |
+| UI framework | React 19 + Vite 8 (Rolldown) | Ecosystem; Airflow 3's UI is also React | ― | ADR-0009 |
+| Component library | MUI 9 (Material UI) with DCAM design tokens | Material conventions close to Google Cloud console; accessible primitives. Dense data grids use TanStack Table instead of MUI X, whose column pinning and grouping need paid tiers | Chakra UI (used by the Airflow 3 UI), Mantine | ADR-0009 |
+| Routing and data | TanStack Router 1, TanStack Query 5, TanStack Table 9, TanStack Virtual 3 | Type-safe URL state, caching, virtualisation; the league table is TanStack Table + Virtual (Table 9's API differs from v8, so v8 examples do not apply) | React Router, SWR, AG Grid | ADR-0009 |
+| Charts | Apache ECharts 6 (rich charts, heatmaps, treemaps, Gantt, large datasets on canvas) and uPlot (dense time series) | Performance and breadth; ECharts 6 changed its default theme, so DCAM registers its own theme | Recharts, Visx, Highcharts (licence) | ADR-0010 |
+| Graphs and diagrams | React Flow (`@xyflow/react` 12) with dagre layout (`@dagrejs/dagre` 3, typed ESM) | Interactive DAG graphs, relationship graphs and architecture diagrams; MIT-licensed | Cytoscape.js; ELK (`elkjs`, EPL-2.0 or GPL-3.0, outside the licence allowlist in [§21.11](#2111-coding-standards-and-quality-gates)) | ADR-0010 |
 | Code views | CodeMirror 6 (SQL, YAML, HCL, Python, diff) | Light, accessible | Monaco (heavier) | ― |
 | Python parsing | `web-tree-sitter` + Python grammar (WebAssembly) | No native toolchain; fast incremental parsing | Spawning Python `ast` (requires a local Python) | ADR-0012 |
 | MCP | Official TypeScript MCP SDK | Standard transports (stdio, Streamable HTTP) | ― | ADR-0018 |
 | Logging | pino (JSON) with redaction paths | Fast, structured | winston | ― |
 | Worker pool | Piscina | Bounded worker threads | ― | ― |
-| Testing | Vitest, Testing Library, MSW, Playwright, axe-core, fast-check, Stryker, Schemathesis (contract fuzzing, in Docker) | See [§19](#19-testing-validation-and-quality-strategy) | Jest | ADR-0022 |
-| Lint and format | ESLint (flat config, `typescript-eslint`, `jsx-a11y`) + Prettier | Plugin ecosystem | Biome | ADR-0004 |
+| Testing | Vitest 5, Testing Library, MSW 3, Playwright 1.64, axe-core, fast-check 4, Stryker 10 (from M3), Schemathesis (contract fuzzing, in Docker) | See [§19](#19-testing-validation-and-quality-strategy) | Jest | ADR-0022 |
+| Lint and format | ESLint 10 (flat config, `typescript-eslint` 8, `jsx-a11y`) + Prettier | Plugin ecosystem. Biome 2 and Oxlint (the only type-aware linter that works with TypeScript 7) are watched for a later switch | Biome | ADR-0004 |
 | Docs site | Astro Starlight (MDX) | Fast static site; shares MDX with the in-app wiki | Docusaurus | ADR-0021 |
 | Release | Changesets, GitHub Actions, CycloneDX SBOM, Sigstore signing, SLSA provenance | Supply-chain integrity (`NFR-SEC-05`) | semantic-release | ADR-0023 |
 
@@ -3318,7 +3397,7 @@ Export rules:
 
 - Workspace file: `dcam.config.yaml` in the working directory, or the path from `--config` or `DCAM_CONFIG`. A JSON Schema is published with each release and referenced from the file for editor completion.
 - Precedence: built-in defaults < configuration file < environment variables < command-line flags.
-- The file contains no secrets and is safe to commit (`FR-SETUP-07`). Secret values are referenced by environment variable name or keychain entry.
+- The file contains no secrets (`FR-SETUP-07`); secret values are referenced by environment variable name or keychain entry. It does contain real project IDs and environment names, so it is safe to commit to a team's *private* repository but MUST NOT be committed to the DCAM repository, where `dcam.config.yaml` is git-ignored and only `dcam.config.example.yaml` (fictitious `acme-*` values) is tracked ([§18.12](#1812-public-repository-hygiene)).
 
 ### 17.2 Annotated example
 
@@ -3496,6 +3575,19 @@ features:
 
 The directory is created with owner-only permissions (`0700`).
 
+### 17.6 Run against your environment
+
+This is the path for a user who clones the public repository on a corporate machine and points DCAM at their own production environment. It is also the README's "Run against your environment" section.
+
+1. **Prerequisites.** Node.js 22.12 or later, `corepack enable` (for pnpm), the Google Cloud CLI, network access to `*.googleapis.com` and to the environment's Airflow web server (directly or through the corporate proxy).
+2. **Identity and access.** Use your own user credentials (`gcloud auth application-default login`), or a reader service account through impersonation (from M4). The identity needs `roles/composer.viewer` and `roles/monitoring.viewer` (and later `roles/logging.viewer` and bucket read, [§18.4](#184-least-privilege-iam)), plus the Airflow `Viewer` role. If you have never called the Airflow API, Composer 3 registers you as `Op` on first access; ask an administrator to assign `Viewer` ([§18.3](#183-authentication-and-identity)).
+3. **Quota project.** Set it with `gcloud auth application-default set-quota-project <project>` or `auth.quotaProjectId` (`FR-AUTH-04`).
+4. **Proxy and CA.** Export `HTTPS_PROXY` (and `NO_PROXY` for local addresses) before starting DCAM. If the proxy inspects TLS, also set `NODE_EXTRA_CA_CERTS` to the corporate root CA bundle (`FR-AUTH-07`). DCAM routes Google API calls *and* Airflow web server calls through the proxy, and the doctor checks both.
+5. **Configure.** `cp dcam.config.example.yaml dcam.config.yaml` and set `projectId`, `location` and `environment`. The copy is git-ignored.
+6. **Doctor.** `pnpm dcam doctor` checks credentials, quota project, APIs, IAM, Airflow reachability and role, proxy and clock, and prints a copyable fix for each failure.
+7. **Start.** `pnpm dcam` opens `http://127.0.0.1:8787`. The first backfill runs in the background within the observer budget; the league table fills as facts arrive.
+8. **What stays on the laptop.** Everything DCAM collects lives in `~/.dcam/data/` (owner-only permissions). Nothing is sent anywhere except the read-only API calls listed in [§7](#7-data-sources-and-agentless-collection). Do not attach the data directory, debug bundles or screenshots of real environments to public issues; use the redacted debug bundle (`FR-SELF-03`) instead.
+
 ---
 
 ## 18. Security, privacy and compliance
@@ -3632,6 +3724,17 @@ The redaction pipeline detects common credential formats (Google API keys, OAuth
 | Web security baseline | OWASP ZAP baseline scan against the local server | Blocking on high |
 | Redaction | Corpus tests | Blocking |
 | Parsers | Fuzzing of configuration, filter expressions and log parsers (fast-check) | Non-blocking, tracked |
+| Public-repository hygiene | Denylist and pattern scan ([§18.12](#1812-public-repository-hygiene)) | Blocking |
+
+### 18.12 Public repository hygiene
+
+The repository is public from its first commit, while maintainers run DCAM against real, private environments. These controls keep the two apart (`NFR-OSS-02`):
+
+- **Configuration.** `dcam.config.yaml`, `*.local.yaml`, `.env*` and the data directory are git-ignored. Only `dcam.config.example.yaml` and `tools/emulator/dcam.config.emulator.yaml` are tracked, with fictitious `acme-*` values.
+- **Fixtures.** Recorded API responses are captured into the git-ignored `tools/fixtures/raw/`. Only sanitised copies in `tools/fixtures/recorded/` are committed. The sanitiser rewrites project numbers and IDs, environment, bucket, DAG, task and pool names, hostnames, service accounts, e-mail and IP addresses, and removes free-text log messages, with a stable mapping so that relationships between records survive. The fixture linter rejects any fixture that was not produced by the sanitiser.
+- **Denylist.** Each maintainer keeps a git-ignored `.dcam-denylist` with the identifiers of their real environments (one literal or regular expression per line). A pre-commit hook and the `stop-checks` harness hook refuse any staged change that matches it. CI runs the same scan with generic patterns (Google project number formats, `*.iam.gserviceaccount.com`, `*.composer.googleusercontent.com`, non-example e-mail domains) plus gitleaks.
+- **Screenshots and docs.** Documentation screenshots are generated from demo mode only ([§20.6](#206-demo-mode-and-the-demo-dataset)). Validation evidence from real environments (`/validate-ui`) is written to the git-ignored `tmp/validation/`.
+- **Issues.** The issue templates ask for redacted debug bundles and warn against pasting real identifiers.
 
 ---
 
@@ -3886,7 +3989,7 @@ DCAM must be developable, testable and demonstrable without a Google Cloud proje
 | Google authentication, IAM, VPC Service Controls | **Not reproduced** | Covered by recorded fixtures and the doctor's own tests |
 | Tenant-project internals, Cloud SQL behaviour | **Not reproduced** | Database metrics are synthesised in scenarios that need them |
 
-**Why not only `composer-local-dev`?** Google's local development CLI runs Composer images with LocalExecutor or SequentialExecutor only, in a single container with a small resource limit. It copies only the image version, PyPI packages and environment-variable names. It cannot reproduce Celery worker capacity, autoscaling, multiple schedulers or contention, which are the behaviours DCAM analyses. DCAM therefore:
+**Why not only `composer-local-dev`?** Google's local development CLI supports Composer 3 images (including Airflow 2.11 and Airflow 3), but documents only LocalExecutor, in a single container with a small resource limit, and has no published releases (checked 2026-11). It copies only the image version, PyPI packages and environment-variable names. It cannot reproduce Celery worker capacity, autoscaling, multiple schedulers or contention, which are the behaviours DCAM analyses. DCAM therefore:
 
 - builds its emulator on the official Apache Airflow Docker Compose setup with CeleryExecutor, Redis and Postgres, pinned to the Airflow version of the target Composer build;
 - uses `composer-local-dev` optionally, for image and package parity only. For example, a user can check that the static analyser's import findings match the exact Composer image.
@@ -3924,7 +4027,7 @@ flowchart LR
 
 **Components** (all under `tools/emulator/`):
 
-- **`compose.yaml`.** Two profiles, `airflow2` and `airflow3`, each pinned to the Airflow version of a current Composer build. Airflow configuration mirrors Composer defaults from [Appendix D](#appendix-d-config-knowledge-base-seed), for example:
+- **`compose.yaml`.** Two profiles, `airflow2` and `airflow3`, each pinned to the Airflow version of a current Composer build: 2.11.1 and 3.3.1 at the time of writing. The `airflow2` profile starts from the official Airflow 2.11 `docker-compose.yaml` (CeleryExecutor, Postgres, Redis, scheduler, web server, worker, triggerer) with the image set to 2.11.1. Composer 3 itself runs `CeleryKubernetesExecutor`; the emulator uses plain Celery because DCAM's analytics concern the Celery slots, and Kubernetes-executor tasks are a separate, simpler case (`HM-011`). Airflow configuration mirrors Composer defaults from [Appendix D](#appendix-d-config-knowledge-base-seed), for example:
   - `max_active_runs_per_dag` 25 and `max_active_tasks_per_dag` 16;
   - `dag_dir_list_interval` 120 s and `min_file_process_interval` 30 s;
   - `task_queued_timeout` 2400 s.
@@ -4089,6 +4192,22 @@ DCAM is designed to be built mostly by Claude Code under human review. The harne
 - automated quality gates.
 
 The concrete starter files are in [Appendix F](#appendix-f-starter-harness-files).
+
+### 21.0 Lean core first, then grow
+
+The harness starts small at M0 and grows when the work needs it. Everything in §21.1–§21.11 remains the target design; the table states what exists at each stage.
+
+| Part | M0 core | Added later (trigger) |
+|---|---|---|
+| Project memory | `CLAUDE.md` (under 150 lines), `AGENTS.md` pointer, `docs/spec/constitution.md` | Path-scoped `.claude/rules/*.md` (when a package's rules outgrow `CLAUDE.md`) |
+| Settings | `.claude/settings.json` with allow, ask and deny lists; `DCAM_NETWORK=loopback-only` | Sandbox profile in personal settings (maintainers' choice) |
+| Hooks | `guard-bash.mjs`, `guard-paths.mjs`, `stop-checks.mjs`, each with a test corpus | `post-edit.mjs` and `session-start.mjs` (M1, when formatting and task lists need them) |
+| Subagents | `test-first-implementer`, `code-reviewer`, `ui-validator`, `gcp-airflow-expert` (one expert for Composer, Cloud Monitoring, Cloud Logging, IAM and Airflow), `docs-diagrammer` | `spec-author`, `adr-author`, `perf-auditor` (M2, performance tests), `security-reviewer` (M1, guarded client and auth); split the expert in two if its prompt grows too large |
+| Commands | `/tdd`, `/adr`, `/spec`, `/validate-ui`, `/diagram` | `/rule`, `/metric` (M3, rule and signal packs), `/verify-fact` (M1 spike), `/release` (M2) |
+| Skills | `drawio-diagrams`, `adr-madr`, `spec-driven-feature` | `ui-validation`, `rule-authoring`, `metric-entry`, `wiki-authoring` |
+| Spec-driven flow | Lightweight feature folders `specs/NNN-<epic>-<name>/` with `spec.md`, `plan.md` and `tasks.md` from the templates in the `spec-driven-feature` skill | GitHub Spec Kit ([§21.8](#218-spec-driven-development-with-spec-kit)) at M2, if the lightweight flow proves insufficient (decided by ADR) |
+| Traceability | Requirement IDs in spec, tasks, test names and `@implements` tags | `pnpm trace` report (M2) |
+| MCP servers | `playwright` (pinned, headless); Claude in Chrome per developer | `dcam-demo` (M8, when DCAM's own MCP server exists) |
 
 > ⚠️ VERIFY at M0: Claude Code configuration formats evolve quickly. These include permission rule syntax, hook events and payloads, subagent and skill front matter, and Chrome integration. Check every snippet against the current Claude Code documentation when the harness is created, and record the checked version in ADR-0022.
 
@@ -4270,7 +4389,7 @@ Subagents live in `.claude/agents/<name>.md`. Each has a focused prompt, a restr
 
 | Skill | Contents |
 |---|---|
-| `drawio-diagrams` | Conventions: C4 levels, Google Cloud and Airflow icon sets, DCAM design tokens as colours, one diagram per file, page naming. Export with the draw.io desktop CLI in both formats: `drawio -x -f svg -e -b 10 -o out.drawio.svg in.drawio` and `drawio -x -f png -e -s 2 -b 10 -o out.png in.drawio` (`-x` export, `-f` format, `-e` embed the diagram so the exported file stays editable, `-s` scale, `-b` border, `-o` output). In CI it runs headless under `xvfb-run` with `--no-sandbox`. The skill includes `scripts/export-all.mjs`, which exports every changed `.drawio` file and fails if exports are stale |
+| `drawio-diagrams` | Conventions: C4 levels, Google Cloud and Airflow icon sets, DCAM design tokens as colours, one diagram per file, page naming. Export with the draw.io desktop CLI (32.x; on macOS the binary is `/Applications/draw.io.app/Contents/MacOS/draw.io`) in both formats: `drawio -x -f svg -e --embed-svg-images -b 10 -o out.drawio.svg in.drawio` and `drawio -x -f png -e -s 2 -b 10 -o out.png in.drawio` (`-x` export, `-f` format, `-e` embed the diagram so the exported file stays editable, `-s` scale, `-b` border, `-o` output; use `--theme`, not the deprecated `--svg-theme`, and never group a value flag as in `-xf png`). In CI it runs headless under `xvfb-run` with `--no-sandbox`. The skill includes `scripts/export-all.mjs`, which exports every changed `.drawio` file and fails if exports are stale |
 | `adr-madr` | MADR 4.0 template, numbering, status lifecycle (proposed, accepted, deprecated, superseded by), the rule that accepted ADRs are never edited, only superseded, and examples |
 | `spec-driven-feature` | The Spec Kit flow for DCAM ([§21.8](#218-spec-driven-development-with-spec-kit)), feature naming, the Definition of Done ([§19.9](#199-ci-pipeline-and-quality-gates)) and traceability tags |
 | `rule-authoring` | The rule model ([§13.1](#131-rule-model)), the evidence and confidence requirements, the snippet template rules, the false-positive review questions and the quality gates ([§13.8](#138-rule-quality-gates)) as a checklist |
@@ -4282,19 +4401,19 @@ Subagents live in `.claude/agents/<name>.md`. Each has a focused prompt, a restr
 
 ### 21.8 Spec-driven development with Spec Kit
 
-DCAM uses GitHub Spec Kit to turn this specification into small, verifiable features.
+DCAM turns this specification into small, verifiable features. Until M2 it does so with the lightweight flow of [§21.0](#210-lean-core-first-then-grow): the `/spec` command writes `specs/NNN-<epic>-<name>/spec.md`, `plan.md` and `tasks.md` from templates, and the constitution lives in `docs/spec/constitution.md`. GitHub Spec Kit is adopted at M2 if that flow proves insufficient; the rest of this section describes the adoption.
 
-**Setup at M0.** A maintainer runs this once, on a clean branch and outside Claude Code. The Spec Kit CLI needs Python 3.11 or later and `uv`; this is a maintainer tool, not a runtime dependency of DCAM.
+**Setup at adoption.** A maintainer runs this once, on a clean branch and outside Claude Code. The Spec Kit CLI needs Python 3.11 or later and `uv`; this is a maintainer tool, not a runtime dependency of DCAM. Version 1.3.0 (2026-11-03) was current when this was written; pin the version that is current at adoption.
 
 ```bash
-uv tool install specify-cli
+uv tool install specify-cli==1.3.0
 specify init --here --force --integration claude \
-  --integration-options="--no-model-invocation --events false"
+  --integration-options="--no-model-invocation --events false"   # ⚠️ VERIFY --events at adoption
 git status && git diff --stat        # review every generated file before committing
 ```
 
 - **`--here --force`** initialises the existing repository. `--force` allows a non-empty directory and may replace files at paths Spec Kit manages, so review the diff before committing.
-- **Skills, not commands.** For Claude Code, Spec Kit installs each step as a skill in `.claude/skills/speckit-<step>/SKILL.md`, invoked as `/speckit-specify`, `/speckit-plan` and so on. Spec Kit's own reference pages write the same steps in dotted form (`/speckit.specify`).
+- **Skills, not commands.** For Claude Code, Spec Kit installs each step as a skill in `.claude/skills/speckit-<step>/SKILL.md`, invoked as `/speckit-specify`, `/speckit-plan` and so on. Spec Kit's own reference pages write the same steps in dotted form (`/speckit.specify`). In 1.3.0 the steps are `constitution`, `specify`, `clarify`, `plan`, `checklist`, `tasks`, `analyze`, `implement` and `converge` (`taskstoissues` was removed).
 - **`--no-model-invocation`** makes the core Spec Kit skills user-invocable only. Their descriptions stay out of Claude's context, and Claude cannot start a Spec Kit step on its own.
 - **`--events false`** keeps Spec Kit's event handlers out of `.claude/settings.json`, which stays owned by the harness ([§21.4](#214-settings-and-permissions)).
 - **Upgrades.** Run `specify integration upgrade claude` with the same `--integration-options`. Passing options replaces all stored options, so repeat both.
@@ -4367,19 +4486,19 @@ Accepted ADRs are immutable: a change of mind is a new ADR that supersedes the o
 | ADR-0008 | Live updates transport | Server-Sent Events | M1 |
 | ADR-0009 | UI framework and component library | React + Vite, MUI with DCAM tokens, TanStack Router, Query, Table and Virtual | M0 |
 | ADR-0010 | Charts and graphs | ECharts and uPlot; React Flow with dagre (ELK only if ADR-0020 admits its licence) | M2 |
-| ADR-0011 | Declarative packs for signals and rules | YAML manifests + DuckDB SQL + templates, schema-validated | M3 |
-| ADR-0012 | Python static analysis engine | `web-tree-sitter` with the Python grammar | M7 |
+| ADR-0011 | Declarative packs for signals and rules | YAML manifests + DuckDB SQL + templates, schema-validated | M2 |
+| ADR-0012 | Python static analysis engine | `web-tree-sitter` with the Python grammar | M8 |
 | ADR-0013 | Airflow API adapters | Separate v1 and v2 adapters behind one port; capability probing; version detection | M1 |
 | ADR-0014 | Cloud Monitoring query strategy | `timeSeries.list` with server-side aggregation as default; PromQL API where it reduces calls; no MQL | M1 |
 | ADR-0015 | Cloud Logging access | Metrics first; bounded, budgeted `entries.list`; no tailing by default; optional user-managed sinks | M1 |
 | ADR-0016 | Authentication | Application Default Credentials, optional impersonation, quota project handling, `gcloud` for sign-in | M1 |
 | ADR-0017 | Local web security model | Loopback bind, token for non-loopback, CSRF, CSP, Host validation | M1 |
-| ADR-0018 | MCP server design | Read-only tools and resources, redaction, budgets shared with the UI, stdio and Streamable HTTP | M7 |
-| ADR-0019 | Optional LLM explainer | Off by default; provider adapters; redaction preview; evidence-grounded prompts | M7 |
+| ADR-0018 | MCP server design | Read-only tools and resources, redaction, budgets shared with the UI, stdio and Streamable HTTP | M8 |
+| ADR-0019 | Optional LLM explainer | Off by default; provider adapters; redaction preview; evidence-grounded prompts | M8 |
 | ADR-0020 | Licence and contribution model | Apache-2.0, DCO, code of conduct, governance | M0 |
-| ADR-0021 | Documentation site | Astro Starlight sharing MDX with the in-app wiki | M2 |
+| ADR-0021 | Documentation site | Astro Starlight sharing MDX with the in-app wiki | M6 |
 | ADR-0022 | Testing strategy and tools | [§19](#19-testing-validation-and-quality-strategy) toolset; the Claude Code harness version checked | M0 |
-| ADR-0023 | Release and supply chain | Changesets, GitHub Actions, CycloneDX SBOM, Sigstore signing, SLSA provenance | M3 |
+| ADR-0023 | Release and supply chain | Changesets, GitHub Actions, CycloneDX SBOM, Sigstore signing, SLSA provenance | M2 (first public release) |
 
 New ADRs continue from ADR-0024. Candidates already visible:
 
@@ -4394,7 +4513,7 @@ New ADRs continue from ADR-0024. Candidates already visible:
 
 | Server | Purpose | Notes |
 |---|---|---|
-| `playwright` | Headless UI validation and exploratory E2E authoring | Pinned `@playwright/mcp` version, headless, isolated profile, origins limited to DCAM (`127.0.0.1:8787`, `localhost:8787`) and the Vite dev server (`localhost:5173`) with `--headless --isolated --allowed-origins` (semicolon-separated). The allowlist is not a security boundary |
+| `playwright` | Headless UI validation and exploratory E2E authoring | Pinned `@playwright/mcp` version (0.0.84 at the time of writing; still 0.x, so pinned exactly), headless, isolated profile, origins limited to DCAM (`127.0.0.1:8787`, `localhost:8787`) and the Vite dev server (`localhost:5173`) with `--headless --isolated --allowed-origins` (semicolon-separated). The allowlist is not a security boundary |
 | `dcam-demo` | Dogfooding: DCAM's own read-only MCP server over the demo dataset | `pnpm dcam mcp --stdio --demo-only`, bridging to a running `pnpm dcam --demo` instance; the bridge refuses non-demo instances. Lets Claude query realistic data while building UI and rules. Never configured against real environments in the repository |
 
 Claude in Chrome is configured per developer, not in the repository. Start it per session with `claude --chrome` rather than "Enabled by default", which loads the browser tools into every session and uses context. Its site permissions, managed in the extension, are restricted to localhost ([§19.6](#196-browser-driven-ui-validation-loop)). Chrome DevTools MCP, when used for performance work, is also configured per developer, with the flags listed in [§19.6](#196-browser-driven-ui-validation-loop).
@@ -4498,52 +4617,58 @@ Claude in Chrome is configured per developer, not in the repository. Start it pe
 
 ### 22.2 Milestone overview
 
+Draft 2.0 re-orders the roadmap around the first users' priority: the first public release must answer *which DAGs consume the environment* (`Q-02`) and *why work is waiting* (`Q-03`) for one real environment. Fleet views, the wiki, alerting and the Config Advisor follow.
+
 | Milestone | Theme | Main scope (epics and IDs) | Key signals and rules | Exit criteria (demonstration) | Release |
 |---|---|---|---|---|---|
-| **M0** | Foundations and harness | Repository, harness ([§21](#21-claude-code-harness)), constitution, CI skeleton, OpenAPI skeleton, guarded client skeleton with read-only tests, demo mode skeleton (`FR-EMU-01`), `FR-SETUP-01`, ADRs 0001–0006, 0009, 0020, 0022 | ― | `pnpm dcam --demo` serves the app shell with a fake dataset; CI runs all gate types (even if most suites are still small); a Claude Code session can complete a `/tdd` task end to end with the hooks active | Internal |
-| **M1** | Connect and collect | `AUTH`, `COLL` core, `STORE` core, `UI` shell, `SELF`, `FR-SETUP-02..07`, `FR-EMU-02`; reality-check spike; ADRs 0007, 0008, 0013–0017 | `HM-030` (observer footprint) | The doctor passes against a real Composer 3 environment and the emulator; collectors run within budget for a day (budget tests green); the DCAM health page shows the footprint; every ⚠️ VERIFY item is resolved or has an owner and a fallback | 0.1.0 |
-| **M2** | Fleet and environment cockpit | `FLEET`, `ENV`, `CFG` basic (effective config view), `CHG` basic, `FR-COLL-05`, `FR-COLL-07`, `FR-COLL-10`; ADRs 0010, 0021 | `HM-011`, `HM-013`, `HM-018`, `HM-019`, `HM-022`, `HM-026` (image), `HM-028`, `HM-031`, `HM-032`; rules at M2 in [§13.6](#136-seed-rule-catalog) | Journey J-2 (morning check) works against a real environment; `Q-01` and the environment-level questions pass their three-click tests | 0.2.0 |
-| **M3** | DAG analytics (**MVP**) | `DAGX`, `DAGD` core, `TASK` core, `FR-BOTL-02`, `FR-COLL-04` (backfill), Airflow API v2 adapter (`FR-COLL-08`), `FR-INC-03`, CSV export; ADRs 0011, 0023 | `HM-001`–`HM-005`, `HM-006` v0, `HM-015`, `HM-016`, `HM-021` (estimate) | MVP demo script ([§22.6](#226-mvp-definition-and-demo-script)) passes on demo data, on the emulator and on a real environment; 5,000-DAG performance tests pass; first public release | 0.3.0 |
-| **M4** | Bottlenecks and Advisor | `BOTL`, `ADV`, `FR-FLEET-04`, `DAGD` compare and critical path, internal plugin interfaces (`FR-EXT-01`) | `HM-006` full, `HM-007`–`HM-010`, `HM-012`, `HM-017`, `HM-023`, `HM-024`, `HM-027`; most rules (M4) | Journeys J-3 (partly) and J-4 work; the throttle classifier reaches ≥ 90 % attribution accuracy and rules ≥ 90 % precision on the scenario library | 0.4.0 |
-| **M5** | Config Advisor and wiki | `CFG` full, `WIKI`, runbooks, `FR-SCAN-06`, opt-in Airflow CLI (`FR-COLL-12`), deploy propagation (`FR-ENV-04`) | `HM-014`, `HM-025`, `HM-029`; rules at M5 | Journeys J-5 and J-8 work; every option in the KB seed has an (i) explanation; runbooks RB-01…RB-14 link to live data | 0.5.0 |
-| **M6** | Alerting, incidents and change intelligence | `ALRT`, `INC`, `CHG` full, `FR-TASK-03`, `FR-UI-09` | `HM-020`; alert pack `AL-01`…`AL-19`; export to Cloud Monitoring and Terraform | Journey J-3 works end to end; exported alert policies validate in a sandbox project with Terraform `plan` (human-run) | 0.6.0 |
-| **M7** | Static analysis, reports, AI and cost | `SCAN`, `RPT`, `AI` (MCP server, copy-as-prompt, optional explainer), `FR-STORE-03`, `FR-STORE-05`, `FR-DAGD-10`, `FR-SETUP-08`; ADRs 0012, 0018, 0019 | Code rules `REC-CODE-*`, `REC-UPG-02`, cost rules; `HM-021` with billing export (optional) | Journeys J-6 and J-7 work; the MCP server passes its security review; the HTML report renders offline | 0.7.0 |
-| **M8** | Extensibility, Composer 2 and v1.0 hardening | `EXT` (public plugin SDK), Composer 2 GKE adapter (optional), Docker image, documentation completion, v1.0 launch checklist ([§22.7](#227-v10-launch-checklist)) | All remaining signals; packaging | All Must requirements pass; the launch checklist is complete | **1.0.0** |
+| **M0** | Foundations and lean harness | Repository and tooling, lean harness ([§21.0](#210-lean-core-first-then-grow)), constitution, CI, OpenAPI skeleton, guarded client with read-only tests, DuckDB store skeleton, occupancy sweep (pure domain function), demo synthesiser v0 (`FR-EMU-01`), app shell with theme and one (i) panel, `FR-SETUP-01`, governance files, public-repository hygiene ([§18.12](#1812-public-repository-hygiene)), first draw.io diagram; ADRs 0001–0006, 0009, 0020, 0022 | ― | `pnpm dcam --demo` serves the app shell with a fake dataset; CI runs every gate type; a Claude Code session completes a `/tdd` task end to end with the hooks active | Internal (public repository, no release) |
+| **M1** | Connect and collect (one environment) | `FR-AUTH-01/02/04/05/07`, `FR-SETUP-02/03`, `FR-COLL-01..03/06/07/08 (v1)/11`, `FR-STORE-01/06`, `FR-SELF-01/03`, `FR-EMU-02`; collectors `af.live`, `af.facts`, `af.inventory`, `mon.core`, `composer.config`; observer budgets including the series budget (`NFR-OBS-06`); proxy support; reality-check spike ([§22.5](#225-m1-reality-check-spike)); ADRs 0007, 0008, 0013–0017 | `HM-030` (observer footprint) | The doctor passes against the first target environment (through the proxy) and the emulator (Airflow 2.11.1); collectors run within the request and series budgets for 24 hours; the health page shows the footprint; every spike item needed by M2 and M3 is resolved or has a fallback | 0.0.x (pre-release) |
+| **M2** | **DAG league table (MVP)** | `DAGX`, `DAGD` core (`FR-DAGD-01..04`, `-08`), `TASK` core, `FR-BOTL-02`, `FR-COLL-04` (backfill), `FR-STORE-02/04 (CSV)/07`, `FR-UI-01..05/07/08`, `FR-EMU-03` (first scenarios); ADRs 0010, 0011, 0023 | `HM-001`–`HM-005`, `HM-006` v0, `HM-015`, `HM-016`, `HM-021` (estimate) | The league table demo ([§22.6](#226-mvp-definition-and-demo-script)) passes on demo data, the emulator and the first target environment; performance tests pass at 5,000 DAGs; first public release | **0.1.0** |
+| **M3** | **Bottlenecks and root causes** | `BOTL` (`FR-BOTL-01/03/06/07/08/09`), `FR-DAGD-05/06/07/09`, `FR-DAGX-06`, `FR-ENV-02/08` (capacity and pools tabs); first rules evaluated as a findings list (no Advisor UI yet) | `HM-006` full, `HM-007`–`HM-012`, `HM-017`, `HM-023`, `HM-024`, `HM-027`, `HM-031`, `HM-032`; `REC-CAP-01/05/08`, `REC-CONC-*`, `REC-DAG-01/02/05`, `REC-SCHED-01` | "Why is work waiting?" demo ([§22.6](#226-mvp-definition-and-demo-script)); the throttle classifier reaches ≥ 90 % attribution accuracy on the scenario library; rules ≥ 90 % precision | **0.2.0** |
+| **M4** | Cockpit, fleet and multiple environments | `FLEET`, the rest of `ENV`, `CFG` basic, `CHG` basic, `FR-INC-03`, `FR-COLL-05/10`, Airflow API v2 adapter (`FR-COLL-08` v2), impersonation (`FR-AUTH-03`), discovery and groups (`FR-SETUP-04/06`) | `HM-013`, `HM-018`, `HM-019`, `HM-022`, `HM-026` (image), `HM-028` | Journey J-2 (morning check) across development, test and production environments | 0.3.0 |
+| **M5** | Advisor and Config Advisor | `ADV`, `CFG` full, `FR-FLEET-04`, `FR-TASK-05`, opt-in Airflow CLI (`FR-COLL-12`), internal plugin interfaces (`FR-EXT-01`) | `HM-025`, `HM-029`; the seed rule pack | Journeys J-4 and J-5 work; every option in the KB seed has an (i) explanation; verification loop demonstrated | 0.4.0 |
+| **M6** | Wiki, runbooks and interactive diagrams | `WIKI`, runbooks, `FR-ENV-04` propagation, `FR-SCAN-06`; ADR-0021 | `HM-014` | Journey J-8 works; runbooks RB-01…RB-14 link to live data | 0.5.0 |
+| **M7** | Alerting, incidents and change intelligence | `ALRT`, `INC`, `CHG` full, `FR-TASK-03`, `FR-UI-09` | `HM-020`; alert pack `AL-01`…`AL-19`; export to Cloud Monitoring and Terraform | Journey J-3 works end to end; exported alert policies validate in a sandbox project with Terraform `plan` (human-run) | 0.6.0 |
+| **M8** | Static analysis, reports, AI, Composer 2 and v1.0 | `SCAN`, `RPT`, `AI`, `EXT` (public plugin SDK), `FR-STORE-03/05`, `FR-DAGD-10`, `FR-SETUP-08`, Composer 2 GKE adapter (optional), Docker image, v1.0 launch checklist ([§22.7](#227-v10-launch-checklist)); ADRs 0012, 0018, 0019 | Code rules `REC-CODE-*`, `REC-UPG-02`, cost rules; `HM-021` with billing export | Journeys J-6 and J-7 work; the MCP server passes its security review; all Must requirements pass | **1.0.0** |
 
 ### 22.3 Milestone dependencies
 
 ```mermaid
 flowchart LR
-  M0[M0 Foundations and harness] --> M1[M1 Connect and collect]
-  M1 --> M2[M2 Fleet and cockpit]
-  M2 --> M3[M3 DAG analytics MVP]
-  M3 --> M4[M4 Bottlenecks and Advisor]
-  M2 --> M5[M5 Config Advisor and wiki]
+  M0[M0 Foundations] --> M1[M1 Connect and collect]
+  M1 --> M2[M2 League table MVP]
+  M2 --> M3[M3 Bottlenecks and root causes]
+  M2 --> M4[M4 Cockpit and fleet]
+  M3 --> M5[M5 Advisor and Config Advisor]
   M4 --> M5
-  M4 --> M6[M6 Alerting and incidents]
-  M5 --> M7[M7 Static analysis, reports, AI]
-  M6 --> M8[M8 Extensibility and v1.0]
+  M5 --> M6[M6 Wiki and runbooks]
+  M4 --> M7[M7 Alerting and incidents]
+  M5 --> M7
+  M6 --> M8[M8 Static analysis, AI, v1.0]
   M7 --> M8
 ```
 
-M5 depends on M4 because the wiki and Config Advisor link to rules and findings. M6 and M7 can proceed in parallel once M4 and M5 are done.
+M3 and M4 can proceed in parallel once M2 is done. M5 needs both, because the Advisor ranks findings across environments. M6 and M7 can proceed in parallel once M5 is done.
 
 ### 22.4 M0 foundation checklist
 
+- [ ] Toolchain smoke test on the oldest supported machine (Intel macOS 12, Node.js 22): `@duckdb/node-api` 2.0 loads, writes and reads Parquet and runs a window query; pnpm 11 through Corepack. Results recorded in ADR-0002 and ADR-0005.
 - [ ] Repository created from the layout in [§11.5](#115-repository-layout), with pnpm workspaces, Turborepo, TypeScript project references and the shared ESLint, Prettier and `dependency-cruiser` configuration.
-- [ ] Harness installed: `CLAUDE.md`, `.claude/settings.json`, hooks with their tests, subagents, commands, skills and `.mcp.json` ([Appendix F](#appendix-f-starter-harness-files)).
-- [ ] Spec Kit initialised; constitution derived from [§3.3](#33-guiding-principles) and [§21.8](#218-spec-driven-development-with-spec-kit).
+- [ ] Lean harness installed ([§21.0](#210-lean-core-first-then-grow)): `CLAUDE.md`, `.claude/settings.json`, the three M0 hooks with their tests, the five M0 subagents, commands, skills and `.mcp.json` ([Appendix F](#appendix-f-starter-harness-files)).
+- [ ] Constitution in `docs/spec/constitution.md`, derived from [§3.3](#33-guiding-principles) and [§21.8](#218-spec-driven-development-with-spec-kit). Spec Kit is not installed at M0.
+- [ ] Occupancy sweep in `packages/domain` with golden and property-based tests (the first domain function, because it feeds `HM-001`, `HM-003`, `HM-005`, `HM-006`, `HM-011` and `HM-017`).
+- [ ] Public-repository hygiene ([§18.12](#1812-public-repository-hygiene)): `.gitignore`, denylist scan in CI and in the pre-commit hook, `dcam.config.example.yaml` with fictitious values.
 - [ ] ADRs 0001–0006, 0009, 0020 and 0022 accepted.
 - [ ] OpenAPI skeleton (`/api/v1/health`, `/api/v1/meta`) with generated types and client; contract test and `oasdiff` gate working.
 - [ ] Guarded HTTP client skeleton with the allowlist, `DCAM_NETWORK=loopback-only` and the read-only enforcement suite ([§18.2](#182-read-only-guarantee)).
 - [ ] Demo mode skeleton: fact synthesiser v0, DuckDB store, app shell with theme, navigation and one panel with an (i).
 - [ ] CI with every gate type wired: lint, types, boundaries, unit, component, E2E smoke, axe, bundle size, secrets, licences, fixture linter.
 - [ ] Governance files: `LICENSE`, `CONTRIBUTING.md` (with DCO), `CODE_OF_CONDUCT.md`, `SECURITY.md`, issue and PR templates.
-- [ ] Documentation site skeleton, with the first draw.io architecture diagram exported in both formats.
+- [ ] README with quickstart and the "Run against your environment" stub ([§17.6](#176-run-against-your-environment)); the first draw.io architecture diagram (system context) exported in both formats. The documentation site follows at M6 (ADR-0021).
 
 ### 22.5 M1 reality-check spike
 
-The spike runs against at least one real Composer 3 environment with Airflow 2 and, if available, one with Airflow 3. It uses the read-only identity from [§18.4](#184-least-privilege-iam). Each item ends in one of two outcomes:
+The spike runs against the first target environment (Composer 3, Airflow 2.11.1, about 2,000 DAGs) and, if available, one environment with Airflow 3. It uses the read-only identity from [§18.4](#184-least-privilege-iam). Each item ends in one of two outcomes:
 
 - **Confirmed.** A contract test records the fact, and the ⚠️ marker is removed.
 - **Refuted.** The specification is updated, the fallback is applied and the change is recorded in the relevant ADR.
@@ -4560,7 +4685,7 @@ The spike runs against at least one real Composer 3 environment with Airflow 2 a
 | VC-08 | Composer API quotas | Quotas page; observed 429 behaviour under budget | [§7.10](#710-quotas-limits-and-cost-of-observation) | Lower Composer API budget |
 | VC-09 | Which Composer 3 updates restart which components, and typical duration | Composer documentation and operation history | Snippet notes ([§13.5](#135-remediation-snippets)) | Conservative generic warning |
 | VC-10 | The task instance `tries` endpoint (Airflow 2.10+ and API v2), the API v2 `dagVersions` and `jobs` endpoints, and `last_parse_duration` on API v2 `GET /dags` (3.1+) exist upstream (checked in the Airflow 2.10.5, 3.1.0 and 3.3.2 OpenAPI specifications). `GET /dagReports` existed only in Airflow 3.0 and 3.1 and is not used. Confirm that Composer serves them to a `Viewer` identity | Call the endpoints on both API generations | [§7.5](#75-airflow-rest-api-src-af-api), [Appendix B](#appendix-b-airflow-rest-api-usage), `HM-013`, `HM-015` | Derive retries from `try_number` and logs; use bucket diffs, Monitoring and the opt-in CLI instead of the v2 endpoints |
-| VC-11 | Page size limits and ordering on Composer's Airflow API. Upstream, API v1 task instance lists have no defined order and no `limit` cap; API v2 `GET` lists default to 50 rows with a maximum of 100 and support `cursor` from 3.2.2 (checked in the Airflow 2.11.1 and 3.3.2 source) | Request `limit` above 100 and observe the cap; compare repeated pages | Collector paging ([§7.5](#75-airflow-rest-api-src-af-api)) | Page at 100 with window splitting |
+| VC-11 | Page size limits and ordering on Composer's Airflow API. Upstream, API v1 task instance lists have no defined order and no `order_by` (confirmed 2026-11); whether `[api] maximum_page_limit` caps their `limit` is disputed between Draft 1.0 and the 2026-11 research. API v2 `GET` lists default to 50 rows with a maximum of 100; `cursor` support is dated 3.2.2 by Draft 1.0 and 3.3.0 by the Airflow client release notes | Request `limit` above 100 and observe the cap; compare repeated pages | Collector paging ([§7.5](#75-airflow-rest-api-src-af-api)) | Page at 100 with window splitting |
 | VC-12 | `scheduled_when` is in the API v2 task instance schema (checked in Airflow 3.0.0, 3.1.0 and 3.3.2); confirm that Composer's Airflow 3 builds populate it | Inspect API v2 responses | `HM-006`, `af.scheduledWhen` | Inferred ready time, as on Airflow 2 |
 | VC-13 | `max_active_tasks` is per DAG on Airflow 2 and per DAG run on Airflow 3 (scheduler source, 2.10.5, 3.1.0 and 3.3.2), and task-level limits count deferred tries from 3.2.2 | Emulator test with two concurrent runs per Airflow version | `HM-005`, `HM-006`, `af.maxActiveTasksScope` | Keep the Airflow 2 semantics behind the flag |
 | VC-14 | `priority_weight` reported by the API is the effective weight | Compare with `weight_rule` on emulator DAGs | `HM-023` | Compute effective weight from the DAG structure |
@@ -4579,19 +4704,48 @@ The spike runs against at least one real Composer 3 environment with Airflow 2 a
 
 VC-23, VC-25 and VC-26 can be resolved at M0 because they do not need a Composer environment.
 
+**Order for the first target environment.** Items that block the league table and the classifier come first: **VC-02** (per-task CPU and memory on 2.11.1; decides how much `HM-004` relies on Method B), then VC-04, VC-05, VC-10, VC-11, VC-13, VC-14, VC-17, VC-18 (web server access from a corporate egress address), VC-24 and VC-03 (measured series per day against `NFR-OBS-06`). The rest are resolved before the milestone that needs them.
+
+**Desk research status (2026-11-05).** Official documentation and the Airflow source settled or narrowed several items before the spike:
+
+| ID | Status | Finding |
+|---|---|---|
+| VC-01 | Confirmed | `cloud_composer_workflow` has only `project_id`, `location` and `workflow_name`; no metric label names the environment. The spike only records the contract test |
+| VC-02 | Narrowed | Documented as "Airflow 2.10.5 only"; probably present on 2.11.1; absent upstream on Airflow 3. The spike checks series existence on 2.11.1 first |
+| VC-03 | Partly resolved | Reads are billed per series returned ($0.50 per million, first million per month free). The request quota is visible only in the console |
+| VC-05 | Narrowed | `workload/scheduler/loop_duration` was added on 2026-10-13; `executor/open_slots` and `running_tasks` were fixed for Airflow 3 on 2025-12-09 |
+| VC-06 | Narrowed | OOM-event logs (2026-09-02) and start-up failure logs (2026-10-13) exist on Composer 3; exact log names still to be discovered |
+| VC-11 | Conflict | `GET` task instance lists have no `order_by` (confirmed). Whether `[api] maximum_page_limit` caps `limit` on API v1, and whether `cursor` arrived in 3.2.2 or 3.3.0, conflict between sources |
+| VC-16 | Open, with conflict | Composer documents no triggerer capacity, and two pages disagree on default triggerer resources |
+| VC-17 | Narrowed | Composer 3 registers new API users as `Op` by default (documented) |
+| VC-19 | Fallback applied | Composer 3 computes `worker_concurrency` from worker resources with an unpublished formula; DCAM shows documented guidance and an inferred value |
+| VC-20 | Fallback applied | No Composer 3 default for `parallelism` is documented; `HM-032` inference only |
+| VC-25 | Refreshed | Harness formats re-checked on 2026-11-05 ([§21](#21-claude-code-harness)): hooks, skills, subagents, plugins, `.mcp.json`, Spec Kit 1.3.0, Playwright MCP 0.0.84, draw.io 32.x CLI flags |
+
 ### 22.6 MVP definition and demo script
 
-The MVP (end of M3) is the smallest product that changes how an operator works with Composer every day. It is demonstrated with this script, on demo data and on a real environment:
+The MVP is delivered in two public releases: the **league table** (0.1.0, end of M2) and **bottlenecks and root causes** (0.2.0, end of M3). Each is demonstrated with a script, on demo data, on the emulator and on the first target environment.
 
-1. **Install and run.** Install and start DCAM with one command; the onboarding wizard opens (J-1).
-2. **Connect.** Add two projects. Discovery lists their environments. The doctor shows green checks, plus one actionable warning (for example "Airflow role is Op; Viewer is enough").
-3. **Fleet overview.** One environment is amber. Health score breakdown (`HM-028`); freshness footer visible.
-4. **Environment cockpit.** Workers at maximum overnight while tasks were queued. Queue wait (`HM-001`) and capacity utilisation (`HM-011`) charts with (i) explanations. Parse loop (`HM-013`) against the 5-minute guidance.
-5. **DAG league table.** Sort by share of slot-seconds (`HM-003`); a Pareto view shows a few DAGs using most capacity; filter by owner and tag; virtualised at 5,000 DAGs.
-6. **DAG detail.** Duration regression (`HM-016`) after a change event; Gantt with queue wait and run time; failures and retries (`HM-015`).
-7. **Bottleneck v0.** Throttle reasons for a selected window (`HM-006` v0) with confidence and evidence.
-8. **Effective configuration.** Values with provenance labels (`override`, `inferred`, `composer-default`, `airflow-default`).
-9. **Export and footprint.** CSV export of the league table. The DCAM health page shows requests per API within budget.
+**M2 — "Who consumes the environment?"**
+
+1. **Install and run.** Clone, `corepack enable`, `pnpm i`, `pnpm dcam`; the browser opens (J-1).
+2. **Connect.** Configure one environment in `dcam.config.yaml`; behind the corporate proxy, the doctor shows green checks plus one actionable warning (for example "Airflow role is Op; Viewer is enough").
+3. **Backfill.** Seven days of runs and task instances arrive in the background within the observer budget; the health page shows requests and series per API.
+4. **League table.** 2,000 DAGs sorted by share of executor slot-seconds (`HM-003`); the Pareto view states "N DAGs use 80 % of slot-seconds"; filter by owner, tag and team; virtualised and responsive at 5,000 DAGs.
+5. **Treemap and scatter.** Team → DAG treemap sized by slot-seconds and coloured by p95 queue wait (`HM-001`); lasso a cluster in the scatter explorer to filter the table.
+6. **DAG detail.** Gantt with queue wait and run time per task instance; self-throttling share (`HM-005`); failures, retries and flakiness (`HM-015`); duration regression against the 28-day baseline (`HM-016`).
+7. **Estimates.** Estimated CPU and memory per DAG (`HM-004`, Method A or B with the method shown) and estimated cost share (`HM-021`), all labelled as estimates.
+8. **Bottleneck v0.** Throttle reasons for a selected window (`HM-006` v0) with confidence and evidence.
+9. **Export.** CSV export of the league table equals the filtered view.
+
+**M3 — "Why is work waiting?"**
+
+1. **Answer first.** For a selected window, the bottleneck view states the dominant binding limit (for example "71 % of waiting task-minutes: executor slots exhausted while workers were at max") with the full 13-reason breakdown (`HM-006`).
+2. **Top contributors.** DAGs and pools that contribute most to each reason; noisy neighbours with effect size and confidence (`HM-017`).
+3. **Capacity and pools.** Capacity utilisation and capacity-bound minutes (`HM-011`), autoscaling lag (`HM-012`), worker packing (`HM-027`), pool starvation (`FR-ENV-08`) and inferred limits with provenance (`HM-032`).
+4. **Waste and schedules.** Sensor and long-wait slot waste (`HM-008`) and the schedule collision heatmap (`HM-009`).
+5. **Findings.** The first rules (`REC-CAP-01`, `REC-CONC-*`, `REC-DAG-01`, `REC-DAG-05`, `REC-SCHED-01`) appear as a findings list with evidence and copy-only remediation snippets.
+6. **Scenarios.** The emulator scenarios SC-02 to SC-09 and SC-19 reproduce each reason; the classifier attributes ≥ 90 % of waiting task-minutes correctly.
 
 ### 22.7 v1.0 launch checklist
 
@@ -4693,15 +4847,18 @@ DCAM collects **no telemetry** (`NFR-PRIV-01`). Success is measured from CI resu
 | R-05 | Effective configuration cannot be read with read-only permissions | Certain | Medium | Inference (`HM-032`) with provenance labels; knowledge base; optional opt-in CLI; honest "unknown" | ― (designed in) |
 | R-06 | Per-task CPU and memory metrics are unavailable on Airflow 3 builds | High | Medium | Slot-time allocation method (Method B); clear estimate labels; future companion | VC-02 outcome |
 | R-07 | Recommendations are wrong or noisy, and users lose trust | Medium | High | Evidence and confidence for every finding; golden tests and scenario precision gates; verification after change; easy dismissal with reason; conservative defaults | Dismissal rate; issues labelled `false-positive` |
-| R-08 | Scope is too large for the team's capacity | High | High | Milestones with exit criteria; MVP focus; MoSCoW; packs make content additive; community contribution paths | Milestones slipping their exit criteria repeatedly |
+| R-08 | Scope is too large for the team's capacity | High | High | Draft 2.0 re-orders the roadmap so that the first two public releases deliver only the league table (M2) and bottleneck analysis (M3) for one environment; lean harness at M0; milestones with exit criteria; MoSCoW; packs make content additive; community contribution paths | Milestones slipping their exit criteria repeatedly |
 | R-09 | Local performance at reference scale on modest laptops | Medium | Medium | DuckDB rollups; retention tiers; eco mode; performance tests in CI | Nightly benchmark regressions |
 | R-10 | Vulnerability in the local web server or MCP server exposes data | Low | High | Loopback bind; token for other interfaces; CSRF, CSP and Host validation; ZAP; security reviewer; read-only tools | Security reports; scanner findings |
 | R-11 | Naming or trademark conflict | Medium | Medium | Independent final name (OQ-01); trademark check before 1.0; nominative use of Google and Apache marks only | Legal feedback |
 | R-12 | Maintainer bandwidth and bus factor | Medium | High | Governance document; maintainers from more than one organisation; harness makes contributions easier; documented release process | Issue backlog growth; single-maintainer releases |
-| R-13 | Google-native features overlap with DCAM (Gemini investigations, the Composer MCP server, dashboards, the Data Agent Kit) | High | Medium | Focus on gaps native tools do not cover ([Appendix G](#appendix-g-oss-landscape-and-positioning)); interoperate rather than compete; re-check positioning each release | New Composer release notes |
+| R-13 | Google-native features overlap with DCAM (the Managed Airflow Agent, Gemini investigations, the remote MCP server, Google agent skills, dashboards, the Data Agent Kit) | High | Medium | Focus on gaps native tools do not cover: as of 2026-11 none of them attributes capacity per DAG or explains queued work by binding limit ([Appendix G](#appendix-g-oss-landscape-and-positioning)); interoperate rather than compete; re-check positioning each release | New Composer release notes |
 | R-14 | Privacy concerns about logs and DAG code in a local tool | Medium | Medium | Local-only data; redaction; opt-in AI with a preview; no telemetry; clear data map in the docs | Questions from security teams |
 | R-15 | AI-generated code quality drifts (subtle bugs, overfitted tests) | Medium | High | Test-first; mutation testing; human review; `code-reviewer` and `security-reviewer` subagents; ADRs; small pull requests | Mutation score drop; bug escape rate |
-| R-16 | Users move to Airflow 3 faster than planned: upstream Airflow 2 is past end of life, and Composer offers Airflow 3.2 and 3.3 builds next to the Airflow 2.11 default | Medium | High | API v2 adapter at M3 with a parity suite; the emulator matrix includes the Airflow 3 versions of Composer's latest builds; OQ-03 revisited at M1 | Share of Airflow 3 environments among users; Composer changing its default build |
+| R-16 | Users move to Airflow 3 faster than planned: upstream Airflow 2 is past end of life (2026-04-22), and Composer offers Airflow 3.2.2 and 3.3.1 builds next to the 2.11.1 default | Medium | High | API v2 adapter at M4 with a parity suite; the emulator matrix includes the Airflow 3 versions of Composer's latest builds; the classifier is versioned by scheduler order; OQ-03 revisited at M2 | Share of Airflow 3 environments among users; Composer changing its default build |
+| R-17 | Cloud Monitoring read cost: reads are billed per time series returned, and per-DAG or per-task queries over thousands of DAGs return many series | High | Medium | Series budget `NFR-OBS-06` with a governor that lengthens cadences; server-side reduction; workflow metrics only for DAGs in view or the top N; per-DAG facts from the Airflow API; projected monthly series on the health page | Series-per-day trend on the health page; billing questions from users |
+| R-18 | Platform support drops for the oldest supported machines: DuckDB 2.1 drops macOS x64, and newer Node.js majors need newer macOS releases | Medium | Medium | Stay on the DuckDB 2.0 LTS line while Intel Macs are supported, with 1.5 as the fallback; Node.js 22.12 minimum with CI on 22, 24 and 26; Docker image as an alternative launch path; decide the end of Intel Mac support in an ADR | DuckDB and Node.js release notes; end of the DuckDB 2.0 LTS window |
+| R-19 | A public repository leaks identifiers from the maintainers' real environments (configuration, fixtures, screenshots, issue attachments) | Medium | High | Public-repository hygiene ([§18.12](#1812-public-repository-hygiene)): git-ignored configuration and raw fixtures, a sanitiser, a personal denylist scanned by a pre-commit hook and the harness, CI pattern scans and gitleaks, demo-only screenshots | Denylist or gitleaks hits in CI |
 
 ---
 
@@ -4711,15 +4868,15 @@ Each question has a default assumption, so work can proceed, and a milestone by 
 
 | ID | Question | Default assumption | Decide by |
 |---|---|---|---|
-| OQ-01 | What is the final OSS name? "deep-gcp-airflow-monitoring" is a working name. "Composer" is a Google product name, so the final name should not depend on it | Working name DCAM; shortlist names that describe Airflow observability without third-party marks; trademark search before the first public release | M3 (public release) |
-| OQ-02 | Licence | Apache-2.0 with DCO (ADR-0020) | M0 |
-| OQ-03 | Should Airflow 3 be first-class (full parity) by v1.0, or "supported" through the API v2 adapter? | Supported at M3, with a parity suite; promoted to first-class by v1.0 if VC-02, VC-12 and VC-13 allow equivalent signals | M5 (revisit at M1, R-16) |
+| OQ-01 | What is the final OSS name? | **Resolved in Draft 2.0:** *deep-gcp-airflow-monitoring* (DCAM), following Google's rename of Cloud Composer. "GCP" and "Airflow" are used nominatively; a trademark check of the name before 1.0 remains on the launch checklist | M8 (trademark check) |
+| OQ-02 | Licence | **Resolved:** Apache-2.0 with DCO (ADR-0020); the repository is public from the first commit | M0 |
+| OQ-03 | Should Airflow 3 be first-class (full parity) by v1.0, or "supported" through the API v2 adapter? | **Partly resolved:** the API v2 adapter ships at M4 (the first target environment runs Airflow 2.11.1). Promotion to first-class by v1.0 depends on VC-02, VC-12 and VC-13 | M5 (revisit at M2, R-16) |
 | OQ-04 | Scope of the Composer 2 adapter (GKE metrics from the customer project) | Optional, M8, environment-level parity only | M6 |
 | OQ-05 | Desktop notifications without a desktop wrapper: are browser notifications plus the system notifier enough? | Browser notifications and OS notifications from the Node process | M6 |
 | OQ-06 | Default LLM providers and the Copilot CLI integration for the optional explainer | No provider by default; copy-as-prompt always available; providers behind adapters | M7 |
 | OQ-07 | Which Cloud Monitoring path is primary: `timeSeries.list` or the PromQL API? | `timeSeries.list` by default; PromQL where it reduces calls (ADR-0014) | M1 |
 | OQ-08 | Can worker hostnames be mapped reliably to Composer 3 workloads? | Not assumed; environment-level aggregation until VC-04 confirms | M1 |
-| OQ-09 | Should DCAM read a user-managed log sink (BigQuery or a log bucket view) to escape the Logging read quota? | Optional source, off by default; documented setup | M6 |
+| OQ-09 | Should DCAM read a user-managed log sink (BigQuery or a log bucket view) to escape the Logging read quota? | Optional source, off by default. Because Composer 3 keeps task logs only in Cloud Logging and `entries.list` is capped at 60 requests per minute per project, a user-owned sink to BigQuery or Log Analytics is the documented recommendation for log-heavy analysis | M7 |
 | OQ-10 | Are default local retention and disk budgets right for laptops (`NFR-RES-03`)? | 90 days hot plus rollups within 2 GB at reference scale | M3 |
 | OQ-11 | Should static analysis read DAG code from the environment bucket only, or also from a local Git checkout? | Both: bucket by default, local path optional (preferred when available) | M7 |
 | OQ-12 | Transport for the future companion: Cloud Logging, Pub/Sub or the bucket? | Cloud Logging structured entries (no new infrastructure) | Post-v1 |
@@ -4732,7 +4889,7 @@ Each question has a default assumption, so work can proceed, and a milestone by 
 
 ## Appendix A. Cloud Composer metric catalog
 
-This catalog lists the Cloud Monitoring metrics DCAM reads and what it uses them for. It was verified against the Google Cloud metrics list and the Composer 3 monitoring documentation ([Appendix H](#appendix-h-references)). Google adds metrics regularly, so DCAM discovers the full list at runtime with `metricDescriptors.list` and never assumes availability (capability flags, [§8.10](#810-capability-and-degradation-matrix)).
+This catalog lists the Cloud Monitoring metrics DCAM reads and what it uses them for. It was verified against the Google Cloud metrics list and the Composer 3 monitoring documentation ([Appendix H](#appendix-h-references)), and re-checked against the Composer release notes up to 2026-10-30. Google adds metrics regularly, so DCAM discovers the full list at runtime with `metricDescriptors.list` and never assumes availability (capability flags, [§8.10](#810-capability-and-degradation-matrix)).
 
 ### A.1 Conventions
 
@@ -4746,6 +4903,7 @@ This catalog lists the Cloud Monitoring metrics DCAM reads and what it uses them
 - **Sampling.** Every 60 s by default; data is visible after up to 120 s. Exceptions are listed in the Sample/delay column (seconds).
 - **Retention.** Composer metrics are kept for **6 weeks**, which is why DCAM keeps its own long-term rollups.
 - **Workflow metrics** appear only for completed DAG runs and task instances.
+- **Cost.** Reads are billed per time series returned (since 2025-10-02). Per-DAG and per-task workflow metrics multiply series by DAGs and tasks, so they are read only within the series budget (`NFR-OBS-06`).
 - **Alignment used by DCAM.**
 
   | Kind | Aligner | Notes |
@@ -4788,7 +4946,7 @@ This catalog lists the Cloud Monitoring metrics DCAM reads and what it uses them
 | `environment/scheduler/task/externally_killed_count` | CUMULATIVE, INT64 | ― | `HM-018` |
 | `environment/scheduler/task/orphan_count` | CUMULATIVE, INT64 | `status` | `HM-018` |
 | `environment/scheduler/pod_eviction_count` | DELTA, INT64 | ― | `HM-018`, `HM-031` |
-| `environment/executor/open_slots`, `queued_tasks`, `running_tasks` | GAUGE, INT64 | `executor` | `HM-011`, `HM-032`, `HM-006` |
+| `environment/executor/open_slots`, `queued_tasks`, `running_tasks` | GAUGE, INT64 | `executor` | `HM-011`, `HM-032`, `HM-006`. `open_slots` and `running_tasks` were not reported on Airflow 3 builds until a fix on 2025-12-09 |
 | `environment/unfinished_task_instances` | GAUGE, INT64 | `state` (`queued`, `running`, `scheduled`, `deferred`) | `HM-006`, `HM-011` |
 | `environment/task_queue_length` | GAUGE, INT64 | `queue_name` | `HM-011`, `HM-012` |
 | `environment/pool/open_slots`, `queued_slots`, `running_slots`, `starving_tasks` | GAUGE, INT64 | `pool_name` | `HM-006`, `AL-15` |
@@ -4863,7 +5021,7 @@ The resource is `cloud_composer_workflow`, and `workflow_name` is the DAG ID. Be
 | `workflow/task/run_count` | DELTA, INT64 | `state`, `queue`, `task_name`, `operator` | ― | `HM-015` |
 | `workflow/task/run_duration` | GAUGE, DOUBLE, s | `state`, `task_name`, `operator` | ― | `HM-003` fallback |
 | `workflow/task/schedule_delay` | GAUGE, DOUBLE, ms | ― | `dagrun.<dag_id>.first_task_scheduling_delay` | `HM-002` |
-| `workflow/task/cpu_usage`, `workflow/task/mem_usage` | GAUGE, DOUBLE, % | `task_id` | `task.cpu_usage` and `task.mem_usage` (Airflow 2.10+; sampled every 5 s by the task runner) | `HM-004` (Method A); not emitted upstream in Airflow 3 (VC-02) |
+| `workflow/task/cpu_usage`, `workflow/task/mem_usage` | GAUGE, DOUBLE, % | `task_id` | `task.cpu_usage` and `task.mem_usage` (sampled every 5 s by the task runner) | `HM-004` (Method A). Added 2025-08-05 and documented as "Airflow 2.10.5 only"; expected on 2.11.1 (VC-02); not emitted upstream in Airflow 3 |
 | `workflow/task/log_file_size` | GAUGE, INT64, By | `state`, `task_name`, `operator` | ― | `HM-020` |
 | `workflow/task/removed_from_dag_count`, `restored_to_dag_count` | CUMULATIVE, INT64 | ― | ― | Change timeline: DAG structure changes (`FR-CHG-01`) |
 | `workflow/task_instance/finished_count` | CUMULATIVE, INT64 | `task_id`, `status` | ― | `HM-015` |
@@ -4884,7 +5042,7 @@ The resource is `cloud_composer_workload`. On Composer 3 these metrics are the o
 | `workload/dags_sync_duration`, `plugins_sync_duration` | GAUGE, INT64, s | `initial_sync` | `HM-014` |
 | `workload/log_entry_count` | CUMULATIVE, INT64 | `severity` | `HM-020`; error-rate trends without spending Logging quota |
 | `workload/restart_count` | CUMULATIVE, INT64 | `type` (`PROCESS`, `CONTAINER`, `POD`) | `HM-018`, `AL-19` |
-| `workload/scheduler/loop_duration` | GAUGE, DOUBLE, ms | `hostname` | `HM-031` (recently added; probe availability) |
+| `workload/scheduler/loop_duration` | GAUGE, DOUBLE, ms | `hostname` | `HM-031` (added 2026-10-13; probe availability) |
 | `workload/trigger/num_running` | GAUGE, INT64 | ― | `HM-022` |
 | `workload/uptime` | GAUGE, INT64, s | ― (Redis workload only) | `HM-028` |
 
@@ -4925,7 +5083,7 @@ The legacy name form `composer_googleapis_com:environment_executor_queued_tasks`
 - **Public API only.** DCAM never calls UI-private endpoints, such as the `/ui/*` routes in Airflow 3 or the grid and graph data routes in Airflow 2. They are unstable and not covered by the API's compatibility promise.
 - **Base URLs.** `{airflowUri}/api/v1` for Airflow 2 and `{airflowUri}/api/v2` for Airflow 3. Authentication uses a Google OAuth 2.0 bearer token; the Airflow role `Viewer` is sufficient ([§18.3](#183-authentication-and-identity)).
 - **`GET` only.** DCAM sends no `POST`, `PATCH` or `DELETE` request to the Airflow REST API ([§18.2](#182-read-only-guarantee)).
-- **Paging.** Every request sets an explicit page size of at most 100, because API v1 task instance lists do not cap it (VC-11). Fact reads use closed `updated_at` windows that are split until they fit in one page (B.3); on Airflow 3.2.2 and later, keyset paging with `cursor` replaces splitting. An overlap re-read and idempotent upserts complete the pattern ([§7.5](#75-airflow-rest-api-src-af-api)).
+- **Paging.** Every request sets an explicit page size of at most 100, because an uncapped or large page is an expensive query for the environment (VC-11). Fact reads use closed `updated_at` windows that are split until they fit in one page (B.3); where the capability probe finds `cursor` support (Airflow 3.2.2 or 3.3.0, VC-11), keyset paging replaces splitting. An overlap re-read and idempotent upserts complete the pattern ([§7.5](#75-airflow-rest-api-src-af-api)).
 - **Budget.** Every call counts against the Airflow API budget of its environment ([§7.11](#711-observer-budget-do-no-harm)).
 
 ### B.2 Endpoints
@@ -5163,7 +5321,7 @@ With user credentials, client-based APIs bill quota to a quota project. DCAM sen
 
 ## Appendix F. Starter harness files
 
-These files are the starting point for the M0 harness ([§21](#21-claude-code-harness)). Because they are guardrails, a human applies them and reviews later changes (harness maintenance mode, [§21.4](#214-settings-and-permissions)).
+These files are the starting point for the M0 harness ([§21](#21-claude-code-harness)). M0 installs only the lean core ([§21.0](#210-lean-core-first-then-grow)): F.1 to F.6, F.8, F.9 (Playwright only) and F.11; the other files are applied when their trigger arrives. Subagent F.6 and the expert prompts are adapted to the merged `gcp-airflow-expert`. Because they are guardrails, a human applies them and reviews later changes (harness maintenance mode, [§21.4](#214-settings-and-permissions)).
 
 - **Tested.** The three hook scripts (F.3 to F.5) were run against a corpus of nearly 100 allowed and blocked cases while this specification was written; F.12 shows an excerpt. Port the corpus to `tools/scripts/hooks/*.test.ts` at M0.
 - **To verify.** Claude Code permission syntax, hook payloads, subagent and skill front matter, Playwright MCP flags and the draw.io CLI change over time. Check them against the current documentation at M0 (VC-25) and record the versions in ADR-0022.
@@ -5717,7 +5875,7 @@ description: Create, update and export draw.io diagrams for DCAM documentation a
 ## Export
 - Binary: `drawio` on Linux, /Applications/draw.io.app/Contents/MacOS/draw.io on macOS.
   In CI: `xvfb-run -a drawio --no-sandbox …`.
-- SVG: drawio -x -f svg -e -b 10 -o docs/diagrams/<name>.drawio.svg docs/diagrams/<name>.drawio
+- SVG: drawio -x -f svg -e --embed-svg-images -b 10 -o docs/diagrams/<name>.drawio.svg docs/diagrams/<name>.drawio
 - PNG: drawio -x -f png -e -s 2 -b 10 -o docs/diagrams/<name>.png docs/diagrams/<name>.drawio
 - Multi-page files: export pages one by one with `-p <index>`. Indexes are 1-based from draw.io desktop
   27.0.2 (0-based before), so pin the draw.io version in CI.
@@ -5739,7 +5897,7 @@ description: Create, update and export draw.io diagrams for DCAM documentation a
     "playwright": {
       "command": "npx",
       "args": [
-        "-y", "@playwright/mcp@PINNED_VERSION",
+        "-y", "@playwright/mcp@0.0.84",
         "--headless", "--isolated",
         "--allowed-origins", "http://127.0.0.1:8787;http://localhost:8787;http://localhost:5173"
       ]
@@ -5752,7 +5910,7 @@ description: Create, update and export draw.io diagrams for DCAM documentation a
 }
 ```
 
-- Replace `PINNED_VERSION` with an exact version at M0; the dependency bot proposes updates. Re-check the flags against the Playwright MCP README on each upgrade (VC-25).
+- The version is pinned exactly (0.0.84 when Draft 2.0 was written; Playwright MCP is still 0.x); the dependency bot proposes updates. Re-check the flags against the Playwright MCP README on each upgrade (VC-25).
 - Claude in Chrome connects per user through the browser extension, not through `.mcp.json`.
 
 ### F.10 ADR example
@@ -5871,12 +6029,12 @@ DCAM complements Google's own tools and general observability platforms; it does
 
 | Capability | What it offers | Where DCAM adds value | How DCAM relates |
 |---|---|---|---|
-| Composer monitoring dashboard (console) | Per-environment charts: environment overview, Airflow components, DAG statistics, scheduler, workers, triggerer, web server, SQL database | Fleet view; per-DAG attribution and ranking; cause classification; history beyond the 6-week metric retention | Deep links from DCAM charts to the matching console views |
+| Composer monitoring dashboard (console) | Per-environment charts: environment overview, Airflow components, DAG statistics, scheduler, workers, triggerer, web server, SQL database. Its "Airflow tasks" chart shows running, queued and deferred counts for the whole environment | Fleet view; per-DAG attribution and ranking (the dashboard has no per-DAG breakdown, pool chart or scheduling-latency chart); cause classification; history beyond the 6-week metric retention | Deep links from DCAM charts to the matching console views |
 | Cloud Monitoring alerting and Google's key-metric guidance | Alert policies on published metrics, with suggested thresholds | Alerts on derived signals (for example the binding limit, stale-DAG risk, queue wait per pool) | DCAM exports exportable alerts as Cloud Monitoring policies and Terraform ([§16.6](#166-export-to-cloud-monitoring)) |
 | Liveness DAG `airflow_monitoring` | Drives `environment/healthy` | Explains *why* an environment is unhealthy | One input of the health score (`HM-028`); never modified |
-| Gemini troubleshooting ("Investigate" on failed DAG runs and tasks) | Problem, evidence and recommendation report for one failure, on demand. Google documents its data residency separately | Continuous, deterministic, fleet-wide analysis that is reproducible from stored evidence | Complementary. DCAM's "copy as prompt" and MCP server can feed any assistant |
-| Google agent skills for managed Airflow (recommendations, migrations) | On-demand advice on utilisation, restarts, parsing latency and bucket hygiene; Airflow 3 migration help | History-based, explainable rules with confidence; prioritised backlog; verification after changes | Overlapping topics. DCAM cites Google guidance and shows the evidence behind each rule |
-| Remote MCP server for Composer | Read-only tools for assistants, such as listing environments, failed task instances and DAG source | Derived signals, findings, history and runbooks | Can be used side by side with DCAM's MCP server in the same assistant |
+| Gemini troubleshooting and the Managed Airflow Agent | Gemini Cloud Assist investigations for failed tasks (2025-11); the troubleshooting agent (private preview 2026-04); the console's Managed Airflow Agent (2026-08-25). Each produces an on-demand report for a failure | Continuous, deterministic, fleet-wide analysis that is reproducible from stored evidence. These features focus on failed tasks and runs; queued or stuck work and capacity attribution are not covered | Complementary. DCAM's "copy as prompt" and MCP server can feed any assistant |
+| Google agent skills for managed Airflow | `managed-airflow-dag-troubleshooting` (google/skills) and `gcp-managed-airflow-recommendations` and `gcp-managed-airflow-migrations` (Data Agent Kit starter pack): on-demand advice on workload CPU, memory and disk, restarts, parse times and bucket hygiene; Airflow 3 migration help | History-based, explainable rules with confidence; per-DAG attribution; pool and `worker_concurrency` analysis, which the skills do not cover; prioritised backlog; verification after changes | Overlapping topics. DCAM cites Google guidance and shows the evidence behind each rule |
+| Remote MCP server for Composer | Generally available since 2026-08-25. Sixteen read tools for assistants, for example `list_dag_runs`, `get_task_instance`, `list_failed_task_instances` and `list_import_errors`. No tools for pools, metrics or general task instance lists; logs are returned only as a Cloud Logging filter | Derived signals, findings, history and runbooks | Can be used side by side with DCAM's MCP server in the same assistant |
 | Recommender | No Composer or Airflow recommender exists | DCAM's Advisor fills this gap | ― |
 | Airflow UI (grid, graph, Cluster Activity) | Per-environment, per-DAG operational views | Cross-DAG and cross-environment comparison | Deep links to the matching Airflow views |
 | Environment labels in billing | Cost per environment | Estimated cost per DAG (`HM-021`) | Uses billing export data when configured |
@@ -5886,15 +6044,17 @@ DCAM complements Google's own tools and general observability platforms; it does
 
 | Category | Typical use | Limits for Composer 3 users | DCAM relationship |
 |---|---|---|---|
-| Airflow's own metrics (StatsD, OpenTelemetry) with Prometheus and Grafana | Standard for self-managed Airflow | Composer 3 blocks the `[metrics]` section, so custom StatsD or OpenTelemetry export is not available; Composer publishes its own selection to Cloud Monitoring | DCAM uses what Composer publishes and derives the rest |
+| Airflow's own metrics (StatsD, OpenTelemetry) with Prometheus and Grafana | Standard for self-managed Airflow | Composer 3 blocks the `[metrics]` section, so custom StatsD or OpenTelemetry export is not available; Composer publishes its own selection to Cloud Monitoring. Integrations that need StatsD (the Datadog Airflow check, Grafana Cloud's Airflow integration) therefore do not work on Composer 3; Datadog's Composer integration reads only `gcp.composer.*` metrics | DCAM uses what Composer publishes and derives the rest |
+| In-process Prometheus exporters (for example `airflow-exporter` and its forks) | Airflow plugins that query the metadata database and expose DAG and task states | Need installation in the environment; expose states, not pool slots or capacity attribution | Not used. The future companion ([§7.9](#79-future-in-environment-companion)) is DCAM's equivalent, and it stays optional |
+| Commercial data-observability platforms (for example Astro Observe, Acceldata Pulse, Databand) | Lineage, SLA and failure monitoring, often through OpenLineage; Acceldata shows pool usage trends and executor open slots | No per-DAG slot-seconds accounting or binding-limit attribution found (2026-11) | Prior art for UI ideas (pool trend views); no reuse of code |
 | General-purpose observability platforms | Dashboards, alerting and log search across many systems, often with Google Cloud integrations | They work with metrics as published. Airflow-specific depth varies by product, but concurrency-limit modelling, per-DAG capacity attribution and configuration explanation are uncommon | DCAM can export derived signals as files (`FR-STORE-04`) or through an opt-in OpenMetrics endpoint (`FR-RPT-02`) for use in such platforms |
 | Data lineage and data observability (for example OpenLineage) | Dataset lineage, data quality, freshness of data products | Focus on data, not on platform capacity | Complementary; data-aware scheduling events appear in DCAM's delay explanations |
 | Airflow linters (Ruff's `AIR` rules) | Code-level checks: `AIR301` and `AIR302` flag Airflow 3 breaking changes, `AIR311` and `AIR312` recommended updates | No runtime evidence such as parse cost or failure history | DCAM's static analysis links code findings to measured cost ([§9.18](#918-scan--dag-static-analysis)); `REC-CODE-04` points to the Ruff rules |
-| Google's diagnostics tool (gcpdiag, Apache-2.0) | One-shot lint of a project. Its Composer rules cover, for example, total DAG parse time, task SIGKILLs and resource pressure, worker pod evictions, scheduler and database health and CPU, zombie detection, DAG timeouts and service-account permissions | Point-in-time checks of the current state; no history, per-DAG attribution or continuous view | DCAM SHOULD cover the same checks continuously, and runbooks cite the matching gcpdiag rule so users can cross-check |
-| Google's sample dashboards (`monitoring-dashboard-samples`, Apache-2.0) | Importable Cloud Monitoring dashboards, including one for Composer | Charts of published metrics only; no derived signals or explanations | Complementary: a reference for the published metrics teams already watch, linked from the wiki |
+| Google's diagnostics tool (gcpdiag, Apache-2.0) | One-shot lint of a project. Its Composer rules cover, for example, `parallelism` settings (`bp_2023_002_parallelism`), total DAG parse time (`warn_2022_003_total_dag_parse_time`), task SIGKILLs (`warn_2023_002_task_sigkill`), worker pod evictions (`warn_2024_002_worker_pod_eviction`), scheduler and database health and CPU, zombie detection, DAG timeouts and service-account permissions | Point-in-time checks of the current state; no history, per-DAG attribution or continuous view | DCAM SHOULD cover the same checks continuously and ports them as rule ideas; runbooks cite the matching gcpdiag rule so users can cross-check |
+| Google's sample dashboards (`monitoring-dashboard-samples`, Apache-2.0) | Importable Cloud Monitoring dashboards: `dashboards/google-cloud-composer/cloud-composer-monitoring.json` (9 charts: queue length, workers, database CPU, evictions, run durations and more) and an `apache-airflow` folder | Charts of published metrics only; no derived signals or explanations | Complementary: its metric queries are a reference for `mon.core` and the wiki links to it |
 | Airflow platform vendors | Managed Airflow with built-in observability | Specific to their platform | Not applicable to Composer |
 
-At the time of writing, no open-source tool combined Cloud Monitoring, Cloud Logging, the Composer API, the Airflow API and the environment bucket into one explainable view of Composer capacity and configuration. This is the gap DCAM addresses.
+Re-checked in 2026-11: no open-source tool, and none of Google's native features, combines Cloud Monitoring, Cloud Logging, the Composer API, the Airflow API and the environment bucket into one explainable view of Composer capacity and configuration. In particular, nothing found offers a per-DAG slot-seconds league table or attributes queued work to its binding limit (pool, parallelism, `max_active_tasks`, worker capacity or autoscaling lag). This is the gap DCAM addresses first.
 
 ### G.3 Capability comparison
 
@@ -6010,11 +6170,38 @@ Official sources were preferred throughout. Google Cloud URLs use the current do
 | Sigstore | https://www.sigstore.dev |
 | Apache License 2.0; Developer Certificate of Origin | https://www.apache.org/licenses/LICENSE-2.0; https://developercertificate.org |
 
+### H.6 Sources added in Draft 2.0 (checked 2026-11-05)
+
+| Topic | Source |
+|---|---|
+| Rename, new metrics and logs, Airflow builds, MCP server GA, Managed Airflow Agent | https://docs.cloud.google.com/composer/docs/release-notes |
+| Composer versions and support dates | https://docs.cloud.google.com/composer/docs/composer-versions |
+| Composer remote MCP server reference | https://docs.cloud.google.com/composer/docs/reference/mcp |
+| Blocked and limited configuration overrides | https://docs.cloud.google.com/composer/docs/airflow-configurations |
+| Composer 3 scaling, optimisation and scheduling troubleshooting | C3 `environment-scaling`, `optimize-environments`, `troubleshooting-scheduling` |
+| Task logs not saved to the bucket on Gen 3 | C3 `enable-saving-logs-to-environment-bucket` |
+| Cloud Monitoring read pricing per time series | https://cloud.google.com/stackdriver/observability-pricing-examples |
+| Google provider `ManagedAirflow*` operator aliases | https://airflow.apache.org/docs/apache-airflow-providers-google/stable/operators/cloud/cloud_composer.html |
+| Google agent skills | https://github.com/google/skills (`managed-airflow-dag-troubleshooting`); https://github.com/gemini-cli-extensions/data-agent-kit-starter-pack |
+| Airflow 2.11 scheduler order | `airflow/jobs/scheduler_job_runner.py`, `airflow/ti_deps/dependencies_deps.py`, `airflow/ti_deps/dependencies_states.py` at https://github.com/apache/airflow/tree/v2-11-stable |
+| Airflow 2.11 REST API v1 | `airflow/api_connexion/openapi/v1.yaml` and `endpoints/task_instance_endpoint.py` at `v2-11-stable`; `airflow/models/dagwarning.py` |
+| Airflow releases and end of life | https://airflow.apache.org/announcements/ |
+| Airflow 2.11 Docker Compose (emulator base) | https://airflow.apache.org/docs/apache-airflow/2.11.0/docker-compose.yaml |
+| Airflow 3.3 cursor pagination | https://github.com/apache/airflow-client-python/releases/tag/3.3.0 (apache/airflow #64845, #65604) |
+| Node.js release schedule | https://github.com/nodejs/Release |
+| TypeScript 7.0 | https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/ |
+| DuckDB 2.0 LTS and the Node.js client | https://duckdb.org/2026/10/21/announcing-duckdb-200; https://duckdb.org/docs/2.0/clients/node_neo/overview.html |
+| pnpm 12 | https://pnpm.io/blog/releases/12.0 |
+| Spec Kit with Claude Code | https://github.github.io/spec-kit/integrations/claude.html |
+| Claude Code hooks, skills, subagents, plugins, MCP | https://code.claude.com/docs/en/hooks, `/skills`, `/sub-agents`, `/plugins`, `/mcp` |
+| Playwright MCP; Chrome DevTools MCP | https://github.com/microsoft/playwright-mcp; https://github.com/ChromeDevTools/chrome-devtools-mcp |
+| draw.io desktop CLI; draw.io MCP | https://github.com/jgraph/drawio/wiki/Desktop-App; https://github.com/jgraph/drawio-mcp |
+
 ---
 
 ## Appendix I. Traceability to the original brief
 
-The original brief (`gcp-composer-deep-monitroing.md`) is kept unchanged for history. This table maps each requirement in it to this specification. Repeated statements in the brief are merged.
+The original brief ([`history/deep-gcp-airflow-monitoring_original_idea.md`](history/deep-gcp-airflow-monitoring_original_idea.md)) is kept unchanged for history. This table maps each requirement in it to this specification. Repeated statements in the brief are merged.
 
 **Status:** *Addressed* means covered as asked. *Interpreted* means covered, but the brief was ambiguous and the interpretation is explained in I.2. *Adapted* means covered differently because of a platform constraint or a principle of this specification, also explained in I.2.
 
