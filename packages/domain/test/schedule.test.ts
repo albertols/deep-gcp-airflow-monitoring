@@ -22,6 +22,9 @@ describe('HM-009 daily starts by minute-of-hour', () => {
     expect(dailyStartsByMinute('@hourly')?.[0]).toBe(24);
     expect(dailyStartsByMinute('@daily')?.[0]).toBe(1);
     expect(dailyStartsByMinute('@weekly')?.[0]).toBeCloseTo(1 / 7);
+    // Airflow's presets include @quarterly: the first of every third month.
+    const monthly = dailyStartsByMinute('@monthly')?.[0] ?? 0;
+    expect(dailyStartsByMinute('@quarterly')?.[0]).toBeCloseTo(monthly / 3);
   });
 
   it('HM-009: day-of-week and month restrictions give an average per day', () => {

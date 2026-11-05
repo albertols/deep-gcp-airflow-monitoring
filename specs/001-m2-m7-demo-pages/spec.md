@@ -167,6 +167,14 @@ related[], docs[], appliesTo`.
   long-wait part of REC-DAG-05 (needs CPU per try), finding hysteresis, lifecycle and grouping. REC-CAP-08
   records "insufficient data" until worker sizes are collected (M1). Snippets carry ⚠️ VERIFY where a
   Composer 3 fact is unconfirmed.
+- M1 follow-ups from the code review:
+  - REC-DAG-05 infers a sensor's mode from the stored try's final state only. Airflow keeps the first
+    start date across reschedules (HM-003, ⚠️ VERIFY), so a finished reschedule-mode sensor can be charged
+    its full `end − start` and advised to switch to the mode it already uses. Take the mode from
+    `up_for_reschedule` or `deferred` seen in live snapshots before this runs on real data.
+  - Each alert evaluation reads 8 days and 1 hour of every task try per environment, although only AL-09
+    needs failed-try end times. Add a store query for those (or cache the baseline hourly) before the 15 s
+    live refresh runs on 2,000 DAGs.
 - Rules whose source is not collected in this version (AL-03, -08, -11 to -14, -16) are shown as `unknown`
   with the reason, never guessed. Runbooks without a wiki page yet (all but RB-01 and RB-14) are named, not
   linked.

@@ -16,6 +16,7 @@ const PRESETS: Readonly<Record<string, string>> = {
   '@midnight': '0 0 * * *',
   '@weekly': '0 0 * * 0',
   '@monthly': '0 0 1 * *',
+  '@quarterly': '0 0 1 */3 *',
   '@yearly': '0 0 1 1 *',
   '@annually': '0 0 1 1 *',
 };
