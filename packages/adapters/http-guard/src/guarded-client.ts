@@ -1,11 +1,16 @@
 /**
  * The guarded HTTP client: the single choke point for calls to monitored systems (spec §11.4 rule 7,
  * §18.2, ADR-0006). Requests are checked before any network I/O; rejected requests never reach the
- * transport and are reported as security events.
+ * transport and are reported as security events. Requests that pass go through the proxy- and CA-aware
+ * transport with a per-request timeout (FR-AUTH-07), and each one is reported to the footprint hook
+ * (HM-030).
  *
- * @implements NFR-SEC-04
+ * @implements NFR-SEC-04, FR-AUTH-07, HM-030
  */
-import { ALLOWLIST, type AllowEntry, type Service } from './allowlist';
+import { ALLOWLIST, type AllowEntry, type AllowedMethod, type Service } from './allowlist';
+import { isLoopbackHostname } from './loopback';
+import { createNetworkTransport, type NetworkEnv, type Transport } from './transport';
+import { TransportError, toTransportError } from './transport-error';
 
 export type NetworkMode = 'any' | 'loopback-only';
 
@@ -36,13 +41,53 @@ export interface GuardedRequest {
   readonly headers?: Readonly<Record<string, string>>;
   /** JSON body; only allowed for POST entries with a body validator. */
   readonly body?: unknown;
+  /** Abort after this many milliseconds (default: the client's `timeoutMs`). */
+  readonly timeoutMs?: number;
 }
 
-export type Transport = (url: string, init: RequestInit) => Promise<Response>;
+export type ResponseOutcome = 'ok' | 'http-error' | 'timeout' | 'network';
+
+/**
+ * One request that reached the transport, for DCAM's own footprint (HM-030). It deliberately holds no
+ * URL, query string, header or token.
+ */
+export interface ResponseEvent {
+  /** Start of the request, epoch milliseconds. */
+  readonly at: number;
+  readonly method: AllowedMethod;
+  /** The allowlist entry that admitted the request, for example `airflow.v1.dags`. */
+  readonly entryId: string;
+  readonly service: Service;
+  /** `null` when no response arrived (timeout, network failure). */
+  readonly status: number | null;
+  /** From the start of the request until the body was read or the request failed, in milliseconds. */
+  readonly latencyMs: number;
+  /** Body bytes read (after content decoding); 0 without a body. */
+  readonly bytes: number;
+  /** `ok` is 2xx; `http-error` is any other status, including a refused redirect. */
+  readonly outcome: ResponseOutcome;
+}
+
+export const DEFAULT_TIMEOUT_MS = 30_000;
 
 export interface GuardedClientOptions {
   readonly network: NetworkMode;
+  /** Replaces the proxy- and CA-aware transport (tests); `proxyEnv` and `caBundlePath` then do nothing. */
   readonly transport?: Transport;
+  /**
+   * Proxy and CA variables for the default transport; the composition root passes `process.env`. Read:
+   * `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` (either case; lower case wins) and `NODE_EXTRA_CA_CERTS`.
+   * Omitted: no proxy. `process.env` is never read implicitly, so tests do not depend on it.
+   */
+  readonly proxyEnv?: NetworkEnv;
+  /** `network.caBundlePath`: a PEM bundle trusted in addition to Node's defaults; read once, here. */
+  readonly caBundlePath?: string;
+  /** Default per-request timeout in milliseconds (30 s). */
+  readonly timeoutMs?: number;
+  /** Clock for footprint events, epoch milliseconds. */
+  readonly now?: () => number;
+  /** Called once per request that reached the transport. Exceptions it throws are ignored. */
+  readonly onResponse?: (event: ResponseEvent) => void;
   /** Extra exact `host[:port]` values per service, for example emulator endpoints on loopback. */
   readonly hosts?: Partial<Record<Service, readonly string[]>>;
   readonly onRejected?: (event: { code: GuardErrorCode; method: string; url: string }) => void;
@@ -54,7 +99,14 @@ export interface GuardedClientOptions {
 }
 
 export interface GuardedClient {
+  /**
+   * Checks the request, sends it and reads the whole body before resolving. Throws {@link GuardError}
+   * when the request is refused (never sent) or answered with a redirect, {@link TransportError} on a
+   * timeout or a network failure, and `RangeError` for an invalid `timeoutMs`.
+   */
   request(req: GuardedRequest): Promise<Response>;
+  /** Closes the default transport's connections. */
+  close(): Promise<void>;
 }
 
 const DEFAULT_HOSTS: Record<Service, (host: string) => boolean> = {
@@ -66,7 +118,8 @@ const DEFAULT_HOSTS: Record<Service, (host: string) => boolean> = {
 };
 
 const FORBIDDEN_HEADERS = new Set(['x-http-method-override', 'x-http-method', 'x-method-override']);
-const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
+/** Statuses whose responses have no body (Fetch standard). */
+const NULL_BODY = new Set([101, 103, 204, 205, 304]);
 
 /** `DCAM_NETWORK=loopback-only` (set in Claude Code sessions and tests) keeps every call on this machine. */
 export function networkModeFromEnv(env: Readonly<Record<string, string | undefined>>): NetworkMode {
@@ -77,8 +130,16 @@ export function networkModeFromEnv(env: Readonly<Record<string, string | undefin
   throw new Error(`DCAM_NETWORK must be "loopback-only" or "any", not "${value}".`);
 }
 
+function assertTimeout(timeoutMs: number): void {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new RangeError(`timeoutMs must be a positive number of milliseconds, not ${timeoutMs}`);
+  }
+}
+
 export function createGuardedClient(options: GuardedClientOptions): GuardedClient {
-  const transport: Transport = options.transport ?? ((url, init) => fetch(url, init));
+  const defaultTimeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  assertTimeout(defaultTimeoutMs);
+  const now = options.now ?? Date.now;
   let allowlist: readonly AllowEntry[] = ALLOWLIST;
   if (options.allowlistIds) {
     const known = new Set(ALLOWLIST.map((e) => e.id));
@@ -87,6 +148,15 @@ export function createGuardedClient(options: GuardedClientOptions): GuardedClien
     const wanted = new Set(options.allowlistIds);
     allowlist = ALLOWLIST.filter((e) => wanted.has(e.id));
   }
+  const network = options.transport
+    ? undefined
+    : createNetworkTransport({
+        loopbackOnly: options.network === 'loopback-only',
+        ...(options.proxyEnv === undefined ? {} : { env: options.proxyEnv }),
+        ...(options.caBundlePath === undefined ? {} : { caBundlePath: options.caBundlePath }),
+      });
+  const transport: Transport | undefined = options.transport ?? network?.transport;
+  if (!transport) throw new Error('unreachable: no transport');
 
   function serviceFor(url: URL): Service | undefined {
     for (const service of Object.keys(DEFAULT_HOSTS) as Service[]) {
@@ -106,7 +176,7 @@ export function createGuardedClient(options: GuardedClientOptions): GuardedClien
     if (url.username || url.password) {
       throw new GuardError('credentials-in-url', 'credentials must not be embedded in URLs');
     }
-    const loopback = LOOPBACK.has(url.hostname);
+    const loopback = isLoopbackHostname(url.hostname);
     if (options.network === 'loopback-only' && !loopback) {
       throw new GuardError('non-loopback', `DCAM_NETWORK=loopback-only forbids ${url.host}`);
     }
@@ -131,6 +201,95 @@ export function createGuardedClient(options: GuardedClientOptions): GuardedClien
     return { url, entry };
   }
 
+  function emit(event: ResponseEvent): void {
+    try {
+      options.onResponse?.(event);
+    } catch {
+      // The footprint is best effort: a recorder bug must never fail a collection request.
+    }
+  }
+
+  async function perform(
+    send: Transport,
+    url: URL,
+    entry: AllowEntry,
+    req: GuardedRequest,
+    timeoutMs: number,
+  ): Promise<Response | 'redirect'> {
+    const what = `${entry.method} ${url.host}${url.pathname}`;
+    const controller = new AbortController();
+    // Redirects are never followed: a 3xx could point at a forbidden route or another host,
+    // and fetch would replay the method, body and (same-origin) credentials there.
+    const init = {
+      method: entry.method,
+      headers: entry.body ? { 'content-type': 'application/json', ...req.headers } : { ...req.headers },
+      redirect: 'manual' as const,
+      signal: controller.signal,
+      ...(entry.body ? { body: JSON.stringify(req.body) } : {}),
+    };
+    const at = now();
+    let status: number | null = null;
+    let bytes = 0;
+    let outcome: ResponseOutcome = 'network';
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<never>((_resolve, rejectTimeout) => {
+      timer = setTimeout(() => {
+        const error = new TransportError('timeout', `${what} timed out after ${timeoutMs} ms`, {
+          fixHint:
+            'The server, or a proxy on the way, did not answer in time. DCAM retries later with backoff; ' +
+            'if this persists, check the network connection and HTTPS_PROXY.',
+        });
+        controller.abort(error);
+        rejectTimeout(error);
+      }, timeoutMs);
+    });
+
+    const exchange = async (): Promise<Response | 'redirect'> => {
+      const response = await send(url.toString(), init);
+      status = response.status;
+      if (response.type === 'opaqueredirect' || (status >= 300 && status < 400)) {
+        await response.body?.cancel().catch(() => undefined);
+        return 'redirect';
+      }
+      if (status < 200 || status > 599) {
+        throw new TransportError('network', `${what} answered with an invalid status ${status}`);
+      }
+      // The whole body is read here, under the timeout, so the footprint counts its bytes.
+      const buffer = NULL_BODY.has(status) ? null : new Uint8Array(await response.arrayBuffer());
+      bytes = buffer?.byteLength ?? 0;
+      const headers = new Headers();
+      response.headers.forEach((value, name) => headers.append(name, value));
+      return new Response(buffer, { status, headers });
+    };
+
+    try {
+      const result = await Promise.race([exchange(), timedOut]);
+      outcome = status !== null && status >= 200 && status < 300 ? 'ok' : 'http-error';
+      return result;
+    } catch (error) {
+      if (controller.signal.aborted) {
+        outcome = 'timeout';
+        const reason: unknown = controller.signal.reason;
+        throw reason instanceof TransportError ? reason : error;
+      }
+      const failure = toTransportError(error, { method: entry.method, url, proxy: null });
+      outcome = failure.kind;
+      throw failure;
+    } finally {
+      clearTimeout(timer);
+      emit({
+        at,
+        method: entry.method,
+        entryId: entry.id,
+        service: entry.service,
+        status,
+        latencyMs: Math.max(0, now() - at),
+        bytes,
+        outcome,
+      });
+    }
+  }
+
   return {
     async request(req) {
       const reject = (error: unknown): never => {
@@ -145,27 +304,19 @@ export function createGuardedClient(options: GuardedClientOptions): GuardedClien
         reject(error);
       }
       if (!checked) throw new GuardError('not-allowlisted', 'unreachable');
-      // Redirects are never followed: a 3xx could point at a forbidden route or another host,
-      // and fetch would replay the method, body and (same-origin) credentials there.
-      const init: RequestInit = {
-        method: checked.entry.method,
-        headers: { ...req.headers },
-        redirect: 'manual',
-      };
-      if (checked.entry.body) {
-        init.body = JSON.stringify(req.body);
-        init.headers = { 'content-type': 'application/json', ...req.headers };
-      }
-      const response = await transport(checked.url.toString(), init);
-      if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+      const timeoutMs = req.timeoutMs ?? defaultTimeoutMs;
+      assertTimeout(timeoutMs);
+      const result = await perform(transport, checked.url, checked.entry, req, timeoutMs);
+      if (result === 'redirect') {
         return reject(
           new GuardError(
             'redirect',
-            `${checked.url.host} answered ${response.status}; DCAM does not follow redirects`,
+            `${checked.url.host} answered with a redirect; DCAM does not follow redirects`,
           ),
         );
       }
-      return response;
+      return result;
     },
+    close: () => network?.close() ?? Promise.resolve(),
   };
 }
