@@ -1,0 +1,21 @@
+{
+  "name": "@dcam/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenAPI 3.1 contract (source of truth), generated types and typed client. Spec §11.9, ADR-0003.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./openapi.yaml": "./openapi.yaml"
+  },
+  "scripts": {
+    "gen": "openapi-typescript openapi.yaml -o src/generated/api.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "openapi-fetch": "0.17.0"
+  },
+  "devDependencies": {
+    "openapi-typescript": "7.13.0"
+  }
+}

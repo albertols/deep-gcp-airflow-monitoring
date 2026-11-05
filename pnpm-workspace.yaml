@@ -7,6 +7,9 @@ packages:
 allowBuilds:
   esbuild: true
 
+minimumReleaseAgeExclude:
+  - '@fastify/static@10.1.10'
+
 # openapi-typescript declares a TypeScript ^5 peer range; TypeScript 6 works (ADR-0002).
 peerDependencyRules:
   allowedVersions:

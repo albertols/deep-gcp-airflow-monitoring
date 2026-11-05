@@ -1,0 +1,134 @@
+openapi: 3.1.0
+info:
+  title: DCAM local API
+  version: 0.0.0
+  summary: Local, read-only API served by DCAM on 127.0.0.1 (spec §11.9).
+  description: |
+    Source of truth for DCAM's HTTP API (ADR-0003). Write methods, when they appear, change only
+    DCAM's own local state and never reach a monitored system.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: http://127.0.0.1:8787
+paths:
+  /api/v1/health:
+    get:
+      operationId: getHealth
+      summary: Liveness of the DCAM process
+      responses:
+        '200':
+          description: DCAM is running.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+  /api/v1/meta:
+    get:
+      operationId: getMeta
+      summary: Workspace metadata (mode, version, environments)
+      responses:
+        '200':
+          description: Workspace metadata.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Meta' }
+  /api/v1/environments/{env_id}/overview:
+    get:
+      operationId: getEnvironmentOverview
+      summary: Capacity overview for one environment over a time range
+      description: Executor slot-seconds (HM-003), peak concurrency (HM-011) and the DAGs that consume the most capacity.
+      parameters:
+        - name: env_id
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[a-z0-9][a-z0-9-]{0,62}$' }
+        - name: range
+          in: query
+          required: false
+          schema: { type: string, enum: ['1h', '6h', '24h'], default: '24h' }
+      responses:
+        '200':
+          description: Overview for the requested range.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnvironmentOverview' }
+        '404':
+          description: Unknown environment.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+components:
+  schemas:
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { type: string, const: ok }
+    Meta:
+      type: object
+      additionalProperties: false
+      required: [name, version, mode, environments]
+      properties:
+        name: { type: string, const: DCAM }
+        version: { type: string }
+        mode: { type: string, enum: [demo, live] }
+        environments:
+          type: array
+          items: { $ref: '#/components/schemas/EnvironmentSummary' }
+    EnvironmentSummary:
+      type: object
+      additionalProperties: false
+      required: [env_id, display_name, tier]
+      properties:
+        env_id: { type: string }
+        display_name: { type: string }
+        tier: { type: string, enum: [dev, test, uat, prod, other] }
+    TimeRange:
+      type: object
+      additionalProperties: false
+      required: [from, to]
+      properties:
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+    DagCapacity:
+      type: object
+      additionalProperties: false
+      required: [dag_id, executor_slot_seconds, share]
+      properties:
+        dag_id: { type: string }
+        executor_slot_seconds: { type: number, minimum: 0, description: 'Seconds (HM-003).' }
+        share: { type: number, minimum: 0, maximum: 1, description: 'Share of the environment total.' }
+    EnvironmentOverview:
+      type: object
+      additionalProperties: false
+      required:
+        [env_id, range, data_as_of, sources, approximate, total_executor_slot_seconds, peak_concurrency, dag_count, pareto_80_dag_count, top_dags]
+      properties:
+        env_id: { type: string }
+        range: { $ref: '#/components/schemas/TimeRange' }
+        data_as_of: { type: string, format: date-time }
+        sources:
+          type: array
+          items: { type: string, enum: [SRC-AF-API, SRC-MON, SRC-COMPOSER, DEMO] }
+        approximate: { type: boolean }
+        total_executor_slot_seconds: { type: number, minimum: 0 }
+        peak_concurrency: { type: integer, minimum: 0, description: 'Highest number of running tries in any minute (HM-011).' }
+        dag_count: { type: integer, minimum: 0 }
+        pareto_80_dag_count: { type: integer, minimum: 0, description: 'How many DAGs account for 80 % of slot-seconds (FR-DAGX-03).' }
+        top_dags:
+          type: array
+          maxItems: 10
+          items: { $ref: '#/components/schemas/DagCapacity' }
+    Problem:
+      type: object
+      description: RFC 9457 problem details with DCAM extensions.
+      required: [type, title, status]
+      properties:
+        type: { type: string, format: uri-reference }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        fix_hint: { type: string }
+        docs_url: { type: string, format: uri }
