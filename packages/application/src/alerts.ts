@@ -224,8 +224,14 @@ function failureSpike(tries: readonly StoredTaskTry[]) {
   };
 }
 
-const minutesText = (m: number) => `${round(m)} min`;
-const agoText = (ms: number) => (ms < MIN ? `${Math.round(ms / SECOND)} s` : minutesText(ms / MIN));
+/** "45 s", "12 min", "1 h 5 min". */
+function durationText(ms: number): string {
+  if (ms < MIN) return `${Math.round(ms / SECOND)} s`;
+  const minutes = Math.round(ms / MIN);
+  if (minutes < 60) return `${minutes} min`;
+  const rest = minutes % 60;
+  return rest ? `${Math.floor(minutes / 60)} h ${rest} min` : `${minutes / 60} h`;
+}
 
 const DEFINITIONS: Readonly<Record<AlertRuleId, RuleDefinition>> = {
   'AL-01': {
@@ -283,7 +289,7 @@ const DEFINITIONS: Readonly<Record<AlertRuleId, RuleDefinition>> = {
     summary: (s) => {
       const x = lastSample(s);
       return x
-        ? `${x.queued} tasks queued with workers at ${x.workers} of ${s.config.maxWorkers} (max).`
+        ? `${x.queued} tasks queued with ${x.workers} of ${s.config.maxWorkers} workers (maximum ${s.config.maxWorkers}).`
         : NO_SAMPLE;
     },
   },
@@ -301,7 +307,7 @@ const DEFINITIONS: Readonly<Record<AlertRuleId, RuleDefinition>> = {
       const q = queueWaits(s.tries, [s.now], 15 * MIN)[0];
       if (!q || q.value === null) return 'No task started in the last 15 min.';
       const low = q.lowSample ? '; fewer than 20 starts, so this is the max' : '';
-      return `p95 queue wait ${minutesText(q.value / 60)} from ${q.samples} task starts in the last 15 min${low}.`;
+      return `p95 queue wait ${durationText(q.value * SECOND)} from ${q.samples} task starts in the last 15 min${low}.`;
     },
   },
   'AL-07': {
@@ -415,7 +421,7 @@ const DEFINITIONS: Readonly<Record<AlertRuleId, RuleDefinition>> = {
       const x = isFresh(starvation(s.snapshots).at(-1), s.now, SNAPSHOT_CADENCE_MS);
       if (!x) return NO_SNAPSHOT;
       return x.pool
-        ? `Pool ${x.pool} has had no open slots while tasks waited for it for ${minutesText(x.minutes)}.`
+        ? `Pool ${x.pool} has had no open slots while tasks waited for it for ${durationText(x.minutes * MIN)}.`
         : 'Every pool had open slots, or no work waiting for it, in the latest snapshot.';
     },
   },
@@ -445,7 +451,7 @@ const DEFINITIONS: Readonly<Record<AlertRuleId, RuleDefinition>> = {
       const a = s.snapshots.at(-1);
       const b = s.samples.at(-1);
       if (!a || !b) return 'A collector has not completed a cycle in the last 25 hours.';
-      return `Latest live snapshot ${agoText(s.now - a.at)} ago; latest worker sample ${agoText(s.now - b.at)} ago.`;
+      return `Latest live snapshot ${durationText(s.now - a.at)} ago; latest worker sample ${durationText(s.now - b.at)} ago.`;
     },
   },
   'AL-18': {
