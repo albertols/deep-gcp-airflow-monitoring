@@ -1,4 +1,4 @@
-# DEEP_COMPOSER_MONITORING (DCM)
+# deep-gcp-airflow-monitoring (DCAM)
 
 > **An open-source, local-first, read-only observability and advisory cockpit for Google Cloud Composer (managed Apache Airflow).**
 > Planning-ready product and technical specification, written to be consumed by humans *and* by Claude Code (spec-driven development, TDD, ADRs).
@@ -8,12 +8,12 @@
 | Document | `ready-for-planning-with-claude-code-oss-gcp-composer-deep-monitroing.md` |
 | Status | Draft 1.0 ― ready for planning |
 | Supersedes | `gcp-composer-deep-monitroing.md` (original brief, kept for history; see [Appendix I](#appendix-i-traceability-to-the-original-brief)) |
-| Working name | DEEP_COMPOSER_MONITORING, short **DCM** (final OSS name is an open question, see [§25](#25-open-questions)) |
+| Working name | deep-gcp-airflow-monitoring, short **DCAM** (final OSS name is an open question, see [§25](#25-open-questions)) |
 | Audience | Maintainers, contributors, reviewers, and Claude Code acting as planner and implementer |
-| Normative sections | §3, §7�C§11, §13�C§19, §21 (requirements use RFC 2119 keywords) |
-| Informative sections | §1, §2, §4�C§6, §12, §20, §22�C§25 and appendices, unless a requirement ID appears |
+| Normative sections | §3, §7–§11, §13–§19, §21 (requirements use RFC 2119 keywords) |
+| Informative sections | §1, §2, §4–§6, §12, §20, §22–§25 and appendices, unless a requirement ID appears |
 
-> **Trademark notice.** DCM is an independent open-source project. It is not affiliated with, endorsed by, or sponsored by Google LLC or the Apache Software Foundation. "Google Cloud", "Cloud Composer", "Cloud Monitoring", "Cloud Logging" and "Google Kubernetes Engine" are trademarks of Google LLC. "Apache", "Apache Airflow" and "Airflow" are trademarks of The Apache Software Foundation.
+> **Trademark notice.** DCAM is an independent open-source project. It is not affiliated with, endorsed by, or sponsored by Google LLC or the Apache Software Foundation. "Google Cloud", "Cloud Composer", "Cloud Monitoring", "Cloud Logging" and "Google Kubernetes Engine" are trademarks of Google LLC. "Apache", "Apache Airflow" and "Airflow" are trademarks of The Apache Software Foundation.
 
 ---
 
@@ -61,11 +61,11 @@
 
 ### 0.1 Purpose
 
-This document is the single source of truth for **what** DCM is, **why** it exists, **what it must do**, **how it is architected**, and **how it is built** (harness, process, quality gates). It is deliberately exhaustive: Claude Code (or any engineer) must be able to plan and implement every milestone from this document plus the official documentation it links to, without access to the original authors.
+This document is the single source of truth for **what** DCAM is, **why** it exists, **what it must do**, **how it is architected**, and **how it is built** (harness, process, quality gates). It is deliberately exhaustive: Claude Code (or any engineer) must be able to plan and implement every milestone from this document plus the official documentation it links to, without access to the original authors.
 
 ### 0.2 How Claude Code should use this document
 
-1. **Read for context first:** §1�C§6 (why, who, what, vocabulary). Do not start implementation from these sections.
+1. **Read for context first:** §1–§6 (why, who, what, vocabulary). Do not start implementation from these sections.
 2. **Bootstrap the harness (milestone M0):** create the repository skeleton, `CLAUDE.md`, `.claude/` (settings, hooks, subagents, commands, skills), Spec Kit scaffolding and the first ADRs from [§21](#21-claude-code-harness) and the drafts in [Appendix F](#appendix-f-starter-harness-files).
 3. **Derive the constitution** (`.specify/memory/constitution.md`) from the principles in [§3.3](#33-guiding-principles) and the engineering rules in [§21.8](#218-spec-driven-development-with-spec-kit).
 4. **Plan per epic, not per document.** For each epic in [§9](#9-functional-requirements), in milestone order ([§22](#22-roadmap-and-milestones)), run the spec-driven loop from [§21.8](#218-spec-driven-development-with-spec-kit): *specify → clarify → plan → tasks → analyze → implement → converge*. Each feature spec MUST cite the requirement IDs it implements (for example `FR-BOTL-03`, `HM-006`, `NFR-RES-01`).
@@ -105,7 +105,7 @@ This document is the single source of truth for **what** DCM is, **why** it exis
   | `ADR` | Architecture decision record | `ADR-0005` |
   | `M` | Milestone | `M3` |
 
-- **Names.** "Composer" means Google Cloud Composer. Google's documentation now calls it *Managed Service for Apache Airflow* ("Gen 3" is Composer 3), while API names, metric prefixes and `gcloud composer` commands are unchanged. "Airflow" means Apache Airflow. "Environment" means one Composer environment. "Fleet" means all environments configured in one DCM workspace.
+- **Names.** "Composer" means Google Cloud Composer. Google's documentation now calls it *Managed Service for Apache Airflow* ("Gen 3" is Composer 3), while API names, metric prefixes and `gcloud composer` commands are unchanged. "Airflow" means Apache Airflow. "Environment" means one Composer environment. "Fleet" means all environments configured in one DCAM workspace.
 - **Versions.** "Composer 3" and "Composer 2" refer to Cloud Composer major versions. "Airflow 2" means Airflow 2.10 or later 2.x; "Airflow 3" means Airflow 3.0 or later. At the time of writing, Composer 3 offers Airflow 2.11 builds (the default) and Airflow 3.2 and 3.3 builds ([§2.3](#23-composer-3-realities)).
 - **Time.** All timestamps are stored in UTC with time zone-aware types. The UI displays the user's chosen time zone (default: browser), and can switch to the environment's `core.default_timezone`.
 - **Placeholders.** Example values such as `acme-data-dev`, `europe-west1` and `orders_daily` are fictitious.
@@ -122,11 +122,11 @@ Statements about Google Cloud and Airflow APIs, metric names, quotas and default
 
 ## 1. Executive summary
 
-**Vision.** Give every Cloud Composer team a professional, explainable, *DAG-centric* view of their Airflow platform: which DAGs consume the environment, why tasks wait, what changed, how the configuration really behaves, and what to tune next. DCM does this from a laptop, safely, across many projects and environments, without installing anything in production.
+**Vision.** Give every Cloud Composer team a professional, explainable, *DAG-centric* view of their Airflow platform: which DAGs consume the environment, why tasks wait, what changed, how the configuration really behaves, and what to tune next. DCAM does this from a laptop, safely, across many projects and environments, without installing anything in production.
 
 **Problem.** Cloud Composer exposes many signals (Cloud Monitoring metrics, Cloud Logging, the Composer API, the Airflow REST API, the environment bucket), but they are scattered, environment-centric and largely non-comparative. With Composer 3 the cluster and database run in a Google-managed tenant project, so low-level visibility shrinks exactly when teams need evidence to re-tune after migration. At the scale of thousands of DAGs, nobody can answer "which DAGs are eating our capacity, and why are we queuing at 02:00?" without days of ad-hoc querying.
 
-**Solution.** DCM is a local web application (TypeScript, React) that:
+**Solution.** DCAM is a local web application (TypeScript, React) that:
 
 1. **Collects agentlessly and gently** from official APIs, with a strict *observer budget* so it never degrades the environments it observes.
 2. **Derives hidden metrics** that no default dashboard shows: slot-seconds per DAG, queue wait, throttle reasons, critical paths, sensor waste, schedule collisions, parse cost per file, noisy neighbours, load forecasts and cost showback.
@@ -172,7 +172,7 @@ Statements about Google Cloud and Airflow APIs, metric names, quotas and default
 
 ### 2.2 Gap analysis
 
-| Operator question | What default tooling shows | Gap | DCM answer |
+| Operator question | What default tooling shows | Gap | DCAM answer |
 |---|---|---|---|
 | Which 20 DAGs consume 80 % of worker capacity this week? | Worker CPU and task counts per environment | No per-DAG resource accounting or ranking | `HM-003`, `HM-004`, `HM-021`; DAG league table (`FR-DAGX-*`) |
 | Why were tasks queued between 02:00 and 02:30? | Queue length and running tasks over time | No cause attribution | Throttle reason classifier `HM-006` (`FR-BOTL-*`) |
@@ -198,15 +198,15 @@ Statements about Google Cloud and Airflow APIs, metric names, quotas and default
   - the whole `[metrics]` section, so there is no custom StatsD export;
   - `[logging]` and `[cli]`.
 
-  Composer 3 also limits others, for example `celery.worker_concurrency` to 1�C24 and `scheduler.min_file_process_interval` to at least 30 s. See [Appendix D](#appendix-d-config-knowledge-base-seed).
-- **The effective configuration is not readable read-only.** The Composer API returns overrides only. The Airflow `/config` endpoint needs the `Op` role, and the CLI configuration commands are blocked. DCM therefore resolves effective values from overrides, a versioned knowledge base and inference from observed behaviour, and labels each value with its provenance ([§14.1](#141-effective-configuration-resolution), `HM-032`).
+  Composer 3 also limits others, for example `celery.worker_concurrency` to 1–24 and `scheduler.min_file_process_interval` to at least 30 s. See [Appendix D](#appendix-d-config-knowledge-base-seed).
+- **The effective configuration is not readable read-only.** The Composer API returns overrides only. The Airflow `/config` endpoint needs the `Op` role, and the CLI configuration commands are blocked. DCAM therefore resolves effective values from overrides, a versioned knowledge base and inference from observed behaviour, and labels each value with its provenance ([§14.1](#141-effective-configuration-resolution), `HM-032`).
 - **Telemetry has limits.**
   - Cloud Monitoring keeps Composer metrics for six weeks.
   - Per-DAG workflow metrics exist only for completed runs and carry no environment label.
   - On Composer 3, task logs are stored only in Cloud Logging (not in the environment bucket), and Logging read quotas are small and shared ([§7.3](#73-cloud-logging-src-log)).
-  - Long-term baselines are therefore something DCM must keep itself.
-- **Two Airflow generations coexist.** The default Composer 3 build runs Airflow 2.11, and Airflow 3.2 and 3.3 builds are offered alongside it. Upstream, Airflow 2 reached end of life on 2026-04-22, so Airflow 3 adoption will grow. Moving to Airflow 3 is a migration to a new environment, not an in-place upgrade, so both generations often run side by side for a while. The REST API generation (v1 or v2), task states, configuration keys and some scheduler semantics differ. DCM therefore uses separate adapters behind one port (ADR-0013) and documents every difference that changes a signal ([§7.5](#75-airflow-rest-api-src-af-api)).
-- **A common migration pattern** is that hand-tuned Composer 2 concurrency settings perform worse on Composer 3, and teams revert to defaults, then need *evidence* to re-tune safely. DCM exists to provide that evidence.
+  - Long-term baselines are therefore something DCAM must keep itself.
+- **Two Airflow generations coexist.** The default Composer 3 build runs Airflow 2.11, and Airflow 3.2 and 3.3 builds are offered alongside it. Upstream, Airflow 2 reached end of life on 2026-04-22, so Airflow 3 adoption will grow. Moving to Airflow 3 is a migration to a new environment, not an in-place upgrade, so both generations often run side by side for a while. The REST API generation (v1 or v2), task states, configuration keys and some scheduler semantics differ. DCAM therefore uses separate adapters behind one port (ADR-0013) and documents every difference that changes a signal ([§7.5](#75-airflow-rest-api-src-af-api)).
+- **A common migration pattern** is that hand-tuned Composer 2 concurrency settings perform worse on Composer 3, and teams revert to defaults, then need *evidence* to re-tune safely. DCAM exists to provide that evidence.
 
 ### 2.4 Scale realities (thousands of DAGs)
 
@@ -232,7 +232,7 @@ Statements about Google Cloud and Airflow APIs, metric names, quotas and default
 
 | ID | Goal | Measured by |
 |---|---|---|
-| G-1 | Answer the top operator questions ([§4.3](#43-top-questions-dcm-must-answer)) in three clicks or fewer, for any configured environment | UX acceptance tests per question |
+| G-1 | Answer the top operator questions ([§4.3](#43-top-questions-dcam-must-answer)) in three clicks or fewer, for any configured environment | UX acceptance tests per question |
 | G-2 | Provide DAG-level resource accounting and DAG-versus-DAG comparison for 5,000 or more DAGs per environment | `NFR-SCALE-*`, league table performance tests |
 | G-3 | Explain bottlenecks causally and attribute contention to DAGs, pools and limits | Precision of the throttle classifier on emulator scenarios |
 | G-4 | Produce explainable, prioritised recommendations with ready-to-apply snippets and post-change verification | Advisor acceptance tests; scenario library |
@@ -247,13 +247,13 @@ Statements about Google Cloud and Airflow APIs, metric names, quotas and default
 
 | ID | Non-goal | Rationale |
 |---|---|---|
-| NG-1 | Replace Cloud Monitoring as the 24/7 paging system | A laptop sleeps. DCM exports durable alert policies instead ([§16.6](#166-export-to-cloud-monitoring)) |
+| NG-1 | Replace Cloud Monitoring as the 24/7 paging system | A laptop sleeps. DCAM exports durable alert policies instead ([§16.6](#166-export-to-cloud-monitoring)) |
 | NG-2 | Change monitored environments (pause, clear, trigger, update) | Read-only by design; guarded actions are a future opt-in ([§22.10](#2210-future-backlog)) |
-| NG-3 | Be a general log store or APM | DCM stores derived signals and bounded samples, not raw log archives |
+| NG-3 | Be a general log store or APM | DCAM stores derived signals and bounded samples, not raw log archives |
 | NG-4 | Deploy agents, plugins or DAGs into Composer | Agentless v1; the listener companion is a documented future task ([§7.9](#79-future-in-environment-companion)) |
 | NG-5 | Author or edit DAGs | Static analysis is advisory; fixes are suggested as diffs |
 | NG-6 | Multi-tenant SaaS | Team-server mode is future and single-tenant |
-| NG-7 | Exact billing reconciliation | DCM provides estimates and showback, clearly labelled |
+| NG-7 | Exact billing reconciliation | DCAM provides estimates and showback, clearly labelled |
 | NG-8 | First-class support for non-Composer Airflow (self-managed, other managed services) | Airflow-only features may work through the Airflow adapter but are not targeted or tested |
 
 ### 3.3 Guiding principles
@@ -263,7 +263,7 @@ These principles are normative and seed the Spec Kit constitution.
 | ID | Principle | Consequence for design |
 |---|---|---|
 | P-1 | **Read-only by construction** | HTTP clients use an allowlist of read methods and endpoints; a test suite proves no mutating call can be issued ([§18.2](#182-read-only-guarantee)) |
-| P-2 | **Do no harm (observer budget)** | Every collector has an explicit request budget per environment; DCM degrades its own fidelity before adding load ([§7.11](#711-observer-budget-do-no-harm)) |
+| P-2 | **Do no harm (observer budget)** | Every collector has an explicit request budget per environment; DCAM degrades its own fidelity before adding load ([§7.11](#711-observer-budget-do-no-harm)) |
 | P-3 | **Evidence over opinion** | Every finding stores its query, inputs, thresholds, confidence and charts; findings are reproducible |
 | P-4 | **Local-first and private** | Data stays on the machine; no telemetry by default; redaction before anything leaves the machine (exports, prompts) |
 | P-5 | **Honest freshness and precision** | Show source lag and "data as of"; label estimates; never imply more precision than the source provides |
@@ -298,7 +298,7 @@ These principles are normative and seed the Spec Kit constitution.
 - *When* I change a configuration option, *I want to* understand its effect and verify the outcome with data, *so I can* tune safely. (PER-1)
 - *When* I join the team, *I want to* explore how Composer works with real data, *so I can* reason about incidents myself. (PER-5)
 
-### 4.3 Top questions DCM must answer
+### 4.3 Top questions DCAM must answer
 
 Each question MUST be answerable within three clicks from the fleet overview (`G-1`).
 
@@ -327,7 +327,7 @@ Each question MUST be answerable within three clicks from the fleet overview (`G
 
 ### 4.4 Key journeys
 
-**J-1 First run (PER-1, PER-6).** Clone the repository → run one command (`pnpm dcm` or `./dcm start`) → the browser opens the onboarding wizard → the doctor detects `gcloud` and Application Default Credentials (ADC) and offers **Sign in with Google Cloud** → the user adds project IDs (or a folder for discovery) → DCM discovers Composer environments and runs preflight checks (APIs, IAM, Airflow role, network) with fix instructions → the first insights appear. *Success:* first meaningful insight within 10 minutes, with no manual file editing required (`NFR-UX-01`).
+**J-1 First run (PER-1, PER-6).** Clone the repository → run one command (`pnpm dcam` or `./dcam start`) → the browser opens the onboarding wizard → the doctor detects `gcloud` and Application Default Credentials (ADC) and offers **Sign in with Google Cloud** → the user adds project IDs (or a folder for discovery) → DCAM discovers Composer environments and runs preflight checks (APIs, IAM, Airflow role, network) with fix instructions → the first insights appear. *Success:* first meaningful insight within 10 minutes, with no manual file editing required (`NFR-UX-01`).
 
 **J-2 Morning check (PER-1, PER-3).** Fleet overview shows production in amber → environment cockpit → "Workers at `max_count` for 47 min last night while 180 tasks were queued" → evidence chart → recommendation with a Terraform snippet → copy link to share with the team.
 
@@ -335,7 +335,7 @@ Each question MUST be answerable within three clicks from the fleet overview (`G
 
 **J-4 Capacity review (PER-3).** DAG league table sorted by share of slot-seconds → Pareto shows 23 DAGs use 80 % → compare the top three DAGs → schedule heatmap reveals collisions at minute 00 → stagger suggestion with expected peak reduction → 24 h forecast confirms headroom.
 
-**J-5 Configuration tuning (PER-1).** Config Advisor → (i) on `celery.worker_concurrency` → meaning, provenance (Composer default versus override), effect of increasing and decreasing, related settings and formula, live evidence (worker memory p95, queue wait) → copy the Terraform override → after the change is deployed, DCM detects the configuration change and shows a before/after verification panel.
+**J-5 Configuration tuning (PER-1).** Config Advisor → (i) on `celery.worker_concurrency` → meaning, provenance (Composer default versus override), effect of increasing and decreasing, related settings and formula, live evidence (worker memory p95, queue wait) → copy the Terraform override → after the change is deployed, DCAM detects the configuration change and shows a before/after verification panel.
 
 **J-6 DAG author deep-dive (PER-2).** DAG detail → "duration regression: p95 +38 % versus 28-day baseline" → Gantt with queue wait and run time split → critical path highlighted → code insight "`Variable.get` at module top level" → suggested diff.
 
@@ -347,14 +347,14 @@ Each question MUST be answerable within three clicks from the fleet overview (`G
 
 ## 5. Scope and release overview
 
-| Capability | MVP (M1�CM3) | v1.0 (M4�CM8) | Future |
+| Capability | MVP (M1–M3) | v1.0 (M4–M8) | Future |
 |---|---|---|---|
 | Multi-environment configuration, discovery, sign-in, doctor | ✅ | Polished wizard | Team server SSO |
 | Agentless collectors (Monitoring, Logging, Composer API, Airflow API v1, GCS) | ✅ (core set) | Full set, Airflow API v2 adapter, Composer 2 GKE adapter | In-environment listener companion |
 | Local storage, retention, rollups | ✅ | Export, import, replay | Optional BigQuery sink for team analytics |
 | Fleet overview and environment cockpit | ✅ | ✅ | |
 | DAG league table, DAG detail, task analytics | ✅ (core) | Compare, critical path, regressions | |
-| Hidden metrics | Core: `HM-001`�C`HM-005`, `HM-006` v0, `HM-011`, `HM-013`, `HM-015`, `HM-016`, `HM-018`, `HM-019`, `HM-021` (estimate), `HM-022`, `HM-026` (image), `HM-028`, `HM-030`�C`HM-032` | All in [§8](#8-hidden-metrics-and-derived-signals-catalog) | ML-assisted anomaly models |
+| Hidden metrics | Core: `HM-001`–`HM-005`, `HM-006` v0, `HM-011`, `HM-013`, `HM-015`, `HM-016`, `HM-018`, `HM-019`, `HM-021` (estimate), `HM-022`, `HM-026` (image), `HM-028`, `HM-030`–`HM-032` | All in [§8](#8-hidden-metrics-and-derived-signals-catalog) | ML-assisted anomaly models |
 | Bottleneck analysis and schedule intelligence | Throttle classifier v0 | Full classifier, collisions, forecast, noisy neighbours | What-if simulator |
 | Advisor (recommendations) | | ✅ seed rule pack ([§13](#13-recommendation-engine-and-rule-catalog)) | Community rule packs |
 | Config Advisor | Effective config view | (i) explanations, relationships, drift, verification | |
@@ -398,7 +398,7 @@ erDiagram
 
 | Entity | Key attributes | Source |
 |---|---|---|
-| Workspace | Local DCM instance: environments, preferences, budgets | `dcm.config.yaml` |
+| Workspace | Local DCAM instance: environments, preferences, budgets | `dcam.config.yaml` |
 | Environment | Project ID, location, name, tier label (dev, test, prod…), Composer version, image version, environment size, resilience mode, Airflow URI, bucket, maintenance window | Composer API |
 | Workload | Type (scheduler, dag-processor, triggerer, web-server, worker), CPU, memory, storage, count or min/max | Composer API |
 | ConfigOption | Section, key, effective value, provenance (Airflow default, Composer default, override, environment variable), sensitive flag | Composer API, Airflow API, KB |
@@ -411,9 +411,9 @@ erDiagram
 | MetricSeries | Metric type, resource labels, metric labels, points | Cloud Monitoring |
 | LogSignature | Normalised message template, component, severity, counts, sample references | Cloud Logging |
 | ChangeEvent | Type (config, image, workload, DAG file, pause, trigger, clear, maintenance, upgrade), actor, time, diff, source | Composer operations, GCS, Airflow event log, audit logs |
-| Signal | Derived metric (`HM-*`) at a scope (environment, pool, DAG, task, file) and grain | DCM analytics |
-| Rule / Finding / Evidence / Recommendation | Rule definition; raised instance with scope, severity, confidence, impact, state; evidence queries and snapshots; actions and snippets | DCM advisor |
-| AlertRule / AlertEvent | Condition, duration, severity, routing; firing and resolved instances | DCM alerting |
+| Signal | Derived metric (`HM-*`) at a scope (environment, pool, DAG, task, file) and grain | DCAM analytics |
+| Rule / Finding / Evidence / Recommendation | Rule definition; raised instance with scope, severity, confidence, impact, state; evidence queries and snapshots; actions and snippets | DCAM advisor |
+| AlertRule / AlertEvent | Condition, duration, severity, routing; firing and resolved instances | DCAM alerting |
 
 ### 6.2 Glossary (core terms)
 
@@ -431,10 +431,10 @@ erDiagram
 | **Stale DAG** | A DAG not seen by the DAG processor for longer than `dag_stale_not_seen_duration`; it may be deactivated. |
 | **Zombie / heartbeat timeout** | A running task instance whose heartbeat stopped; the scheduler fails it. |
 | **Noisy neighbour** | A DAG whose activity measurably increases queue wait or failures of other DAGs. |
-| **Observer budget** | The maximum load DCM may impose on a monitored environment and its APIs. |
-| **Source lag** | Delay between an event happening and DCM being able to read it from a source. |
+| **Observer budget** | The maximum load DCAM may impose on a monitored environment and its APIs. |
+| **Source lag** | Delay between an event happening and DCAM being able to read it from a source. |
 | **Tenant project** | Google-managed project that hosts Composer 3 infrastructure (cluster, database) on the customer's behalf. |
-| **DCU** | Data Compute Unit, the Composer 3 billing unit for environment compute, billed in DCU-hours. Google does not publish a conversion from workload sizes to DCUs, so DCM uses billing data or user-entered rates (`HM-021`). |
+| **DCU** | Data Compute Unit, the Composer 3 billing unit for environment compute, billed in DCU-hours. Google does not publish a conversion from workload sizes to DCUs, so DCAM uses billing data or user-entered rates (`HM-021`). |
 | **Provenance** | Where an effective configuration value comes from: observed, environment variable, override, inferred, Composer default or Airflow default ([§14.1](#141-effective-configuration-resolution)). |
 
 The complete glossary lives in the wiki ([§15](#15-interactive-wiki-and-runbooks)) and is generated from the same content source.
@@ -443,15 +443,15 @@ The complete glossary lives in the wiki ([§15](#15-interactive-wiki-and-runbook
 
 ## 7. Data sources and agentless collection
 
-DCM v1 is **agentless**. It reads only through public Google Cloud APIs and the Airflow REST API, using the signed-in identity or an impersonated read-only service account. It installs nothing in monitored environments (`NG-4`).
+DCAM v1 is **agentless**. It reads only through public Google Cloud APIs and the Airflow REST API, using the signed-in identity or an impersonated read-only service account. It installs nothing in monitored environments (`NG-4`).
 
-This section is normative for collectors. For each source it states what the source provides, how DCM reads it, the source's limits, and how DCM degrades when the source is unavailable. Exact metric, endpoint and query details are in [Appendix A](#appendix-a-cloud-composer-metric-catalog), [Appendix B](#appendix-b-airflow-rest-api-usage) and [Appendix C](#appendix-c-cloud-logging-query-library).
+This section is normative for collectors. For each source it states what the source provides, how DCAM reads it, the source's limits, and how DCAM degrades when the source is unavailable. Exact metric, endpoint and query details are in [Appendix A](#appendix-a-cloud-composer-metric-catalog), [Appendix B](#appendix-b-airflow-rest-api-usage) and [Appendix C](#appendix-c-cloud-logging-query-library).
 
 > **Naming note.** Google's documentation now calls Cloud Composer *Managed Service for Apache Airflow*: Composer 3 is "Gen 3" and Composer 2 is "Gen 2". The API name (`composer.googleapis.com`), the metric prefixes and the `gcloud composer` commands are unchanged. This document keeps the Composer names.
 
 ### 7.1 Source matrix
 
-| ID | Source | Access | What DCM reads | Main consumers | Status |
+| ID | Source | Access | What DCAM reads | Main consumers | Status |
 |---|---|---|---|---|---|
 | `SRC-COMPOSER` | Composer API v1 | `composer.googleapis.com` REST | Environments: state, configuration overrides, sizing, image, retention, maintenance. Also workload status, long-running operations, image versions and database properties | Inventory, Config Advisor, change timeline, `HM-025`, `HM-026`, `HM-028` | Core (M1) |
 | `SRC-MON` | Cloud Monitoring API v3 | `timeSeries.list`, `metricDescriptors.list`; optionally the Prometheus-compatible query API | Composer metrics at three levels: environment, workflow (per DAG and task) and workload (per component instance) | Health, capacity, scheduler, parsing, database, triggerer, per-DAG cross-checks | Core (M1) |
@@ -505,7 +505,7 @@ Every metric carries the metric label `image_version`. The full catalog, with ki
   | CUMULATIVE | `ALIGN_DELTA` or `ALIGN_RATE` |
   | DISTRIBUTION | `ALIGN_DELTA`, then percentile reducers |
 
-- **Server-side reduction.** Use `crossSeriesReducer` with `groupByFields` wherever DCM does not need per-series detail, for example total worker CPU per environment. This cuts response size and quota use.
+- **Server-side reduction.** Use `crossSeriesReducer` with `groupByFields` wherever DCAM does not need per-series detail, for example total worker CPU per environment. This cuts response size and quota use.
 - **Batching.** One request per metric type and project covers every monitored environment in that project (`resource.labels.environment_name = one_of(…)`).
 - **No MQL.** Google ended customer support for MQL in July 2025, and `timeSeries.query` is marked deprecated. PromQL through the Prometheus-compatible HTTP API (`…/location/global/prometheus/api/v1/query_range`) MAY be used for multi-series arithmetic. Every selector MUST include `monitored_resource="cloud_composer_…"`.
 - **Discovery.** `metricDescriptors.list` with the filter `metric.type = starts_with("composer.googleapis.com/")` runs at first contact and then daily, and feeds the capability map. If an environment does not expose a metric, the dependent parts of a signal are disabled; they are never shown as zero.
@@ -516,24 +516,24 @@ Every metric carries the metric label `image_version`. The full catalog, with ki
 - Health-check metrics are sampled every 600 s, `environment/healthy` every 300 s, and `worker/scale_factor_target` every 30 s.
 - Query windows end at `now − ingestion delay`, and the trailing window is re-read to fill late points (`FR-COLL-07`).
 
-**Retention.** Cloud Monitoring keeps Composer metrics for six weeks. DCM's rollups keep longer baselines: by default 400 days at a 1-hour grain ([§11.7](#117-data-architecture-and-storage), `FR-STORE-02`). These long baselines are a core part of DCM's value.
+**Retention.** Cloud Monitoring keeps Composer metrics for six weeks. DCAM's rollups keep longer baselines: by default 400 days at a 1-hour grain ([§11.7](#117-data-architecture-and-storage), `FR-STORE-02`). These long baselines are a core part of DCAM's value.
 
 **Gotchas (each encoded as a contract test).**
 
-1. **Workflow metrics have no `environment_name` label.** When several environments share a project and location, per-DAG workflow series can collide on DAG ID. DCM detects DAG IDs that exist in more than one such environment, marks their series as "ambiguous", and uses Airflow API data for them instead (⚠️ VERIFY in M1 whether any label disambiguates).
+1. **Workflow metrics have no `environment_name` label.** When several environments share a project and location, per-DAG workflow series can collide on DAG ID. DCAM detects DAG IDs that exist in more than one such environment, marks their series as "ambiguous", and uses Airflow API data for them instead (⚠️ VERIFY in M1 whether any label disambiguates).
 2. **Workflow metrics exist only for completed DAG runs and task instances.** Live views therefore use the Airflow API.
 3. **Per-task CPU and memory metrics.** `workflow/task/cpu_usage` and `workflow/task/mem_usage` (percent) come from Airflow's task utilisation sampling, which uses psutil every 5 s and was added in Airflow 2.10.
    - Upstream Airflow 3 does not emit them (checked in 3.1 and 3.3.2; ⚠️ VERIFY on Composer's Airflow 3 builds).
    - They measure only the task process.
    - Memory is a percentage of the memory the process can see.
    - CPU can exceed 100 % on multi-core workers (`HM-004`).
-4. **Units differ between similar metrics.** `workflow/run_duration` is in seconds; `workflow/dag/run_duration` is in milliseconds. DCM converts units from the metric descriptors, never from names.
+4. **Units differ between similar metrics.** `workflow/run_duration` is in seconds; `workflow/dag/run_duration` is in milliseconds. DCAM converts units from the metric descriptors, never from names.
 5. **Counters are DELTA or CUMULATIVE.** A missing point is a gap, not a zero. Absence counts as a signal only for heartbeat-style metrics, and is then evaluated explicitly.
-6. **The liveness DAG.** `environment/healthy` reflects a Composer-managed liveness DAG (`airflow_monitoring`). DCM tags it as a system DAG and leaves it out of DAG rankings by default.
+6. **The liveness DAG.** `environment/healthy` reflects a Composer-managed liveness DAG (`airflow_monitoring`). DCAM tags it as a system DAG and leaves it out of DAG rankings by default.
 7. **Deprecated metrics are not used.** These include the smart-sensor metrics and the legacy web server CPU and memory metrics.
 8. **Documentation naming drift.** Some Composer pages use metric names that differ from the descriptors, for example for triggerer metrics. The descriptors are authoritative.
 
-**Cost.** Reading metrics through the API may be billed above a free allotment (⚠️ VERIFY current Cloud Monitoring read pricing). DCM counts time series returned per project per day and shows the estimate on its health page (`FR-SELF-01`).
+**Cost.** Reading metrics through the API may be billed above a free allotment (⚠️ VERIFY current Cloud Monitoring read pricing). DCAM counts time series returned per project per day and shows the estimate on its health page (`FR-SELF-01`).
 
 ### 7.3 Cloud Logging (SRC-LOG)
 
@@ -548,8 +548,8 @@ Every metric carries the metric label `image_version`. The full catalog, with ki
 
 **Quota is the binding constraint.** `entries.list` allows **60 requests per minute per project, and this quota cannot be increased**. Every reader of that project's logs shares it. Live tailing is limited to 10 sessions per project. Therefore:
 
-- **Budget.** By default DCM uses at most 20 % of the quota, shared fairly across environments in the same project (`NFR-OBS-02`).
-- **Metrics before logs for counts.** DCM counts these events from metrics:
+- **Budget.** By default DCAM uses at most 20 % of the quota, shared fairly across environments in the same project (`NFR-OBS-02`).
+- **Metrics before logs for counts.** DCAM counts these events from metrics:
 
   | Event | Source |
   |---|---|
@@ -576,19 +576,19 @@ Every metric carries the metric label `image_version`. The full catalog, with ki
 
 ### 7.4 Composer API (SRC-COMPOSER)
 
-| Method | What DCM uses | Cadence (`standard`) | Notes |
+| Method | What DCAM uses | Cadence (`standard`) | Notes |
 |---|---|---|---|
-| `environments.list`, `environments.get` | Core: `state`, `config.airflowUri`, `config.dagGcsPrefix`, `storageConfig.bucket`, `updateTime`, `labels`.<br>Software: `softwareConfig` (`imageVersion`, `airflowConfigOverrides`, `envVariables` names, `pypiPackages`, `pythonVersion`).<br>Sizing: `workloadsConfig` (CPU, memory, storage and counts for the scheduler, DAG processor, triggerer, web server and workers), `environmentSize`, `resilienceMode`.<br>Operations: `maintenanceWindow`, `dataRetentionConfig`, `recoveryConfig`, network access settings | 10 min; snapshots are diffed into change events | Returns **overrides only**, not the effective Airflow configuration ([§14.1](#141-effective-configuration-resolution)). DCM discards `envVariables` values at the adapter boundary unless the user opts in |
+| `environments.list`, `environments.get` | Core: `state`, `config.airflowUri`, `config.dagGcsPrefix`, `storageConfig.bucket`, `updateTime`, `labels`.<br>Software: `softwareConfig` (`imageVersion`, `airflowConfigOverrides`, `envVariables` names, `pypiPackages`, `pythonVersion`).<br>Sizing: `workloadsConfig` (CPU, memory, storage and counts for the scheduler, DAG processor, triggerer, web server and workers), `environmentSize`, `resilienceMode`.<br>Operations: `maintenanceWindow`, `dataRetentionConfig`, `recoveryConfig`, network access settings | 10 min; snapshots are diffed into change events | Returns **overrides only**, not the effective Airflow configuration ([§14.1](#141-effective-configuration-resolution)). DCAM discards `envVariables` values at the adapter boundary unless the user opts in |
 | `environments.workloads.list` | Status of each component instance (scheduler, DAG processor, triggerer, web server, Celery and Kubernetes workers, Redis), with `state` and status messages | Every `airflowFacts` cycle | Composer 2 and 3; the read-only scope is sufficient |
-| `operations.list` | Create, update, upgrade, snapshot, failover, hibernate and resume operations, with state and times | With `environments.get`; every minute while the environment is `UPDATING` | Google does not document how long operations are retained, so DCM persists them |
+| `operations.list` | Create, update, upgrade, snapshot, failover, hibernate and resume operations, with state and times | With `environments.get`; every minute while the environment is `UPDATING` | Google does not document how long operations are retained, so DCAM persists them |
 | `imageVersions.list` (`includePastReleases=true`) | Release date, default flag, upgrade-disabled and creation-disabled flags, supported Python versions | Daily | Basis for image support status (`REC-UPG-01`). Each Composer 3 build is supported for 12 months from its release |
 | `environments.fetchDatabaseProperties` | Primary and secondary zones; whether a failover replica is available | Hourly | Relevant for high-resilience environments |
 
-**Methods DCM does not call.** `checkUpgrade` starts a long-running operation, so it is excluded. So are `patch`, `create`, `delete`, the snapshot methods, database failover and web server restart. `executeAirflowCommand` is optional and opt-in ([§7.8](#78-optional-and-future-sources)).
+**Methods DCAM does not call.** `checkUpgrade` starts a long-running operation, so it is excluded. So are `patch`, `create`, `delete`, the snapshot methods, database failover and web server restart. `executeAirflowCommand` is optional and opt-in ([§7.8](#78-optional-and-future-sources)).
 
 **Environment state handling.**
 
-| State | DCM behaviour |
+| State | DCAM behaviour |
 |---|---|
 | `HIBERNATED` | Pause Airflow API and bucket collection; keep Composer collection; show the state in every header |
 | `UPDATING` | Keep collecting with patient-mode budgets ([§7.11](#711-observer-budget-do-no-harm)); mark the period as a change window on the timeline |
@@ -596,9 +596,9 @@ Every metric carries the metric label `image_version`. The full catalog, with ki
 
 ### 7.5 Airflow REST API (SRC-AF-API)
 
-**Access.** The base URL is `{config.airflowUri}/api/v1` for Airflow 2 or `/api/v2` for Airflow 3. Requests carry a Google OAuth 2.0 access token. The identity needs `composer.environments.get` plus an Airflow role. The `Viewer` role covers everything DCM reads ([§18.3](#183-authentication-and-identity)).
+**Access.** The base URL is `{config.airflowUri}/api/v1` for Airflow 2 or `/api/v2` for Airflow 3. Requests carry a Google OAuth 2.0 access token. The identity needs `composer.environments.get` plus an Airflow role. The `Viewer` role covers everything DCAM reads ([§18.3](#183-authentication-and-identity)).
 
-**Load model.** The API is served by the environment's Airflow web server (Airflow 2) or API server (Airflow 3), and it queries the metadata database. Every DCM call therefore costs the environment CPU and database time, and the web server's IP access rules apply. For this reason the Airflow API has the tightest budget (`NFR-OBS-01`).
+**Load model.** The API is served by the environment's Airflow web server (Airflow 2) or API server (Airflow 3), and it queries the metadata database. Every DCAM call therefore costs the environment CPU and database time, and the web server's IP access rules apply. For this reason the Airflow API has the tightest budget (`NFR-OBS-01`).
 
 **Endpoints (Airflow 2, v1).** The full table is in [Appendix B](#appendix-b-airflow-rest-api-usage).
 
@@ -615,7 +615,7 @@ Every metric carries the metric label `image_version`. The full catalog, with ki
 | Airflow audit events | `GET /eventLogs` with a time filter | Every fact cycle, with a watermark (`FR-CHG-01`) |
 | Task logs | `GET …/logs/{try_number}` | On demand only (`FR-TASK-06`) |
 
-**`GET` only.** Every Airflow REST API read is a `GET`. DCM does not use the batch `POST …/list` endpoints: the `GET` list endpoints accept every filter DCM needs, including the `updated_at` windows that the API v1 batch endpoints lack, and a `GET`-only allowlist is simpler to audit ([§18.2](#182-read-only-guarantee)).
+**`GET` only.** Every Airflow REST API read is a `GET`. DCAM does not use the batch `POST …/list` endpoints: the `GET` list endpoints accept every filter DCAM needs, including the `updated_at` windows that the API v1 batch endpoints lack, and a `GET`-only allowlist is simpler to audit ([§18.2](#182-read-only-guarantee)).
 
 **Never requested.**
 
@@ -627,14 +627,14 @@ Every metric carries the metric label `image_version`. The full catalog, with ki
 - **Airflow 2 (API v1).** The task instance list endpoints (`GET …/taskInstances` and the batch `POST …/taskInstances/list`) return rows in no defined order and do not cap `limit`. The DAG run list endpoints and `listMapped` accept `order_by`.
 - **Airflow 3 (API v2).** `GET` list endpoints accept `order_by`, return 50 rows unless `limit` is set, and cap `limit` at `[api] maximum_page_limit` (100 by default). The batch bodies do not cap `page_limit`. From Airflow 3.2.2, `GET` DAG runs and task instances also support keyset paging with `cursor`.
 
-Offset paging over unordered or changing data can skip or repeat rows. DCM therefore:
+Offset paging over unordered or changing data can skip or repeat rows. DCAM therefore:
 
 - always sends an explicit page size of at most 100, because an uncapped page is an expensive query for the environment (VC-11 confirms Composer's limits);
 - reads **closed time windows** and splits a window until it fits in one page, using the response's `total_entries` ([Appendix B.3](#b3-example-incremental-task-instance-facts-airflow-2)). Sorting alone is not enough: rows that leave a window while it is being paged shift the offsets of the rows behind them. From Airflow 3.2.2, keyset paging with `cursor` replaces splitting;
 - filters fact windows on finished states, because the rows of running work change often (on Airflow 3, every task heartbeat updates the task instance row);
 - re-reads an overlap window;
 - upserts idempotently on natural keys (`dag_id`, `run_id`, `task_id`, `map_index`, `try_number`);
-- keeps the number of fact queries low. The task instance and DAG run tables have no index on `updated_at` or `end_date` (checked in Airflow 2.10.5 and 3.3.2), so each window query costs more as the metadata database grows. DCM measures the latency of its own queries (`HM-030`) and backs off when it rises ([§7.11](#711-observer-budget-do-no-harm)).
+- keeps the number of fact queries low. The task instance and DAG run tables have no index on `updated_at` or `end_date` (checked in Airflow 2.10.5 and 3.3.2), so each window query costs more as the metadata database grows. DCAM measures the latency of its own queries (`HM-030`) and backs off when it rises ([§7.11](#711-observer-budget-do-no-harm)).
 
 Live snapshots take exact counts from `total_entries`; when a state has more rows than the page budget allows, the rows read are a sample and are labelled as such.
 
@@ -664,7 +664,7 @@ Live snapshots take exact counts from `total_entries`; when a state has more row
 - **Downloads.** `objects.get` (media) downloads DAG source only when static analysis is enabled, only for changed generations, and only within size limits (`FR-SCAN-01`).
 - **`.airflowignore`.** These files are honoured, to predict which files the DAG processor actually parses.
 - **Folders read.** `plugins/` is read only when enabled. `data/` and `logs/` are never read.
-- **Permissions.** DCM needs object read on this bucket only ([Appendix E](#appendix-e-iam-permissions)). Composer's combined "environment and storage object viewer" role grants object read on every bucket in the project, so it is not recommended.
+- **Permissions.** DCAM needs object read on this bucket only ([Appendix E](#appendix-e-iam-permissions)). Composer's combined "environment and storage object viewer" role grants object read on every bucket in the project, so it is not recommended.
 
 ### 7.7 Cadences, watermarks and freshness
 
@@ -701,7 +701,7 @@ Freshness semantics:
   |---|---|
   | Every `dags` subcommand, including `report` and `list-import-errors`; `pools`; `db check`; `config lint` | `config list`, `config get-value`, `db clean`, `jobs check` |
 
-  Two constraints shape how DCM uses it:
+  Two constraints shape how DCAM uses it:
   - The permission `composer.environments.executeAirflowCommand` is included only in administrator-level and editor-level predefined roles.
   - Each command runs in a pod inside the environment.
 
@@ -710,7 +710,7 @@ Freshness semantics:
   - It needs a dedicated identity with a custom role that contains this permission.
   - The guarded client allows only `dags report`, `dags list-import-errors`, `dags list` and `version`, with validated arguments.
   - It runs at most one command per configured interval (default 60 minutes, minimum 30 minutes, `NFR-OBS-04`).
-  - The doctor warns that this identity could run other commands outside DCM.
+  - The doctor warns that this identity could run other commands outside DCAM.
 
   Per-file parse metrics are available in Cloud Monitoring (`HM-013`), so this source is an enrichment only.
 - **`SRC-AUDIT`.** Admin Activity audit logs supply the actor (principal) for environment changes. Reads count against the logging budget.
@@ -724,10 +724,10 @@ Freshness semantics:
 
 **Future candidates** (backlog in [§22.10](#2210-future-backlog)):
 
-- **Offline database forensics.** On Composer 3, an environment snapshot contains a database dump. The user can import it into their own Cloud SQL instance for deep offline analysis. DCM could document and support this manual path.
+- **Offline database forensics.** On Composer 3, an environment snapshot contains a database dump. The user can import it into their own Cloud SQL instance for deep offline analysis. DCAM could document and support this manual path.
 - **Data lineage** from the Data Lineage API, when Composer's lineage integration is enabled.
 - **Cloud Billing Catalog API** for list prices.
-- **Google's remote MCP server for Composer.** It is complementary to DCM's own MCP server rather than a data source. See [Appendix G](#appendix-g-oss-landscape-and-positioning).
+- **Google's remote MCP server for Composer.** It is complementary to DCAM's own MCP server rather than a data source. See [Appendix G](#appendix-g-oss-landscape-and-positioning).
 
 ### 7.9 Future in-environment companion
 
@@ -737,7 +737,7 @@ Freshness semantics:
 - per-try resource samples;
 - pool decisions.
 
-This also lowers DCM's observer load at very large scale.
+This also lowers DCAM's observer load at very large scale.
 
 **Design sketch.** Not part of v1; it requires an ADR before any work starts.
 
@@ -748,7 +748,7 @@ This also lowers DCM's observer load at very large scale.
   | Transport | Advantage | Constraint |
   |---|---|---|
   | Structured Cloud Logging entries with a dedicated log name | Simplest | Subject to the logging read quota |
-  | Pub/Sub topic | Scales | DCM needs a pull subscription |
+  | Pub/Sub topic | Scales | DCAM needs a pull subscription |
   | NDJSON batches in a bucket path | Cheapest | Adds latency |
 
 - **Strictly passive.** No scheduling side effects; bounded overhead per event; fail-open; feature-flagged per environment.
@@ -760,7 +760,7 @@ This also lowers DCM's observer load at very large scale.
 
 ### 7.10 Quotas, limits and cost of observation
 
-| Source | Documented limit | DCM default use | Notes |
+| Source | Documented limit | DCAM default use | Notes |
 |---|---|---|---|
 | Cloud Logging `entries.list` | 60 requests/min per project; not adjustable | ≤ 12/min per project (20 %) | Shared with every reader of the project's logs; ≤ 100 resource names per request; page tokens valid for 24 h |
 | Cloud Logging tail | 10 sessions per project | Not used | ― |
@@ -771,17 +771,17 @@ This also lowers DCM's observer load at very large scale.
 | BigQuery | Bytes billed | Dry run plus `maximumBytesBilled` | Optional |
 | `executeAirflowCommand` | Command quota; each command runs a pod | ≤ 1 per 60 min when enabled (never more than 1 per 30 min) | Optional |
 
-**Quota project.** With user credentials, client-based APIs charge quota to a quota project. By default DCM sends `x-goog-user-project` set to the monitored project; `auth.quotaProjectId` overrides it. Using a quota project requires `serviceusage.services.use` on that project (`FR-AUTH-04`).
+**Quota project.** With user credentials, client-based APIs charge quota to a quota project. By default DCAM sends `x-goog-user-project` set to the monitored project; `auth.quotaProjectId` overrides it. Using a quota project requires `serviceusage.services.use` on that project (`FR-AUTH-04`).
 
 ### 7.11 Observer budget (do no harm)
 
-Principle `P-2`: DCM must never be the reason an environment is slow or a quota is exhausted.
+Principle `P-2`: DCAM must never be the reason an environment is slow or a quota is exhausted.
 
 **Mechanisms.**
 
 1. **Token buckets.** Budgets apply per (environment, API) and, for project-level quotas, per (project, API). Defaults come from [§17.2](#172-annotated-example). Hard maxima (table below) cannot be raised by configuration.
 2. **Priority classes.** Interactive (user-initiated) > live > standard > background. Backfill, inventory refresh and static analysis run as background work and always yield.
-3. **Adaptive fidelity.** When a budget is exhausted, DCM:
+3. **Adaptive fidelity.** When a budget is exhausted, DCAM:
    - lengthens intervals;
    - fetches fewer pages;
    - skips optional enrichments;
@@ -792,8 +792,8 @@ Principle `P-2`: DCM must never be the reason an environment is slow or a quota 
    - database CPU at or above 90 %;
    - Composer state `UPDATING`.
 
-   In patient mode DCM halves the Airflow API budget, suspends backfill and inventory refresh, and keeps only live snapshots. Normal mode resumes after the signals have been healthy for 10 minutes. Cloud Monitoring collection continues, because it adds no load to the environment.
-5. **Circuit breakers.** Each endpoint has a circuit breaker for 429s, 5xx responses and timeouts. DCM honours `Retry-After` and backs off exponentially with full jitter.
+   In patient mode DCAM halves the Airflow API budget, suspends backfill and inventory refresh, and keeps only live snapshots. Normal mode resumes after the signals have been healthy for 10 minutes. Cloud Monitoring collection continues, because it adds no load to the environment.
+5. **Circuit breakers.** Each endpoint has a circuit breaker for 429s, 5xx responses and timeouts. DCAM honours `Retry-After` and backs off exponentially with full jitter.
 6. **Cheapest source first.**
    - Metrics before logs.
    - Aggregates (`/pools`) before lists.
@@ -801,8 +801,8 @@ Principle `P-2`: DCM must never be the reason an environment is slow or a quota 
    - Field masks always.
    - Logs and source code only on demand.
 7. **Single flight.** Identical in-flight requests are coalesced, so several panels asking for the same data produce one call.
-8. **Global budgets.** Only the DCM server process calls external APIs; the CLI and the MCP bridge go through DCM's HTTP API (ADR-0018). Budgets are therefore global for the whole workspace.
-9. **Self-measurement.** DCM records every outgoing request: API, endpoint template, status, latency and bytes. It shows its own footprint per environment. Where Composer reports Airflow API request counts (`environment/api/request_count`; ⚠️ VERIFY what it counts), DCM also shows its share of all requests.
+8. **Global budgets.** Only the DCAM server process calls external APIs; the CLI and the MCP bridge go through DCAM's HTTP API (ADR-0018). Budgets are therefore global for the whole workspace.
+9. **Self-measurement.** DCAM records every outgoing request: API, endpoint template, status, latency and bytes. It shows its own footprint per environment. Where Composer reports Airflow API request counts (`environment/api/request_count`; ⚠️ VERIFY what it counts), DCAM also shows its share of all requests.
 10. **Tests.** Budget compliance is tested with fake clocks, fakes and the emulator (`NFR-OBS-05`).
 
 **Default budgets and hard maxima.**
@@ -822,11 +822,11 @@ Principle `P-2`: DCM must never be the reason an environment is slow or a quota 
 | `GET /pools` every 30 s | 2 |
 | Non-terminal task instance snapshot, 1 page every 30 s | 2 |
 | Non-terminal DAG run snapshot every 60 s | 1 |
-| Finished task instances: about 70 per minute on average, about 5 × at peaks, 100 per page | 1�C4 |
+| Finished task instances: about 70 per minute on average, about 5 × at peaks, 100 per page | 1–4 |
 | Finished DAG runs | 1 |
 | Import errors, event log and health | about 1.5 |
 | DAG inventory: 50 pages trickled across the hour | about 1 |
-| **Total** | **about 9.5�C12.5** |
+| **Total** | **about 9.5–12.5** |
 
 This fits the 12 requests/min budget. At peaks the snapshot pages are capped, and the cheap `/pools` aggregates plus Cloud Monitoring executor metrics keep the live view accurate.
 
@@ -834,7 +834,7 @@ This fits the 12 requests/min budget. At peaks the snapshot pages are capped, an
 
 ## 8. Hidden metrics and derived signals catalog
 
-Composer and Airflow already emit many raw metrics. DCM adds **derived signals** that answer the questions in [§4.3](#43-top-questions-dcm-must-answer): who consumes capacity, why work waits, what is at risk and what to change. Each signal has a stable `HM-` ID, a versioned definition in `metrics-pack`, an explanation page (the (i) pattern, [§12.9](#129-the-i-explanation-pattern)) and golden tests (`NFR-DATA-01`).
+Composer and Airflow already emit many raw metrics. DCAM adds **derived signals** that answer the questions in [§4.3](#43-top-questions-dcam-must-answer): who consumes capacity, why work waits, what is at risk and what to change. Each signal has a stable `HM-` ID, a versioned definition in `metrics-pack`, an explanation page (the (i) pattern, [§12.9](#129-the-i-explanation-pattern)) and golden tests (`NFR-DATA-01`).
 
 This section is normative for definitions and methods. Thresholds that turn signals into findings are defined in the rules ([§13.6](#136-seed-rule-catalog)) and alerts ([§16.4](#164-default-alert-pack)), not here.
 
@@ -856,7 +856,7 @@ Every signal MUST declare:
 | `quality` | Minimum samples, approximation rules, known biases |
 | `explanation`, `tests` | Explanation MDX file and golden test folder |
 
-Every value DCM returns for a signal carries the same envelope, which the UI, the HTTP API, exports and the MCP server all expose:
+Every value DCAM returns for a signal carries the same envelope, which the UI, the HTTP API, exports and the MCP server all expose:
 
 | Envelope field | Meaning |
 |---|---|
@@ -903,7 +903,7 @@ The UI renders `approximate` values with a "≈" prefix and the method in the to
 | HM-027 | Worker packing efficiency | Q-04 | `SRC-MON`, `SRC-AF-API` | M4 |
 | HM-028 | Explainable health score | Q-01 | `SRC-MON`, `SRC-AF-API`, `SRC-COMPOSER` | M2 |
 | HM-029 | Timeliness target adherence | Q-08 | `SRC-AF-API`, user targets | M4 |
-| HM-030 | Observer footprint | Self | DCM request log, `SRC-MON` | M1 |
+| HM-030 | Observer footprint | Self | DCAM request log, `SRC-MON` | M1 |
 | HM-031 | Scheduler loop health | Q-01, Q-03 | `SRC-MON` | M2 |
 | HM-032 | Effective capacity inference | Q-04, Q-13 | `SRC-MON`, `SRC-AF-API`, `SRC-COMPOSER` | M2 |
 
@@ -927,13 +927,13 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
 
 #### HM-003 Slot-seconds per DAG
 
-- **Definition.** How much execution capacity a DAG consumed. DCM computes two variants, because they answer different questions:
+- **Definition.** How much execution capacity a DAG consumed. DCAM computes two variants, because they answer different questions:
   - **Executor slot-seconds** = Σ over task instance tries of running time. A running try occupies one worker slot regardless of `pool_slots`. Use it for worker capacity and cost allocation.
   - **Pool slot-seconds** = Σ over tries of running time × `pool_slots`, per pool. When the pool counts deferred tasks (`include_deferred`), deferred time is added. Time in `awaiting_input` (Airflow 3.3 and later) never occupies pool slots. Use it for pool contention.
 - **Method.** Occupancy sweep over running intervals. Deferred intervals never count as executor time. Results are aggregated per DAG, task, pool, team and environment, with share of total and Pareto concentration (`FR-DAGX-03`).
 - **Sources.** `SRC-AF-API`.
 - **Quality and caveats.**
-  - **Reschedule-mode sensors.** Airflow keeps the first start date across reschedules, so `end − start` overstates occupancy. DCM subtracts the time it observed in `up_for_reschedule` in live snapshots, and labels the value approximate (⚠️ VERIFY in M1).
+  - **Reschedule-mode sensors.** Airflow keeps the first start date across reschedules, so `end − start` overstates occupancy. DCAM subtracts the time it observed in `up_for_reschedule` in live snapshots, and labels the value approximate (⚠️ VERIFY in M1).
   - Mapped tasks count every map index.
 - **Used by.** `FR-DAGX-02`, HM-021, HM-017, `REC-CONC-03`, `REC-COST-03`.
 
@@ -991,7 +991,7 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
 | 3 | DAG `max_active_tasks` | Pre-queue | The DAG's running and queued task instances ≥ `max_active_tasks` (per DAG on Airflow 2, per DAG run on Airflow 3) | HM-005 |
 | 4 | Pool | Pre-queue | Pool open slots < the task's `pool_slots` | `/pools` history, `pool/starving_tasks` |
 | 5 | Global parallelism | Pre-queue | Executor running + queued ≥ parallelism (per scheduler; from overrides or HM-032) | `executor/*` metrics, HM-032 |
-| 6 | Scheduler throughput | Pre-queue | Reasons 1�C5 do not apply, yet the try is not queued within 30 s of ready | HM-031 |
+| 6 | Scheduler throughput | Pre-queue | Reasons 1–5 do not apply, yet the try is not queued within 30 s of ready | HM-031 |
 | 7 | Autoscaling lag | Post-queue | Worker slots are full, workers < `max_count`, and the scale target is above the current worker count | `num_celery_workers`, `worker/scale_factor_target` |
 | 8 | Executor slots exhausted | Post-queue | Worker slots are full and workers = `max_count` | HM-011 |
 | 9 | Worker pickup | Post-queue | Free worker slots exist but the try stays queued for ≥ 60 s, or no worker consumes the try's queue | `executor/open_slots`, `task_queue_length` by queue |
@@ -1089,7 +1089,7 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
   - Compare each band's p95 queue and pre-queue wait with its own 28-day median during periods when higher bands ran.
   - Starvation ratio = current p95 ÷ baseline median.
 - **Sources.** `SRC-AF-API`.
-- **Quality and caveats.** The effective weight depends on `weight_rule`. DCM uses the weight the API reports per task instance (⚠️ VERIFY that this is the effective weight).
+- **Quality and caveats.** The effective weight depends on `weight_rule`. DCAM uses the weight the API reports per task instance (⚠️ VERIFY that this is the effective weight).
 - **Used by.** `REC-CONC-04`.
 
 #### HM-027 Worker packing efficiency
@@ -1116,9 +1116,9 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
 - **Why.** The Composer API returns configuration overrides only. The Airflow `/config` endpoint needs the `Op` role and is often disabled, and CLI configuration commands are blocked on Composer 3 ([§14.1](#141-effective-configuration-resolution)).
 - **Method.**
 
-  | Setting | How DCM resolves it |
+  | Setting | How DCAM resolves it |
   |---|---|
-  | `core.parallelism` (per scheduler) | `executor/open_slots + running_tasks + queued_tasks`. The sum equals parallelism for the executor that reports it; DCM takes the stable maximum over 24 h |
+  | `core.parallelism` (per scheduler) | `executor/open_slots + running_tasks + queued_tasks`. The sum equals parallelism for the executor that reports it; DCAM takes the stable maximum over 24 h |
   | `celery.worker_concurrency` | Override value if present. Otherwise a lower bound: the maximum number of concurrent running tries observed on any single worker hostname, and exact when a worker was full while tasks were queued |
   | Total worker slots | Workers × resolved concurrency |
   | Pools, DAG and task limits | Exact, from the API |
@@ -1194,8 +1194,8 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
   - A regression is flagged when all three hold:
     - current p95 ≥ 1.3 × baseline p95;
     - ≥ 10 current samples;
-    - a one-sided Mann�CWhitney U test gives p < 0.01.
-  - Across all tasks of an environment, the Benjamini�CHochberg procedure controls the false discovery rate at q = 0.05.
+    - a one-sided Mann–Whitney U test gives p < 0.01.
+  - Across all tasks of an environment, the Benjamini–Hochberg procedure controls the false discovery rate at q = 0.05.
   - A change-point step (PELT on log durations) dates the shift and links it to change events (`FR-CHG-*`).
 - **Sources.** `SRC-AF-API`.
 - **Quality and caveats.** Data-dependent tasks (volume-driven) can show legitimate growth; users can mark a task "volume-driven" to switch it to trend monitoring.
@@ -1217,8 +1217,8 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
 - **Method.**
   - Adherence = met ÷ total over 7 and 28 days, plus the lateness distribution.
   - **At-risk prediction** for running runs: remaining critical-path time (HM-007 profile) > time left to the target.
-- **Sources.** `SRC-AF-API`, targets in `dcm.config.yaml`.
-- **Quality and caveats.** These targets are independent of Airflow's own SLA or deadline features, which differ between Airflow 2 and 3; DCM does not depend on them.
+- **Sources.** `SRC-AF-API`, targets in `dcam.config.yaml`.
+- **Quality and caveats.** These targets are independent of Airflow's own SLA or deadline features, which differ between Airflow 2 and 3; DCAM does not depend on them.
 - **Used by.** `FR-TASK-05`, `REC-SCHED-04`, `AL-14`.
 
 ### 8.5 DAG parsing and deployment
@@ -1229,13 +1229,13 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
 - **Method.**
   - **Per-file cost.** p50 and p95 of `environment/dag_processing/last_duration` (milliseconds, label `dag_file`), share of the loop, and trend.
   - **Loop duration.** `environment/dag_processing/total_parse_time` (seconds).
-  - **Stale-risk ratio** (Airflow 2) = loop p95 ÷ `[scheduler] dag_stale_not_seen_duration` (default 600 s). With a standalone DAG processor, as on Composer 3, DAGs that the processor has not updated for this long are deactivated. Airflow 3 removed the option: a DAG is deactivated only when a re-parsed file no longer contains it (`[dag_processor] stale_dag_threshold`). On Airflow 3, DCM therefore reports slow loops as update latency, not as deactivation risk.
+  - **Stale-risk ratio** (Airflow 2) = loop p95 ÷ `[scheduler] dag_stale_not_seen_duration` (default 600 s). With a standalone DAG processor, as on Composer 3, DAGs that the processor has not updated for this long are deactivated. Airflow 3 removed the option: a DAG is deactivated only when a re-parsed file no longer contains it (`[dag_processor] stale_dag_threshold`). On Airflow 3, DCAM therefore reports slow loops as update latency, not as deactivation risk.
   - **Guidance ratio** = loop p95 ÷ 300 s. Google advises keeping total parse time under 5 minutes.
   - Also reported: DagBag size, parse error and processor timeout counts, and files at or above 10 s, which suggests overloaded DAG processors.
   - Files are joined to DAGs through `fileloc` from the API, and to bucket objects ([§7.6](#76-environment-bucket-src-gcs)).
 - **Sources.** `SRC-MON` (primary), `SRC-AF-API`, `SRC-GCS`. The optional `SRC-AF-CLI` `dags report` adds per-file DAG and task counts. On Airflow 3.1 and later, `GET /dags` also returns `last_parse_duration`, a cross-check that costs no extra call.
 - **Quality and caveats.**
-  - Gaps in parse metrics often mean the loop exceeded the reporting cycle. DCM flags gaps rather than interpolating.
+  - Gaps in parse metrics often mean the loop exceeded the reporting cycle. DCAM flags gaps rather than interpolating.
   - Composer 3 blocks `[scheduler] parsing_processes`; recommendations target DAG processor count and CPU instead.
 - **Used by.** `FR-ENV-04`, `REC-PARSE-01`, `REC-PARSE-02`, `REC-PARSE-04`, `REC-PARSE-06`, `REC-PARSE-08`, `AL-03`.
 
@@ -1295,7 +1295,7 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
 
 #### HM-028 Explainable health score
 
-- **Definition.** A 0�C100 score per environment, composed of explicit checks. Each check shows state, threshold and evidence (`FR-FLEET-02`).
+- **Definition.** A 0–100 score per environment, composed of explicit checks. Each check shows state, threshold and evidence (`FR-FLEET-02`).
 - **Method.** Score = 100 − Σ weighted penalties of failing checks. If any critical check fails, the score is capped at 40, so many passing checks cannot hide a critical failure. The checks follow Google's suggested alert thresholds where they exist (⚠️ VERIFY current values):
 
 | Check | Healthy when | Weight | Critical |
@@ -1337,7 +1337,7 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
 - **Definition.** Size, growth runway and retention health of the Airflow metadata database.
 - **Method.**
   - Size series: `database/airflow/size`.
-  - Growth: Theil�CSen slope over 30 days, robust to cleanup steps.
+  - Growth: Theil–Sen slope over 30 days, robust to cleanup steps.
   - **Runway:** days until the warning threshold, by default 16 GB, which is 80 % of the 20 GB size above which Composer blocks upgrades and snapshots.
   - Retention status: `dataRetentionConfig.airflowMetadataRetentionConfig` (mode and days) from the Composer API.
   - Retention activity: `database_retention/{retention_gap, finished_execution_count, execution_durations}`.
@@ -1368,7 +1368,7 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
     - **Actual.** From the Cloud Billing export (`SRC-BQ`, M7): Composer SKUs filtered by environment resource name or labels. Labels appear in billing data within about a day.
     - **Manual.** A configured monthly cost, or DCU-hour rates × observed hours (M3).
 
-    DCM does not derive DCUs from workload sizes, because Google does not publish the conversion.
+    DCAM does not derive DCUs from workload sizes, because Google does not publish the conversion.
   - **Variable compute allocation:** by executor slot-seconds share (HM-003), or by CPU share (HM-004 Method A) when available.
   - **Shared overhead** (scheduler, web server, database, minimum workers): shown separately. Optionally allocated by DAG count, or by parse-time share (HM-013) for the DAG processor.
   - **BigQuery job cost** per DAG and task from job labels (`SRC-BQ`).
@@ -1409,14 +1409,14 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
 
 #### HM-030 Observer footprint
 
-- **Definition.** DCM's own load on each environment and API.
-- **Method.** From DCM's outgoing request log, per API and environment:
+- **Definition.** DCAM's own load on each environment and API.
+- **Method.** From DCAM's outgoing request log, per API and environment:
   - requests per minute, concurrency, p95 latency, bytes and error rate;
   - budget use;
   - estimated Monitoring read volume.
 
-  Where Composer reports Airflow API request counts (`environment/api/request_count`), DCM also shows its share of the total.
-- **Sources.** DCM request log; `SRC-MON`.
+  Where Composer reports Airflow API request counts (`environment/api/request_count`), DCAM also shows its share of the total.
+- **Sources.** DCAM request log; `SRC-MON`.
 - **Used by.** `FR-SELF-01`, `NFR-OBS-*`, patient mode ([§7.11](#711-observer-budget-do-no-harm)).
 
 ### 8.9 Statistical methods and data quality
@@ -1425,10 +1425,10 @@ Card format: each card below lists **Answers**, **Definition**, **Method**, **So
    - Exact within raw retention.
    - Beyond raw retention: from mergeable log-scale histograms stored in rollups, with ≤ 2 % relative error. These values are labelled approximate.
    - p95 requires ≥ 20 samples; otherwise the UI shows the maximum and "low sample".
-2. **Robust statistics.** Median and median absolute deviation, Theil�CSen slopes, Mann�CWhitney tests and bootstrap intervals. Mean ± standard deviation is not used for skewed durations.
+2. **Robust statistics.** Median and median absolute deviation, Theil–Sen slopes, Mann–Whitney tests and bootstrap intervals. Mean ± standard deviation is not used for skewed durations.
 3. **Seasonality.** Comparisons are matched by hour of week. Optional holiday calendars exclude special days from baselines.
 4. **Time zones.** Schedule analysis uses each DAG's time zone and handles daylight-saving transitions. Storage is UTC. Hour-of-week grouping uses the environment display time zone.
-5. **Multiple testing.** Any signal that tests many tasks at once controls the false discovery rate (Benjamini�CHochberg).
+5. **Multiple testing.** Any signal that tests many tasks at once controls the false discovery rate (Benjamini–Hochberg).
 6. **Completeness.** Every aggregate stores its coverage: the share of expected inputs present. Rules require minimum coverage (default 80 %) before raising findings.
 7. **Versioning.**
    - Stored values carry the signal version.
@@ -1485,15 +1485,15 @@ Requirements are grouped by epic. Each epic becomes one or more Spec Kit feature
 | Reports and export | `RPT` | Reports, Prometheus endpoint, snapshots | M7 |
 | AI integrations | `AI` | MCP server, copy as prompt, optional LLM | M7 |
 | Extensibility | `EXT` | Plugin SDK | M4 |
-| Self-observability | `SELF` | DCM's own health and footprint | M1 |
+| Self-observability | `SELF` | DCAM's own health and footprint | M1 |
 | Demo and emulator | `EMU` | Synthetic data, local Airflow target | M0 |
 
 ### 9.1 SETUP ― Setup, configuration and multi-environment
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-SETUP-01 | Start DCM with one command from a fresh clone (`pnpm dcm` or `./dcm start`); bind to `127.0.0.1`; open the browser. | When the user runs the start command with prerequisites installed, the system shall serve the UI at `http://127.0.0.1:<port>` and print the URL. If the port is busy, then the system shall select the next free port and report it. | M | M0 |
-| FR-SETUP-02 | Load workspace configuration from `dcm.config.yaml` (override with `--config` or `DCM_CONFIG`), validated by JSON Schema ([§17](#17-configuration-reference)). | If the configuration is invalid, then the system shall not start collectors, shall list each error with its path and a fix hint, and shall keep the UI available in setup mode. | M | M1 |
+| FR-SETUP-01 | Start DCAM with one command from a fresh clone (`pnpm dcam` or `./dcam start`); bind to `127.0.0.1`; open the browser. | When the user runs the start command with prerequisites installed, the system shall serve the UI at `http://127.0.0.1:<port>` and print the URL. If the port is busy, then the system shall select the next free port and report it. | M | M0 |
+| FR-SETUP-02 | Load workspace configuration from `dcam.config.yaml` (override with `--config` or `DCAM_CONFIG`), validated by JSON Schema ([§17](#17-configuration-reference)). | If the configuration is invalid, then the system shall not start collectors, shall list each error with its path and a fix hint, and shall keep the UI available in setup mode. | M | M1 |
 | FR-SETUP-03 | Configure any number of environments by `projectId`, `location` and `environment`, with labels (tier, team, display name, colour). Project IDs are always user-configurable. | When the user adds an environment in the UI, the system shall validate access, persist it to the configuration file while preserving comments, and start collection without a restart. | M | M1 |
 | FR-SETUP-04 | Discover Composer environments in configured projects (all or listed locations); optionally across a folder or organization via Cloud Asset Inventory. | When discovery runs, the system shall list environments with Composer version, location and state, and let the user select which to monitor. If a project denies access, then the system shall show the missing permission and continue with other projects. | M (projects), C (asset inventory) | M1 |
 | FR-SETUP-05 | Collection profiles per environment: `live`, `standard`, `eco`, `off`; defaults by tier (for example production `standard`, development `eco`). | When a profile changes, the system shall apply the new cadences within one collection cycle. | S | M1 |
@@ -1505,11 +1505,11 @@ Requirements are grouped by epic. Each epic becomes one or more Spec Kit feature
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-AUTH-01 | Authenticate with Google Application Default Credentials (ADC). DCM never persists credentials or tokens. | The system shall obtain and refresh access tokens in memory only. | M | M1 |
+| FR-AUTH-01 | Authenticate with Google Application Default Credentials (ADC). DCAM never persists credentials or tokens. | The system shall obtain and refresh access tokens in memory only. | M | M1 |
 | FR-AUTH-02 | Sign in from the GUI or the terminal. The GUI button runs `gcloud auth application-default login` as a child process with fixed arguments and no shell. | If no valid ADC is found, then the system shall show **Sign in with Google Cloud** and terminal instructions. When sign-in completes, the system shall detect the new credentials without a restart. If `gcloud` is not installed, then the system shall show OS-specific installation instructions. | M | M1 |
 | FR-AUTH-03 | Optional service account impersonation per environment (least-privilege read-only identities). | Where impersonation is configured, the system shall call APIs as the target service account and display it as the active principal. | S | M1 |
 | FR-AUTH-04 | Quota project handling (`quotaProjectId` per workspace or environment). | If an API rejects a call because no quota project is set, then the system shall explain the cause and show the fix command `gcloud auth application-default set-quota-project <project>`. | M | M1 |
-| FR-AUTH-05 | Doctor (UI page and `dcm doctor` CLI): `gcloud` presence, ADC validity and account, quota project, required APIs enabled, IAM permissions (`testIamPermissions`), Airflow web server reachability, Airflow role sufficiency, proxy and CA configuration, clock skew, disk space, Node.js version. | When the doctor runs, the system shall report pass, warn or fail for each check with evidence, a copyable fix and a documentation link, within 30 seconds per environment. | M | M1 |
+| FR-AUTH-05 | Doctor (UI page and `dcam doctor` CLI): `gcloud` presence, ADC validity and account, quota project, required APIs enabled, IAM permissions (`testIamPermissions`), Airflow web server reachability, Airflow role sufficiency, proxy and CA configuration, clock skew, disk space, Node.js version. | When the doctor runs, the system shall report pass, warn or fail for each check with evidence, a copyable fix and a documentation link, within 30 seconds per environment. | M | M1 |
 | FR-AUTH-06 | Classify VPC Service Controls and organization policy denials. | If a call fails with a VPC Service Controls violation, then the system shall show the violation reason and unique identifier, explain that the caller's network or identity must satisfy the perimeter's access levels, and shall not retry until the user re-runs the check. | M | M1 |
 | FR-AUTH-07 | Corporate networks: honour `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` and custom CA bundles (`NODE_EXTRA_CA_CERTS` or `network.caBundlePath`) for REST and gRPC calls. | Where a proxy is configured, the system shall route all Google API and Airflow calls through it, and the doctor shall verify connectivity through the proxy. | M | M1 |
 | FR-AUTH-08 | Show the active principal per environment, token expiry and a switch-account action. | The system shall display the principal used for each environment in the environment header. | S | M1 |
@@ -1520,7 +1520,7 @@ Requirements are grouped by epic. Each epic becomes one or more Spec Kit feature
 |---|---|---|---|---|
 | FR-COLL-01 | Each source is a collector behind a port, declaring capabilities, cadence, budget, watermark strategy and output schema. | The system shall refuse to register a collector whose manifest lacks a budget or output schema. | M | M1 |
 | FR-COLL-02 | Central scheduler with jitter, per-environment concurrency limits and priorities (`live` > `standard` > `background`). | While two collectors compete for the same API budget, the system shall serve the higher-priority collector first. | M | M1 |
-| FR-COLL-03 | Incremental fetch with persisted watermarks, an overlap window for late updates, and idempotent upserts. | When DCM restarts, the system shall resume from persisted watermarks without creating duplicate rows (enforced by unique keys). | M | M1 |
+| FR-COLL-03 | Incremental fetch with persisted watermarks, an overlap window for late updates, and idempotent upserts. | When DCAM restarts, the system shall resume from persisted watermarks without creating duplicate rows (enforced by unique keys). | M | M1 |
 | FR-COLL-04 | Backfill on first add (default 7 days of runs and task instances, 14 days of metrics; configurable) at background priority, within budget, with progress in the UI. | When an environment is added, the system shall show backfill progress and complete it without exceeding the observer budget. | M | M3 |
 | FR-COLL-05 | Adaptive cadence driven by UI visibility and focus. | While no UI client is visible, the system shall use the `background` cadence. While an environment is focused, the system shall use the `live` cadence for that environment only. | M | M2 |
 | FR-COLL-06 | Observer budget enforcement: token buckets per environment and API, hard caps, circuit breakers on 429 and 5xx, exponential backoff with jitter, `Retry-After` support. | If a budget is exhausted, then the system shall reduce fidelity (longer intervals, fewer pages) and show a "reduced fidelity" banner rather than exceed the budget. | M | M1 |
@@ -1528,14 +1528,14 @@ Requirements are grouped by epic. Each epic becomes one or more Spec Kit feature
 | FR-COLL-08 | Detect the Airflow version and REST API generation (v1 or v2) and select the adapter; expose capabilities (for example availability of a scheduled timestamp on task instances) to analytics. | When an environment runs Airflow 3, the system shall use the v2 adapter and mark capability-dependent signals accordingly. | M | M1 (v1), M3 (v2) |
 | FR-COLL-09 | Detect Composer 2 versus 3 from the image version and enable collectors accordingly (the GKE adapter only for Composer 2). | When an environment is Composer 3, the system shall not attempt GKE API calls. | M | M1 |
 | FR-COLL-10 | Sleep, resume and offline handling. | If the machine sleeps or loses connectivity, then on resume the system shall record the gap explicitly (no synthetic zeros) and backfill within budget. | M | M2 |
-| FR-COLL-11 | Collector health: last success, lag, error rate and budget use per collector and environment. | When a collector fails three consecutive cycles, the system shall surface it in the environment header and on the DCM health page. | M | M1 |
+| FR-COLL-11 | Collector health: last success, lag, error rate and budget use per collector and environment. | When a collector fails three consecutive cycles, the system shall surface it in the environment header and on the DCAM health page. | M | M1 |
 | FR-COLL-12 | Opt-in execution of allowlisted, read-only Airflow CLI commands through the Composer API (`dags report`, `dags list-import-errors`, `dags list`, `version`), at low frequency with a dedicated budget. The required permission `composer.environments.executeAirflowCommand` is only in editor-level and administrator-level predefined roles, so this needs a dedicated identity ([§7.8](#78-optional-and-future-sources)). | Where enabled for an environment, the system shall run at most one command per configured interval (default 60 minutes), label the data source, and show that the command consumes environment resources. If a requested subcommand is not on the allowlist, then the system shall refuse it before any network call. | C | M5 |
 
 ### 9.4 STORE ― Storage, retention and data lifecycle
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-STORE-01 | Embedded analytical store (DuckDB) in a configurable data directory, with versioned schema migrations. | When DCM starts with an older schema, the system shall back up the store and migrate it automatically. | M | M1 |
+| FR-STORE-01 | Embedded analytical store (DuckDB) in a configurable data directory, with versioned schema migrations. | When DCAM starts with an older schema, the system shall back up the store and migrate it automatically. | M | M1 |
 | FR-STORE-02 | Tiered retention (defaults): raw runs and task instances 90 days; raw metric points 14 days; 5-minute rollups 90 days; 1-hour rollups 400 days; log signatures 30 days with bounded samples; findings and alert history 400 days. All configurable per environment. | When retention runs, the system shall delete or compact expired data and keep rollups consistent with raw data (golden tests). | M | M2 |
 | FR-STORE-03 | Cold tier: older partitions are written to Parquet (daily partitions) and queried transparently. | When a query spans hot and cold data, the system shall return a single consistent result. | S | M7 |
 | FR-STORE-04 | Export any table view (with filters) to CSV, Parquet or JSON; full export per environment and time range. | When the user exports a view, the system shall produce a file whose rows equal the filtered view. | M (CSV), S (Parquet, JSON) | M3 / M7 |
@@ -1576,7 +1576,7 @@ Requirements are grouped by epic. Each epic becomes one or more Spec Kit feature
 | FR-ENV-04 | DAG processing tab: total parse time trend against Google's 5-minute guidance, DagBag size, import errors with file and trace, per-file parse cost from Cloud Monitoring (`HM-013`), stale-risk gauge (parse loop versus `dag_stale_not_seen_duration`), deploy propagation latency (`HM-014`). | When the parse loop exceeds 80 % of `dag_stale_not_seen_duration`, the system shall raise `REC-PARSE-02`. | M | M2 (core and per file), M5 (propagation) |
 | FR-ENV-05 | Triggerer tab: running triggers, capacity, blocking and failed triggers, deferred task instances by DAG. | The system shall show triggerer utilisation as running triggers ÷ total capacity when capacity is known. | S | M2 |
 | FR-ENV-06 | Database tab: CPU, memory, disk, connections, Airflow database size and growth, health, retention configuration status. | When the database size growth rate predicts reaching the configured threshold within 30 days, the system shall raise `REC-DB-01`. | M | M2 |
-| FR-ENV-07 | Web server tab: health, CPU and memory, restarts, Airflow API latency as observed by DCM. | The system shall chart DCM's own Airflow API latency percentiles per endpoint. | S | M2 |
+| FR-ENV-07 | Web server tab: health, CPU and memory, restarts, Airflow API latency as observed by DCAM. | The system shall chart DCAM's own Airflow API latency percentiles per endpoint. | S | M2 |
 | FR-ENV-08 | Pools tab: slots, occupied, running, queued, scheduled, open, deferred; starvation over time; top DAGs per pool. | When a pool has zero open slots and queued work for longer than the threshold, the system shall flag starvation. | M | M2 |
 | FR-ENV-09 | Restarts and evictions per workload correlated with task failures (zombies, killed externally, OOM). | When a worker eviction precedes task failures within five minutes, the system shall link them as correlated evidence. | M | M3 |
 
@@ -1718,7 +1718,7 @@ Requirements are grouped by epic. Each epic becomes one or more Spec Kit feature
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-RPT-01 | Environment report (HTML, printable to PDF): KPIs, top consumers, top findings, changes; on demand or scheduled while DCM runs. | When generated, the report shall contain no live links that require DCM to be running, except optional deep links. | S | M7 |
+| FR-RPT-01 | Environment report (HTML, printable to PDF): KPIs, top consumers, top findings, changes; on demand or scheduled while DCAM runs. | When generated, the report shall contain no live links that require DCAM to be running, except optional deep links. | S | M7 |
 | FR-RPT-02 | Opt-in Prometheus/OpenMetrics endpoint on localhost exposing selected derived signals. | Where enabled, the system shall expose only allowlisted signals with bounded label cardinality. | C | M7 |
 | FR-RPT-03 | Self-contained HTML snapshot of a view for sharing. | The snapshot shall render offline. | C | M7 |
 | FR-RPT-04 | Team showback report: slot-seconds, estimated CPU, memory and cost per team. | The system shall label all cost figures as estimates and show the pricing inputs. | S | M7 |
@@ -1727,7 +1727,7 @@ Requirements are grouped by epic. Each epic becomes one or more Spec Kit feature
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-AI-01 | Built-in MCP server (stdio and localhost Streamable HTTP) exposing read-only tools: list environments, environment health, league table query, DAG details and statistics, findings, config option explanations, bounded analytics queries from an allowlist, incident context; wiki pages and the config knowledge base as resources. Ready-to-paste client configuration for Claude Code, GitHub Copilot (CLI and IDEs) and Gemini CLI. | Where the MCP server is enabled, the system shall expose only read-only tools, apply redaction to outputs, and log each tool call on the DCM health page. | M | M7 |
+| FR-AI-01 | Built-in MCP server (stdio and localhost Streamable HTTP) exposing read-only tools: list environments, environment health, league table query, DAG details and statistics, findings, config option explanations, bounded analytics queries from an allowlist, incident context; wiki pages and the config knowledge base as resources. Ready-to-paste client configuration for Claude Code, GitHub Copilot (CLI and IDEs) and Gemini CLI. | Where the MCP server is enabled, the system shall expose only read-only tools, apply redaction to outputs, and log each tool call on the DCAM health page. | M | M7 |
 | FR-AI-02 | "Copy as prompt" on findings, DAGs, incidents and config options: sanitised Markdown with context, evidence and a question template; "Save as `.prompt.md`" for GitHub Copilot prompt files. | When the user copies a prompt, the system shall show a preview with redactions highlighted. | M | M7 |
 | FR-AI-03 | Optional LLM explainer with pluggable providers: none (default), GitHub Copilot CLI (if installed), Vertex AI Gemini, Anthropic API, OpenAI-compatible endpoint, local model server. One settings screen with **Test connection**. | Where a provider is enabled, the system shall show exactly what will be sent and require an explicit user action for every request. | S | M7 |
 | FR-AI-04 | Redaction policy (emails, tokens, connection strings, IP addresses, custom patterns) applied to prompts, exports and MCP outputs. | The system shall pass a redaction test suite with known secret formats. | M | M7 |
@@ -1738,16 +1738,16 @@ Requirements are grouped by epic. Each epic becomes one or more Spec Kit feature
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
 | FR-EXT-01 | Extension points: collectors, metric definitions (YAML + SQL), rules (YAML + SQL), panels (React components via manifest), notifiers, wiki pages (MDX), config knowledge base entries, exporters. | The system shall load built-in features through the same extension points as third-party plugins. | M (internal), S (public) | M4 / M8 |
-| FR-EXT-02 | Plugin manifest with JSON Schema, semantic-version compatibility range, declared sources, permissions and budgets. | If a plugin's compatibility range excludes the running DCM version, then the system shall not load it and shall explain why. | M | M8 |
+| FR-EXT-02 | Plugin manifest with JSON Schema, semantic-version compatibility range, declared sources, permissions and budgets. | If a plugin's compatibility range excludes the running DCAM version, then the system shall not load it and shall explain why. | M | M8 |
 | FR-EXT-03 | Install from a local directory or npm; disabled until the user enables it; integrity hash displayed. | When a plugin is installed, the system shall show its manifest and require explicit enablement. | S | M8 |
-| FR-EXT-04 | Trust model: declarative plugins preferred; code plugins run in process and are documented as trusted code. | The system shall label code plugins as "runs with DCM's permissions". | M | M8 |
+| FR-EXT-04 | Trust model: declarative plugins preferred; code plugins run in process and are documented as trusted code. | The system shall label code plugins as "runs with DCAM's permissions". | M | M8 |
 | FR-EXT-05 | Scaffolding commands and templates for rules, metrics, panels and wiki pages. | When a contributor scaffolds a rule, the generated files shall include a failing test. | S | M8 |
 
 ### 9.22 SELF ― Self-observability and sustainability
 
 | ID | Requirement | Acceptance criteria (EARS) | Pri | M |
 |---|---|---|---|---|
-| FR-SELF-01 | DCM health page: process CPU and memory, store size, collector status, API calls per minute per API and environment, budget consumption, errors, lag, MCP calls. | The system shall update the page every 10 seconds while visible. | M | M1 |
+| FR-SELF-01 | DCAM health page: process CPU and memory, store size, collector status, API calls per minute per API and environment, budget consumption, errors, lag, MCP calls. | The system shall update the page every 10 seconds while visible. | M | M1 |
 | FR-SELF-02 | Eco mode: one switch for the lowest footprint (longest cadences, no backfill, static analysis paused). | When eco mode is enabled, the system shall reduce API calls by at least 70 % compared with the `standard` profile. | S | M2 |
 | FR-SELF-03 | Structured JSON logs; redacted debug bundle export for bug reports. | When the user exports a debug bundle, the system shall exclude tokens, configuration secrets and raw log content. | M | M1 |
 
@@ -1757,7 +1757,7 @@ Requirements are grouped by epic. Each epic becomes one or more Spec Kit feature
 |---|---|---|---|---|
 | FR-EMU-01 | Demo mode with a synthetic workspace (no Google Cloud access needed), clearly labelled. | When started with `--demo`, the system shall load synthetic environments and show a persistent "demo data" banner. | M | M0 |
 | FR-EMU-02 | Monitor a local Airflow (Docker Compose) through the same Airflow adapter, with Google Cloud collectors replaced by fakes. | When pointed at the local emulator, the system shall populate DAG, run, task instance and pool views. | M | M1 |
-| FR-EMU-03 | Scenario library reproducing bottlenecks ([§20.4](#204-scenario-library)) for demos and end-to-end tests. | When a scenario runs, the corresponding rule shall fire within the scenario's expected window. | M | M3�CM4 |
+| FR-EMU-03 | Scenario library reproducing bottlenecks ([§20.4](#204-scenario-library)) for demos and end-to-end tests. | When a scenario runs, the corresponding rule shall fire within the scenario's expected window. | M | M3–M4 |
 
 ---
 
@@ -1819,9 +1819,9 @@ Reference hardware for budgets: a laptop with 4 performance cores and 16 GB RAM.
 | ID | Requirement |
 |---|---|
 | NFR-REL-01 | A failing collector MUST NOT stop other collectors (bulkheads). |
-| NFR-REL-02 | DCM MUST recover automatically from token expiry, network loss and sleep or resume. |
+| NFR-REL-02 | DCAM MUST recover automatically from token expiry, network loss and sleep or resume. |
 | NFR-REL-03 | On crash, data loss MUST be limited to the in-flight batch. |
-| NFR-REL-04 | DCM upgrades MUST migrate stored data automatically after taking a backup. |
+| NFR-REL-04 | DCAM upgrades MUST migrate stored data automatically after taking a backup. |
 | NFR-DATA-01 | Every derived signal MUST have golden tests on fixed datasets with documented numeric tolerances. |
 | NFR-DATA-02 | Durations are stored in seconds (floating point) and timestamps in UTC; units are SI; display is humanised. |
 | NFR-DATA-03 | Missing data MUST be shown as gaps, never as zeros. |
@@ -1835,7 +1835,7 @@ Details in [§18](#18-security-privacy-and-compliance).
 |---|---|
 | NFR-SEC-01 | Bind to `127.0.0.1` by default. Binding to other interfaces requires an explicit flag and enables a mandatory access token. |
 | NFR-SEC-02 | CSRF protection, strict CORS (same origin), Content Security Policy without `unsafe-eval`, Host header validation (DNS rebinding protection). |
-| NFR-SEC-03 | DCM stores no credentials and no secrets in configuration; notifier secrets come from environment variables or the OS keychain. |
+| NFR-SEC-03 | DCAM stores no credentials and no secrets in configuration; notifier secrets come from environment variables or the OS keychain. |
 | NFR-SEC-04 | Read-only enforcement is tested ([§18.2](#182-read-only-guarantee)). |
 | NFR-SEC-05 | Supply chain: lockfile, dependency review, SBOM (CycloneDX), signed releases with provenance, OpenSSF Scorecard ≥ 7. |
 | NFR-PRIV-01 | No telemetry by default. Any future usage statistics require an ADR and explicit opt-in. |
@@ -1900,7 +1900,7 @@ flowchart LR
   user(["Engineer<br/>(browser on localhost)"])
   aic(["AI clients<br/>Claude Code, GitHub Copilot, Gemini CLI"])
   gcloud(["gcloud CLI<br/>(ADC sign-in)"])
-  dcm["<b>DCM</b><br/>local application"]
+  dcam["<b>DCAM</b><br/>local application"]
   subgraph gcp["Google Cloud (customer projects)"]
     mon["Cloud Monitoring API"]
     log["Cloud Logging API"]
@@ -1910,12 +1910,12 @@ flowchart LR
     opt["Optional: GKE API (Composer 2),<br/>Cloud Asset Inventory, BigQuery,<br/>Cloud Audit Logs"]
   end
   notif(["Notification channels<br/>webhook, email, chat"])
-  user -->|"HTTP + SSE"| dcm
-  aic -->|"MCP (read-only tools)"| dcm
-  gcloud -->|"application default credentials"| dcm
-  dcm -->|"read-only, budgeted"| mon & log & comp & gcs & af
-  dcm -.->|"opt-in"| opt
-  dcm -->|"alerts"| notif
+  user -->|"HTTP + SSE"| dcam
+  aic -->|"MCP (read-only tools)"| dcam
+  gcloud -->|"application default credentials"| dcam
+  dcam -->|"read-only, budgeted"| mon & log & comp & gcs & af
+  dcam -.->|"opt-in"| opt
+  dcam -->|"alerts"| notif
 ```
 
 ### 11.3 Containers and runtime processes
@@ -1925,7 +1925,7 @@ flowchart TB
   subgraph browser["Browser"]
     web["Web UI<br/>React SPA"]
   end
-  subgraph proc["DCM process (Node.js)"]
+  subgraph proc["DCAM process (Node.js)"]
     api["HTTP API, SSE, static UI<br/>(Fastify, OpenAPI 3.1)"]
     mcp["MCP endpoint<br/>(Streamable HTTP)"]
     app["Application services<br/>(use cases)"]
@@ -1938,8 +1938,8 @@ flowchart TB
     pool["Worker pool<br/>(Python AST parsing, log clustering)"]
     db[("DuckDB file<br/>+ Parquet cold tier")]
   end
-  cli["dcm CLI"]
-  bridge["dcm mcp --stdio<br/>(bridge process)"]
+  cli["dcam CLI"]
+  bridge["dcam mcp --stdio<br/>(bridge process)"]
   web <-->|"REST + SSE"| api
   cli -->|"REST"| api
   bridge -->|"REST"| api
@@ -1956,7 +1956,7 @@ flowchart TB
 
 | Container | Responsibility | Notes |
 |---|---|---|
-| Web UI | All user interaction | Talks only to the DCM API; never to Google Cloud directly |
+| Web UI | All user interaction | Talks only to the DCAM API; never to Google Cloud directly |
 | HTTP API | Serves the OpenAPI contract, SSE stream and static UI | Same-origin; loopback by default ([§18](#18-security-privacy-and-compliance)) |
 | MCP endpoint | Read-only tools and resources for AI clients | Reuses application services; outputs pass the redaction pipeline |
 | Collection scheduler | Decides what to fetch, when, under which budget | Priorities `live` > `standard` > `background` |
@@ -1965,9 +1965,9 @@ flowchart TB
 | Analytics engine | Incremental derivations, rollups and hidden metrics ([§8](#8-hidden-metrics-and-derived-signals-catalog)) | SQL executed by DuckDB |
 | Rules engine | Evaluates rules, maintains findings, runs verification loops | Rules are data ([§13](#13-recommendation-engine-and-rule-catalog)) |
 | Alert evaluator | Evaluates alert rules, routes notifications | Notifiers are plugins |
-| Worker pool | CPU-heavy, isolated tasks | Small fixed pool (default 1�C2 threads) |
+| Worker pool | CPU-heavy, isolated tasks | Small fixed pool (default 1–2 threads) |
 | Store | Single DuckDB database file plus Parquet partitions | One writer process; see [§11.7](#117-data-architecture-and-storage) |
-| `dcm` CLI | `start`, `doctor`, `demo`, `export`, `import`, `mcp`, `config validate`, `rules test` | Talks to a running instance or starts one |
+| `dcam` CLI | `start`, `doctor`, `demo`, `export`, `import`, `mcp`, `config validate`, `rules test` | Talks to a running instance or starts one |
 | MCP stdio bridge | Lets stdio-only MCP clients reach the running instance | Never opens the database itself (single-writer constraint) |
 
 ### 11.4 Hexagonal components and dependency rules
@@ -1977,11 +1977,11 @@ flowchart TB
             │                                                                                     │
   driving   │   HTTP/SSE handlers   MCP tools   CLI commands   scheduler ticks                      │
   adapters  │            │              │            │               │                            │
-            │            �              �            �               �                            │
+            │            ▼              ▼            ▼               ▼                            │
             │   ┌──────────────────── application (use cases) ─────────────────────┐              │
             │   │  QueryLeagueTable ・ EvaluateRules ・ CollectCycle ・ ExplainOption │              │
             │   └───────────────┬───────────────────────────────┬──────────────────┘              │
-            │                   �                               �                                 │
+            │                   ▼                               ▼                                 │
             │            domain (pure)                    ports (interfaces)                      │
             │   entities, value objects, formulas    MetricsSource, LogsSource, ComposerSource,   │
             │   classifiers, ranking, statistics     AirflowSource, BucketSource, Store, Clock,   │
@@ -2007,7 +2007,7 @@ Dependency rules (enforced by `dependency-cruiser` in CI, `NFR-MAINT-01`):
 ### 11.5 Repository layout
 
 ```text
-dcm/
+dcam/
 ├── apps/
 │   ├── server/                 # Fastify composition root, HTTP + SSE + MCP endpoint, static UI hosting
 │   ├── web/                    # React SPA (standalone) + embeddable bundle entry (host adapter)
@@ -2043,7 +2043,7 @@ dcm/
 │   ├── static-analysis/        # tree-sitter-based Python analyzers (SCAN)
 │   ├── ui-kit/                 # Design tokens, theme, charts, tables, (i) popovers, state colours
 │   ├── plugin-sdk/             # Public SDK (M8): manifests, types, scaffolding templates
-│   └── cli/                    # dcm CLI
+│   └── cli/                    # dcam CLI
 ├── tools/
 │   ├── emulator/               # Docker Compose Airflow, scenario DAGs, load generator, fake GCP sources
 │   ├── fixtures/               # Recorded API responses (sanitised) for contract tests
@@ -2056,7 +2056,7 @@ dcm/
 ├── .specify/                   # Spec Kit memory (constitution) and templates
 ├── .claude/                    # Claude Code settings, hooks, subagents, commands, skills
 ├── CLAUDE.md
-└── dcm.config.example.yaml
+└── dcam.config.example.yaml
 ```
 
 ### 11.6 Technology stack
@@ -2076,7 +2076,7 @@ Versions are "latest stable at M0, pinned in the lockfile" unless stated. Items 
 | Outbound access | REST through one guarded client using `google-auth-library` | Single read-only choke point; works with proxies; no gRPC dependency | Official gRPC client libraries (harder to guard and proxy) | ADR-0006 |
 | Live updates | Server-Sent Events | One-directional, proxy-friendly, simple reconnection | WebSocket | ADR-0008 |
 | UI framework | React + Vite | Ecosystem; Airflow 3's UI is also React | ― | ADR-0009 |
-| Component library | MUI (Material UI) with DCM design tokens | Material conventions close to Google Cloud console; accessible primitives; dense data tables | Chakra UI (used by the Airflow 3 UI), Mantine | ADR-0009 |
+| Component library | MUI (Material UI) with DCAM design tokens | Material conventions close to Google Cloud console; accessible primitives; dense data tables | Chakra UI (used by the Airflow 3 UI), Mantine | ADR-0009 |
 | Routing and data | TanStack Router, TanStack Query, TanStack Table, TanStack Virtual | Type-safe URL state, caching, virtualisation | React Router, SWR, AG Grid | ADR-0009 |
 | Charts | Apache ECharts (rich charts, heatmaps, treemaps, Gantt, large datasets on canvas) and uPlot (dense time series) | Performance and breadth | Recharts, Visx, Highcharts (licence) | ADR-0010 |
 | Graphs and diagrams | React Flow (`@xyflow/react`) with dagre layout (`@dagrejs/dagre`) | Interactive DAG graphs, relationship graphs and architecture diagrams; MIT-licensed | Cytoscape.js; ELK (`elkjs`, EPL-2.0 or GPL-3.0, outside the licence allowlist in [§21.11](#2111-coding-standards-and-quality-gates)) | ADR-0010 |
@@ -2092,13 +2092,13 @@ Versions are "latest stable at M0, pinned in the lockfile" unless stated. Items 
 
 ### 11.7 Data architecture and storage
 
-**Store layout.** One DuckDB database file per workspace (`<dataDir>/dcm.duckdb`) plus a cold tier of Parquet files (`<dataDir>/cold/<table>/env_id=<id>/date=<YYYY-MM-DD>/*.parquet`). Only the DCM server process opens the database for writing. The CLI, the MCP stdio bridge and any second process MUST use the HTTP API instead.
+**Store layout.** One DuckDB database file per workspace (`<dataDir>/dcam.duckdb`) plus a cold tier of Parquet files (`<dataDir>/cold/<table>/env_id=<id>/date=<YYYY-MM-DD>/*.parquet`). Only the DCAM server process opens the database for writing. The CLI, the MCP stdio bridge and any second process MUST use the HTTP API instead.
 
 **Schemas.**
 
 | Schema | Tables (examples) | Notes |
 |---|---|---|
-| `meta` | `schema_migrations`, `watermarks`, `collector_runs`, `budgets_usage`, `dirty_windows` | Operational state of DCM itself |
+| `meta` | `schema_migrations`, `watermarks`, `collector_runs`, `budgets_usage`, `dirty_windows` | Operational state of DCAM itself |
 | `dim` | `environment`, `environment_snapshot`, `workload_snapshot`, `config_snapshot`, `dag`, `dag_version`, `task`, `pool`, `dag_file`, `metric_series`, `team_mapping` | Slowly changing dimensions keep `valid_from` and `valid_to` |
 | `fact` | `dag_run`, `task_instance`, `task_try`, `metric_point`, `log_signal`, `log_sample`, `import_error`, `parse_stat`, `change_event`, `pool_sample`, `bucket_object_event` | Append or upsert by natural key |
 | `agg` | `ti_occupancy_1m`, `rollup_5m_*`, `rollup_1h_*`, `dag_daily`, `task_daily`, `baseline_*` | Derived, recomputable from `fact` within raw retention |
@@ -2186,13 +2186,13 @@ The OpenAPI 3.1 document in `packages/contracts/openapi.yaml` is the source of t
 
 | Convention | Rule |
 |---|---|
-| Base path | `/api/v1` (DCM's own API version, independent of Airflow's API versions) |
+| Base path | `/api/v1` (DCAM's own API version, independent of Airflow's API versions) |
 | Resource naming | Plural nouns, kebab-case paths, `snake_case` JSON fields (aligns with Airflow's API) |
 | Identifiers | `env_id` is the workspace slug (for example `acme-prod`); DAG, run and task IDs are URL-encoded; findings and events use ULIDs |
 | Time ranges | `from` and `to` (RFC 3339) or `range` (`15m`, `24h`, `7d`); responses echo the resolved range and `data_as_of` |
 | Pagination | Cursor-based: `page_size` (≤ 500) and `page_token`; responses include `next_page_token` and `total_size` when cheap |
 | Filtering and sorting | `filter` (simple, documented expression grammar), `order_by` (`field asc` or `field desc`, multiple allowed) |
-| Errors | RFC 9457 `application/problem+json` with a stable `type` URI per error class, `detail`, `instance`, and DCM extensions `fix_hint` and `docs_url` |
+| Errors | RFC 9457 `application/problem+json` with a stable `type` URI per error class, `detail`, `instance`, and DCAM extensions `fix_hint` and `docs_url` |
 | Caching | `ETag` and `If-None-Match` on aggregate endpoints; `Cache-Control: no-store` on anything containing log content |
 | Exports | Content negotiation: `text/csv`, `application/vnd.apache.parquet`, `application/json` |
 | Provenance | Every analytical response includes `sources[]`, `data_as_of`, `approximate` and `capabilities` metadata |
@@ -2215,30 +2215,30 @@ Resource map (excerpt; the full list is generated into the documentation):
 | `/exports`, `/imports` | POST, GET | Bundles | `FR-STORE-04`, `FR-STORE-05` |
 | `/events` | GET (SSE) | Live updates | [§11.10](#1110-live-updates-and-caching) |
 
-Write methods on DCM's own API change only DCM's local state (configuration, findings lifecycle, alert rules, saved views). They never reach a monitored system.
+Write methods on DCAM's own API change only DCAM's local state (configuration, findings lifecycle, alert rules, saved views). They never reach a monitored system.
 
 ### 11.10 Live updates and caching
 
 - **Channel.** `GET /api/v1/events?topics=…` streams Server-Sent Events. Topics are scoped (`env:<env_id>`, `findings`, `alerts`, `collectors`, `self`). The server sends a heartbeat comment every 15 seconds and supports `Last-Event-ID` for resumption.
 - **Event types.** `collector.cycle_completed`, `signal.updated`, `finding.opened`, `finding.updated`, `finding.resolved`, `alert.firing`, `alert.resolved`, `environment.health_changed`, `budget.fidelity_reduced`, `change.detected`, `doctor.completed`.
 - **Client strategy.** Events carry query-key hints; the UI invalidates the matching TanStack Query keys instead of receiving full payloads. This keeps events small and the cache authoritative.
-- **Focus signalling.** The UI reports visibility and the focused environment through `PUT /api/v1/session/focus` (DCM-local state). The scheduler uses it for adaptive cadences (`FR-COLL-05`).
+- **Focus signalling.** The UI reports visibility and the focused environment through `PUT /api/v1/session/focus` (DCAM-local state). The scheduler uses it for adaptive cadences (`FR-COLL-05`).
 - **Server caching.** Aggregate responses are cached per (query, parameters, data version) and invalidated by dirty-window completion. Data version is a monotonic counter per environment and table family.
 
 ### 11.11 Deployment targets
 
 | Target | Status | Description | Key constraints |
 |---|---|---|---|
-| Local process | v1 (primary) | `pnpm dcm` or `./dcm start`; serves on `127.0.0.1`; uses the user's ADC | Laptop sleep; single user |
+| Local process | v1 (primary) | `pnpm dcam` or `./dcam start`; serves on `127.0.0.1`; uses the user's ADC | Laptop sleep; single user |
 | Docker image | v1 | `docker run` with the ADC file mounted read-only and a data volume | Browser sign-in happens on the host (`gcloud auth application-default login`) |
 | Single executable | Could (post-v1) | Node.js single executable application bundling the server and UI | DuckDB native binary packaging |
 | Team server | Future | Shared instance (for example Cloud Run behind Identity-Aware Proxy, or a VM) with a service account, persistent storage and SSO | Needs multi-user authorisation, durable storage strategy and an ADR; single-tenant only (`NG-6`) |
-| Airflow plugin (embedded) | Future | Python implementation of the same OpenAPI contract mounted in Airflow 3 through the plugin attribute `fastapi_apps` (Airflow 3.0 and later), with DCM's UI mounted through `react_apps` (Airflow 3.1 and later, experimental) or linked as an `external_views` page (Airflow 3.1 and later); reads the metadata database through Airflow's own interfaces | See [§11.12](#1112-embedding-path-into-airflow-and-composer); re-check the plugin interfaces and Composer's plugin support (VC-22) when the work starts |
+| Airflow plugin (embedded) | Future | Python implementation of the same OpenAPI contract mounted in Airflow 3 through the plugin attribute `fastapi_apps` (Airflow 3.0 and later), with DCAM's UI mounted through `react_apps` (Airflow 3.1 and later, experimental) or linked as an `external_views` page (Airflow 3.1 and later); reads the metadata database through Airflow's own interfaces | See [§11.12](#1112-embedding-path-into-airflow-and-composer); re-check the plugin interfaces and Composer's plugin support (VC-22) when the work starts |
 | Composer-native | Aspirational | A managed or Marketplace offering, or upstream contribution | Requires Google partnership; out of scope for planning |
 
 ### 11.12 Embedding path into Airflow and Composer
 
-DCM is designed so that a future in-environment deployment reuses most assets. The *portability contract* is:
+DCAM is designed so that a future in-environment deployment reuses most assets. The *portability contract* is:
 
 | Asset | Portable because | Reused by a Python runtime as |
 |---|---|---|
@@ -2261,15 +2261,15 @@ Requirements that keep this path open:
 
 | Concern | Decision |
 |---|---|
-| Configuration | Layered: built-in defaults < `dcm.config.yaml` < environment variables (`DCM_*`) < CLI flags. Validated at start and on reload ([§17](#17-configuration-reference)). Hot reload for environments, profiles, thresholds and alert rules |
+| Configuration | Layered: built-in defaults < `dcam.config.yaml` < environment variables (`DCAM_*`) < CLI flags. Validated at start and on reload ([§17](#17-configuration-reference)). Hot reload for environments, profiles, thresholds and alert rules |
 | Time | UTC everywhere internally; an injectable `Clock` port; time zone conversion only at the edge; ISO 8601 durations in configuration |
-| Identifiers | ULIDs for DCM-generated entities; source IDs kept verbatim |
+| Identifiers | ULIDs for DCAM-generated entities; source IDs kept verbatim |
 | Errors | Typed domain errors mapped to RFC 9457 problems; every external failure classified (auth, permission, quota, VPC Service Controls, not found, transient, contract drift) with a fix hint |
-| Logging | pino JSON logs with redaction paths for tokens, cookies and secrets; log level per module; no log content from monitored systems in DCM's own logs |
+| Logging | pino JSON logs with redaction paths for tokens, cookies and secrets; log level per module; no log content from monitored systems in DCAM's own logs |
 | Concurrency | One write queue for the store; bounded read connections; at most two concurrent requests per monitored API and environment by default |
-| Feature flags | Configuration-driven (`features.*`), visible on the DCM health page |
+| Feature flags | Configuration-driven (`features.*`), visible on the DCAM health page |
 | Internationalisation | FormatJS (ICU MessageFormat) message catalogues; English first |
-| Observability of DCM | Internal metrics surfaced on the health page (`FR-SELF-01`); optional OpenMetrics endpoint (`FR-RPT-02`) |
+| Observability of DCAM | Internal metrics surfaced on the health page (`FR-SELF-01`); optional OpenMetrics endpoint (`FR-RPT-02`) |
 
 ### 11.14 Key runtime sequences
 
@@ -2328,7 +2328,7 @@ sequenceDiagram
 
 ### 12.1 Design principles
 
-1. **Familiar to Google Cloud users.** Layout, density and vocabulary follow Google Cloud console conventions: left navigation, top context bar, cards, dense data tables, side drawers for details. DCM's own identity comes from its dark, blueish default theme.
+1. **Familiar to Google Cloud users.** Layout, density and vocabulary follow Google Cloud console conventions: left navigation, top context bar, cards, dense data tables, side drawers for details. DCAM's own identity comes from its dark, blueish default theme.
 2. **Answer first, then evidence.** Every screen opens with the answer (status, top contributors, binding limit), followed by evidence charts and raw tables.
 3. **Comparative by default.** Show baselines, peers, previous periods and distributions next to every number (`P-6`).
 4. **Progressive disclosure.** Summary → chart → table → raw record → source deep link.
@@ -2339,7 +2339,7 @@ sequenceDiagram
 ### 12.2 Information architecture and navigation
 
 ```text
-App bar:      [DCM logo]  [Environment selector ▾ (multi)]  [Time range ▾]  [TZ]  [● Live/Paused]  [⌘K]  [Alerts 🔔]  [Doctor]  [Account]
+App bar:      [DCAM logo]  [Environment selector ▾ (multi)]  [Time range ▾]  [TZ]  [● Live/Paused]  [⌘K]  [Alerts 🔔]  [Doctor]  [Account]
 Left nav:
   Fleet
   ── Environment (context-dependent)
@@ -2350,8 +2350,8 @@ Left nav:
      Advisor ・ Config Advisor ・ Compare environments ・ Changes ・ Incidents ・ Alerts ・ Logs & cost ・ Reports
   ── Learn
      Wiki ・ Runbooks ・ Glossary
-  ── DCM
-     Settings ・ Doctor ・ DCM health
+  ── DCAM
+     Settings ・ Doctor ・ DCAM health
 ```
 
 ### 12.3 Screen inventory
@@ -2389,7 +2389,7 @@ Left nav:
 | S-29 | Wiki, runbooks, glossary | `/wiki/...` | J-8 | `FR-WIKI-*` |
 | S-30 | Settings | `/settings/...` | ― | `FR-SETUP-07`, `FR-AI-03` |
 | S-31 | Doctor | `/doctor` | ― | `FR-AUTH-05` |
-| S-32 | DCM health | `/self` | ― | `FR-SELF-*` |
+| S-32 | DCAM health | `/self` | ― | `FR-SELF-*` |
 
 ### 12.4 Wireframes (key screens)
 
@@ -2421,10 +2421,10 @@ Wireframes are indicative; they fix content and hierarchy, not pixels.
 ┌ DAGs ・ acme-prod ── Last 7 d ▾  vs previous 7 d ── Preset: Capacity hogs ▾ ── Columns ▾ ── Export ▾ ─────────────┐
 │ Pareto: 23 of 1,240 DAGs = 80 % of slot-seconds (i)    Gini 0.81    [treemap] [scatter] [heatmap]                 │
 │ ┌─────────────────────┬──────┬───────┬────────┬──────────┬─────────┬──────────┬──────────┬──────────┬──────────┐ │
-│ │ DAG                 │ Runs │ Succ. │ p95 dur│ Slot-h   │ Share � │ p95 queue│ Sensor-h │ Est. cost│ Findings │ │
+│ │ DAG                 │ Runs │ Succ. │ p95 dur│ Slot-h   │ Share ▼ │ p95 queue│ Sensor-h │ Est. cost│ Findings │ │
 │ ├─────────────────────┼──────┼───────┼────────┼──────────┼─────────┼──────────┼──────────┼──────────┼──────────┤ │
-│ │ orders_daily        │   7  │ 100 % │ 1h 12m │   412.0  │ 9.8 % ▲ │   14m    │   61.2   │ ~� 38    │ ⚠ 2      │ │
-│ │ customer_360        │ 168  │  97 % │   18m  │   388.5  │ 9.2 %   │    2m    │    0.0   │ ~� 35    │ ⓘ 1      │ │
+│ │ orders_daily        │   7  │ 100 % │ 1h 12m │   412.0  │ 9.8 % ▲ │   14m    │   61.2   │  ≈ 38    │ ⚠ 2      │ │
+│ │ customer_360        │ 168  │  97 % │   18m  │   388.5  │ 9.2 %   │    2m    │    0.0   │  ≈ 35    │ ⓘ 1      │ │
 │ │ …virtualised rows…  │      │       │        │          │         │          │          │          │          │ │
 │ └─────────────────────┴──────┴───────┴────────┴──────────┴─────────┴──────────┴──────────┴──────────┴──────────┘ │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -2433,12 +2433,12 @@ Wireframes are indicative; they fix content and hierarchy, not pixels.
 **S-16 Bottlenecks**
 
 ```text
-┌ Bottlenecks ・ acme-prod ── 01:30�C03:00 ────────────────────────────────────────────────────────────────────────────┐
+┌ Bottlenecks ・ acme-prod ── 01:30–03:00 ────────────────────────────────────────────────────────────────────────────┐
 │ Answer: 71 % of waiting task-minutes were caused by "executor slots exhausted" while workers were at max (i)       │
 │ ┌ Waiting task-minutes by throttle reason (stacked) ──────────────────────────────┐ ┌ Top contributors ──────────┐ │
-│ │ �~�~�~�~�~�~�~�~�~�~�~ executor slots exhausted                                            │ │ orders_daily     22 %      │ │
-│ │ �~�~�~ pool "etl" exhausted                                                        │ │ customer_360     14 %      │ │
-│ │ �~ DAG max_active_tasks                                                          │ │ ...                        │ │
+│ │ ██████████████████████ executor slots exhausted                                 │ │ orders_daily     22 %      │ │
+│ │ ██████ pool "etl" exhausted                                                     │ │ customer_360     14 %      │ │
+│ │ ██ DAG max_active_tasks                                                         │ │ ...                        │ │
 │ │ ── change markers ▲ (config update 01:12)                                       │ │                            │ │
 │ └─────────────────────────────────────────────────────────────────────────────────┘ └────────────────────────────┘ │
 │ Related findings: REC-CAP-01 ・ REC-SCHED-01      Runbook: RB-01 Tasks stuck in queued      [Open incident ▸]      │
@@ -2480,13 +2480,13 @@ Tokens live in `packages/ui-kit/tokens` (JSON, consumed by MUI, ECharts, uPlot a
 | `space.unit` | 4 px | 4 px | Spacing scale (4, 8, 12, 16, 24, 32) |
 | `density` | comfortable / compact | comfortable / compact | Tables default to compact |
 
-Additional theme options: high contrast, and a colour-vision-deficiency-safe categorical palette (for example Okabe�CIto) for series colours.
+Additional theme options: high contrast, and a colour-vision-deficiency-safe categorical palette (for example Okabe–Ito) for series colours.
 
 ### 12.6 Airflow state colours
 
-Task instance and DAG run states MUST use Airflow's familiar state colour semantics so that users moving between the Airflow UI and DCM read states instantly. Airflow 2 defines default state colours in `airflow.settings.STATE_COLORS` (overridable through `airflow_local_settings.py`). The Airflow 3 UI defines them in its theme, as Chakra UI semantic tokens over Tailwind CSS colour palettes with separate light and dark shades. DCM maps each state to a token with a theme-tuned shade, an icon and a text label (`NFR-A11Y-02`).
+Task instance and DAG run states MUST use Airflow's familiar state colour semantics so that users moving between the Airflow UI and DCAM read states instantly. Airflow 2 defines default state colours in `airflow.settings.STATE_COLORS` (overridable through `airflow_local_settings.py`). The Airflow 3 UI defines them in its theme, as Chakra UI semantic tokens over Tailwind CSS colour palettes with separate light and dark shades. DCAM maps each state to a token with a theme-tuned shade, an icon and a text label (`NFR-A11Y-02`).
 
-| State | Airflow 2 colour name (`STATE_COLORS`, 2.10.5) | Airflow 3 UI palette (theme, 3.3.2) | DCM token | Icon (Material Symbols) |
+| State | Airflow 2 colour name (`STATE_COLORS`, 2.10.5) | Airflow 3 UI palette (theme, 3.3.2) | DCAM token | Icon (Material Symbols) |
 |---|---|---|---|---|
 | `success` | green | green | `state.success` | `check_circle` |
 | `running` | lime | cyan | `state.running` | `play_circle` |
@@ -2503,11 +2503,11 @@ Task instance and DAG run states MUST use Airflow's familiar state colour semant
 | `restarting` | violet | violet | `state.restarting` | `restart_alt` |
 | no status | lightblue | gray | `state.none` | `radio_button_unchecked` |
 
-Airflow 2's list also maps `shutdown` to blue; that state is no longer used and is kept only for compatibility, so DCM shows it like `restarting`. `awaiting_input` is the state of human-in-the-loop tasks waiting for a response. The `workspace.stateColours` setting ([§17.2](#172-annotated-example)) selects the hues: `auto` (the default) uses the Airflow 2 hues when every configured environment runs Airflow 2 and the Airflow 3 hues otherwise, so colours never change from page to page; `airflow2` and `airflow3` force one set. DCM tokens keep each hue and adjust lightness for contrast in both themes. If the monitored environment customises state colours, DCM MAY read them from the Airflow UI configuration where exposed; otherwise it uses the defaults above.
+Airflow 2's list also maps `shutdown` to blue; that state is no longer used and is kept only for compatibility, so DCAM shows it like `restarting`. `awaiting_input` is the state of human-in-the-loop tasks waiting for a response. The `workspace.stateColours` setting ([§17.2](#172-annotated-example)) selects the hues: `auto` (the default) uses the Airflow 2 hues when every configured environment runs Airflow 2 and the Airflow 3 hues otherwise, so colours never change from page to page; `airflow2` and `airflow3` force one set. DCAM tokens keep each hue and adjust lightness for contrast in both themes. If the monitored environment customises state colours, DCAM MAY read them from the Airflow UI configuration where exposed; otherwise it uses the defaults above.
 
 ### 12.7 Typography, iconography and density
 
-- **Typeface.** Roboto Flex for UI text and Roboto Mono for code, IDs and tabular numbers (both SIL Open Font License). Google Sans, Google Sans Flex and Google Sans Code, the typefaces of the Google Cloud console, are also published on Google Fonts under the SIL Open Font License, so ADR-0009 MAY adopt them. Roboto stays the default because it looks familiar without suggesting that DCM is a Google product.
+- **Typeface.** Roboto Flex for UI text and Roboto Mono for code, IDs and tabular numbers (both SIL Open Font License). Google Sans, Google Sans Flex and Google Sans Code, the typefaces of the Google Cloud console, are also published on Google Fonts under the SIL Open Font License, so ADR-0009 MAY adopt them. Roboto stays the default because it looks familiar without suggesting that DCAM is a Google product.
 - **Numbers.** Use tabular figures (`font-variant-numeric: tabular-nums`) in tables and KPIs; right-align numbers; humanise durations (`1h 12m`) with exact values on hover.
 - **Icons.** Material Symbols (Outlined, weight 400), consistent with Google products.
 - **Density.** Compact tables by default (row height 32 px); comfortable mode available; KPI tiles show value, unit, delta versus comparison period and a sparkline.
@@ -2658,10 +2658,10 @@ Rule schema rules: every rule MUST declare inputs, thresholds with units, a mess
 
 | Dimension | Definition | Scale |
 |---|---|---|
-| Impact | Rule-specific measurable consequence, normalised on a log scale: waiting task-minutes per day, late-start minutes, failed task instances, slot-hours wasted, estimated cost per month, or risk class for outage-type rules | 1 (minor) �C 5 (severe) |
-| Confidence | `coverage × sample_factor × agreement`: share of the window with data; saturation function of sample size; agreement of independent signals (for example metric and Airflow API both show queueing) | 0.0 �C 1.0 |
-| Effort | Expected effort to apply the remediation: 1 configuration override, 2 sizing change, 3 single-DAG code change, 5 multi-DAG refactor | 1 �C 5 |
-| Tier weight | Configured per tier (defaults: production 1.0, test 0.6, development 0.3) | 0.0 �C 1.0 |
+| Impact | Rule-specific measurable consequence, normalised on a log scale: waiting task-minutes per day, late-start minutes, failed task instances, slot-hours wasted, estimated cost per month, or risk class for outage-type rules | 1 (minor) – 5 (severe) |
+| Confidence | `coverage × sample_factor × agreement`: share of the window with data; saturation function of sample size; agreement of independent signals (for example metric and Airflow API both show queueing) | 0.0 – 1.0 |
+| Effort | Expected effort to apply the remediation: 1 configuration override, 2 sizing change, 3 single-DAG code change, 5 multi-DAG refactor | 1 – 5 |
+| Tier weight | Configured per tier (defaults: production 1.0, test 0.6, development 0.3) | 0.0 – 1.0 |
 
 ### 13.4 Prioritisation
 
@@ -2766,7 +2766,7 @@ Default thresholds are starting points, configurable per environment and tier (`
 | REC-CAP-02 | Idle minimum capacity | `min_count` > 1 and slot utilisation p95 < 20 % in ≥ 80 % of hours over 14 days | Lower `min_count` (trade-off: scale-up latency on bursts) | M4 |
 | REC-CAP-03 | Worker memory pressure | Worker memory p95 ≥ 85 % of the limit, or ≥ 1 OOM-kill signal per day | Lower `worker_concurrency`, raise worker memory, or isolate memory-heavy tasks (dedicated pool, or a container-based operator) | M4 |
 | REC-CAP-04 | Worker CPU saturation | Worker CPU p95 ≥ 90 % of the limit for ≥ 30 min while slots are mostly busy | Raise worker CPU, or lower `worker_concurrency` | M4 |
-| REC-CAP-05 | Under-packed workers | Executor slots exhausted (`HM-006`) while worker CPU p95 < 30 % and memory p95 < 40 % (`HM-027`) | Raise `worker_concurrency` for I/O-bound workloads, within the Composer 3 range (1�C24) and the supported ceiling shown by `HM-027` | M4 |
+| REC-CAP-05 | Under-packed workers | Executor slots exhausted (`HM-006`) while worker CPU p95 < 30 % and memory p95 < 40 % (`HM-027`) | Raise `worker_concurrency` for I/O-bound workloads, within the Composer 3 range (1–24) and the supported ceiling shown by `HM-027` | M4 |
 | REC-CAP-06 | Autoscaling lag | Lag from demand to capacity (`HM-012`) p95 ≥ 5 min at recurring peaks | Stagger schedules; raise `min_count` if peaks are frequent; smooth bursts with pools | M4 |
 | REC-CAP-07 | Scale-down disruption | Task failures (killed externally, heartbeat timeouts) within 5 min after worker scale-down events (`HM-018`) | Raise `min_count`; make tasks idempotent with retries; review long-running tasks | M6 |
 | REC-CAP-08 | Scale-out suppressed by high `worker_concurrency` | Workers < `max_count` and the scale target stays at the current worker count, while worker CPU or memory p95 ≥ 85 % with slots mostly occupied and `worker_concurrency` above the supported ceiling (`HM-012`, `HM-027`) | Lower `worker_concurrency` towards the ceiling so that the autoscaler adds workers; for many short tasks, raise `min_count` instead | M4 |
@@ -2804,7 +2804,7 @@ Default thresholds are starting points, configurable per environment and tier (`
 | REC-CODE-01 | Top-level external calls | `Variable.get`, `BaseHook.get_connection`, HTTP, database or cloud SDK calls at module level | Move into tasks or use Jinja templates | M7 |
 | REC-CODE-02 | Heavy top-level imports | Imports of known heavy libraries at module level | Import inside task callables | M7 |
 | REC-CODE-03 | Non-deterministic DAG structure | DAG or task IDs derived from time, randomness or external calls | Generate from static configuration | M7 |
-| REC-CODE-04 | Airflow 3 deprecations | `schedule_interval`, `days_ago`, SubDAGs, SLA arguments (`sla`, `sla_miss_callback`), removed import paths, removed context variables (list maintained with the Airflow upgrade guide) | Apply the documented replacement. Run Ruff's `AIR301` and `AIR302` rules (breaking changes) and `AIR311` and `AIR312` (recommended updates) with Ruff 0.13.1 or later, as the Airflow upgrade guide describes. Replace SLAs with Deadline Alerts (experimental from Airflow 3.1) or DCM timeliness targets (`HM-029`) | M7 |
+| REC-CODE-04 | Airflow 3 deprecations | `schedule_interval`, `days_ago`, SubDAGs, SLA arguments (`sla`, `sla_miss_callback`), removed import paths, removed context variables (list maintained with the Airflow upgrade guide) | Apply the documented replacement. Run Ruff's `AIR301` and `AIR302` rules (breaking changes) and `AIR311` and `AIR312` (recommended updates) with Ruff 0.13.1 or later, as the Airflow upgrade guide describes. Replace SLAs with Deadline Alerts (experimental from Airflow 3.1) or DCAM timeliness targets (`HM-029`) | M7 |
 | REC-CODE-05 | Dynamic `start_date` | `start_date=datetime.now()` or similar | Use a fixed, time zone-aware `start_date` | M7 |
 | REC-CODE-06 | Poke sensors with long timeouts | Sensors in poke mode with `timeout` ≥ 1 h | Reschedule mode or deferrable operators | M7 |
 | REC-CODE-07 | Large XCom patterns | Returning data frames or large objects from tasks | Store data externally; pass references | M7 |
@@ -2839,8 +2839,8 @@ Default thresholds are starting points, configurable per environment and tier (`
 
 | ID | Title | Condition (defaults) | Recommendation | M |
 |---|---|---|---|---|
-| REC-DB-01 | Database growth | Projected size reaches the warning threshold within 30 days. The default threshold is 16 GB, which is 80 % of the 20 GB size above which Composer blocks upgrades and snapshots (`HM-019`) | Composer 3: check the built-in retention policy and lower its retention days (range 30�C730). Composer 2: schedule `airflow db clean` through a maintenance DAG | M2 |
-| REC-DB-02 | Database resource pressure | Database CPU or memory p95 ≥ 80 % for ≥ 1 h | Raise the environment size; reduce API polling (including DCM's own cadence) | M2 |
+| REC-DB-01 | Database growth | Projected size reaches the warning threshold within 30 days. The default threshold is 16 GB, which is 80 % of the 20 GB size above which Composer blocks upgrades and snapshots (`HM-019`) | Composer 3: check the built-in retention policy and lower its retention days (range 30–730). Composer 2: schedule `airflow db clean` through a maintenance DAG | M2 |
+| REC-DB-02 | Database resource pressure | Database CPU or memory p95 ≥ 80 % for ≥ 1 h | Raise the environment size; reduce API polling (including DCAM's own cadence) | M2 |
 | REC-DB-03 | Database connection errors | Connection errors in scheduler or worker logs ≥ 5 per hour | Reduce concurrency spikes; raise environment size | M3 |
 | REC-DB-04 | Retention disabled or not running | Composer 3 built-in retention is disabled, or `database_retention/retention_gap` exceeds the configured retention by ≥ 48 h; Composer 2: no cleanup activity detected | Enable or repair retention; check the retention logs | M2 |
 | REC-DB-05 | Redundant cleanup DAG | Composer 3 with built-in retention enabled, and a DAG that cleans metadata tables (detected from DAG IDs, tags and operators; confirmed by static analysis from M7) | Remove the cleanup DAG; Composer documents it as obsolete on Composer 3 | M5 |
@@ -2920,11 +2920,11 @@ The Config Advisor answers `Q-13` and `Q-14`: what is the effective value of eac
 
 ### 14.1 Effective configuration resolution
 
-DCM computes an effective value and its provenance for each option, using the most authoritative available source:
+DCAM computes an effective value and its provenance for each option, using the most authoritative available source:
 
-| Rank | Source | How DCM reads it | Provenance label |
+| Rank | Source | How DCAM reads it | Provenance label |
 |---|---|---|---|
-| 1 | Observed runtime value | The Airflow `/config` endpoint, only where the environment exposes it and the identity has the `Op` role. DCM does not request `Op` by default, so this rank is rarely available. Composer 3 blocks the CLI configuration commands (`config list`, `config get-value`) | `observed` |
+| 1 | Observed runtime value | The Airflow `/config` endpoint, only where the environment exposes it and the identity has the `Op` role. DCAM does not request `Op` by default, so this rank is rarely available. Composer 3 blocks the CLI configuration commands (`config list`, `config get-value`) | `observed` |
 | 2 | Environment variable `AIRFLOW__{SECTION}__{KEY}` | Composer API environment variables (names; values masked by default) | `env-var` |
 | 3 | Airflow configuration override | Composer API `airflowConfigOverrides` | `override` |
 | 4 | Inferred from observed behaviour | `HM-032` for capacity-related options such as `core.parallelism` and `celery.worker_concurrency`, with a confidence level and evidence | `inferred` |
@@ -2934,7 +2934,7 @@ DCM computes an effective value and its provenance for each option, using the mo
 
 Rules:
 
-- When rank 1 or rank 4 is available and disagrees with ranks 5�C6, DCM shows both values and raises a "provenance mismatch" note. This usually means the knowledge base needs an update.
+- When rank 1 or rank 4 is available and disagrees with ranks 5–6, DCAM shows both values and raises a "provenance mismatch" note. This usually means the knowledge base needs an update.
 - Some Composer defaults are documented only as "calculated automatically", for example `celery.worker_concurrency` on Composer 3. For these, rank 5 records the rule in words, and the numeric value comes from rank 4 when available.
 - Values are typed (integer, float, boolean, duration, enum, string, list) and normalised (for example `"True"` → `true`).
 - Sensitive options (connections, secrets, keys, passwords, tokens, Fernet) are always masked and never stored.
@@ -2970,7 +2970,7 @@ docs:
 lastVerified: null                                         # set by the M1 reality check and later reviews
 ```
 
-Generation: Airflow defaults and descriptions are generated by a script from the official configuration reference of each supported Airflow version (and provider packages, for example Celery). Composer-specific notes are curated by hand with links. Each entry has a `lastVerified` date; entries older than 12 months are flagged on the DCM health page.
+Generation: Airflow defaults and descriptions are generated by a script from the official configuration reference of each supported Airflow version (and provider packages, for example Celery). Composer-specific notes are curated by hand with links. Each entry has a `lastVerified` date; entries older than 12 months are flagged on the DCAM health page.
 
 ### 14.3 Relationship graph (concurrency stack)
 
@@ -3002,11 +3002,11 @@ The interactive version (`FR-CFG-03`) shows live values on each node, the comput
 | Global limit | `core.parallelism × number_of_schedulers` | Parallelism applies per scheduler. Composer's default matches the maximum worker concurrency (⚠️ VERIFY for Airflow 3) |
 | Inferred parallelism | `max over 24 h of (executor open_slots + running_tasks + queued_tasks)` | `HM-032`; per executor that reports the metric; provenance `inferred` |
 | Effective concurrency | `min(global limit, executor slots, Σ open pool slots, per-DAG limits…)` evaluated per scope | Computed per minute by the occupancy sweep ([§11.8](#118-analytics-pipeline-and-incremental-computation)) |
-| Composer default `worker_concurrency` | `auto`: calculated by Composer; the formula is not published | DCM shows the supported ceiling `min(24, 12 × worker_vCPU, 8 × worker_memory_GB)` from the sizing guidance (⚠️ VERIFY), and the actual value inferred by `HM-032`; both are labelled |
+| Composer default `worker_concurrency` | `auto`: calculated by Composer; the formula is not published | DCAM shows the supported ceiling `min(24, 12 × worker_vCPU, 8 × worker_memory_GB)` from the sizing guidance (⚠️ VERIFY), and the actual value inferred by `HM-032`; both are labelled |
 | Stale risk ratio | `parse_loop_p95 ÷ stale_threshold` | Alert band at ≥ 0.8 |
 | Parse guidance ratio | `parse_loop_p95 ÷ 300 s` | Google's guidance is a total parse time under 5 minutes (`REC-PARSE-08`) |
 | Slot utilisation | `running_slots ÷ executor_slots` | Per minute; used by CAP rules |
-| Database runway | `(threshold − size_now) ÷ growth_rate` | Days until the threshold. Theil�CSen slope over 30 days. The default threshold is 16 GB, which is 80 % of the 20 GB size above which Composer blocks upgrades and snapshots (`HM-019`) |
+| Database runway | `(threshold − size_now) ÷ growth_rate` | Days until the threshold. Theil–Sen slope over 30 days. The default threshold is 16 GB, which is 80 % of the 20 GB size above which Composer blocks upgrades and snapshots (`HM-019`) |
 
 ### 14.5 Option explanation content (the (i) for options)
 
@@ -3034,11 +3034,11 @@ Each difference is classified as **expected**, **suspicious** or **critical**, a
 
 ### 14.7 Verification of configuration changes
 
-When a change event touches an option or workload related to an open finding, or when the user starts it manually, DCM creates a verification:
+When a change event touches an option or workload related to an open finding, or when the user starts it manually, DCAM creates a verification:
 
 1. **Windows.** Before and after windows of equal length (default 7 days each, minimum 24 hours), aligned by hour of day and day of week to control for seasonality, excluding maintenance windows and the change's rollout period.
 2. **Metrics.** The rule's `verify.signal` plus guard metrics (failure rate, worker memory p95, database CPU) to catch regressions elsewhere.
-3. **Test.** Mann�CWhitney U test for distributions (for example queue wait) and bootstrap confidence intervals for percentile differences; significance level 0.05 by default.
+3. **Test.** Mann–Whitney U test for distributions (for example queue wait) and bootstrap confidence intervals for percentile differences; significance level 0.05 by default.
 4. **Confounders.** Other change events in either window lower the confidence and are listed.
 5. **Outcome.** `improved`, `regressed`, `no change` or `inconclusive`, with effect size, confidence and charts. The finding moves to `verified` only if improved and no guard metric regressed.
 
@@ -3052,7 +3052,7 @@ The wiki teaches Composer and Airflow *with the user's own live data* (`G-8`, `J
 
 | Section | Pages (seed) | Live bindings |
 |---|---|---|
-| Start here | What Composer is; what Airflow is; Composer 3 versus Composer 2; how DCM observes an environment; reading DCM's freshness and estimates | Selected environment's versions and collectors |
+| Start here | What Composer is; what Airflow is; Composer 3 versus Composer 2; how DCAM observes an environment; reading DCAM's freshness and estimates | Selected environment's versions and collectors |
 | Architecture | Composer 3 architecture (interactive); Composer 2 architecture (interactive); components (scheduler, DAG processor, triggerer, workers, web server, metadata database, Celery broker, environment bucket); networking and access; identities and IAM | Component health, sizes, key metrics |
 | Flows | DAG file lifecycle; scheduling loop; task instance lifecycle; Celery execution; deferral; autoscaling; logging pipeline; metrics pipeline; configuration override rollout; upgrades | Current counts per state, current loop durations |
 | Concepts | Concurrency stack; pools and priority; timetables and data intervals; catchup and backfill; sensors and deferrable operators; dynamic task mapping; XCom; assets (datasets); deadlines and SLAs | Environment's actual limits and pools |
@@ -3060,7 +3060,7 @@ The wiki teaches Composer and Airflow *with the user's own live data* (`G-8`, `J
 | Best practices | One page per rule category ([§13.6](#136-seed-rule-catalog)), cross-linked with rules | Open findings for the selected environment |
 | Runbooks | [§15.5](#155-runbook-catalog) | Pre-evaluated checks |
 | Glossary | All terms ([§6.2](#62-glossary-core-terms) seed) | ― |
-| How DCM computes things | One page per hidden metric ([§8](#8-hidden-metrics-and-derived-signals-catalog)) and per data source ([§7](#7-data-sources-and-agentless-collection)); budgets; privacy | DCM health and budgets |
+| How DCAM computes things | One page per hidden metric ([§8](#8-hidden-metrics-and-derived-signals-catalog)) and per data source ([§7](#7-data-sources-and-agentless-collection)); budgets; privacy | DCAM health and budgets |
 
 ### 15.2 Interactive architecture diagrams
 
@@ -3091,7 +3091,7 @@ flowchart LR
     end
     sql[("Airflow metadata database")]
   end
-  usr(["Users, CI/CD, DCM"]) --> ws & api
+  usr(["Users, CI/CD, DCAM"]) --> ws & api
   bkt -->|"DAG sync"| dp & wk
   sch -->|"queue"| rd --> wk
   sch -->|"pods"| kw
@@ -3164,7 +3164,7 @@ Runbook checks reuse signal definitions; they are evaluated for the scope and ti
 | RB-07 | Metadata database pressure or growth | Size and growth, CPU and memory, connection errors, retention status | REC-DB-01 to REC-DB-05 |
 | RB-08 | Deferred tasks not resuming or triggerer overloaded | Triggerer count and capacity, blocked event loop signals, deferred counts | REC-TRG-01 to REC-TRG-03 |
 | RB-09 | Environment update or upgrade failed | Recent Composer operations and errors, PyPI conflicts, image support status, known issues for the build | REC-UPG-01, REC-UPG-03 |
-| RB-10 | DCM cannot reach the Airflow API | IAM permission, Airflow role, web server access control, proxy, VPC Service Controls | ― (doctor checks) |
+| RB-10 | DCAM cannot reach the Airflow API | IAM permission, Airflow role, web server access control, proxy, VPC Service Controls | ― (doctor checks) |
 | RB-11 | Failure spike after a change | Failure rate versus baseline, change events in lookback, new error signatures | REC-REL-03, REC-REL-04 |
 | RB-12 | Missing or partial logs | Log exclusions, logging quota errors, task log availability | REC-LOG-02 |
 | RB-13 | Unexpected cost increase | Workload sizes and counts over time, worker hours, log volume, top DAGs by slot-time | REC-COST-01, REC-COST-02, REC-LOG-01 |
@@ -3188,7 +3188,7 @@ Runbook checks reuse signal definitions; they are evaluated for the scope and ti
 
 ## 16. Alerting
 
-DCM alerts locally while it runs, and exports durable policies to Cloud Monitoring for 24/7 coverage (`NG-1`).
+DCAM alerts locally while it runs, and exports durable policies to Cloud Monitoring for 24/7 coverage (`NG-1`).
 
 ### 16.1 Alert rule model
 
@@ -3219,14 +3219,14 @@ export:
 
 - **States:** `inactive` → `pending` (condition true, `for` not yet elapsed) → `firing` → `resolved` (condition false for `clearFor`).
 - **Cadence:** each rule is evaluated on its signal's live cadence; at most once per 10 seconds.
-- **Staleness guard:** if the rule's source is stale beyond 3 × its cadence, the alert moves to `unknown` and notifies only if `notifyOnUnknown` is set. DCM never alerts on data it does not have.
+- **Staleness guard:** if the rule's source is stale beyond 3 × its cadence, the alert moves to `unknown` and notifies only if `notifyOnUnknown` is set. DCAM never alerts on data it does not have.
 - **Anomaly conditions:** robust seasonal baselines (median and median absolute deviation per hour of week) with a minimum history; anomalies are labelled as such.
 - **Finding conditions:** an alert can fire when a finding of a given rule and severity opens.
 
 ### 16.3 Notifiers and routing
 
 - Routes match labels (`tier`, `team`, `severity`, `component`) and select receivers; the first matching route wins unless `continue: true`.
-- Messages are rendered from templates with the alert context, including deep links to DCM (local) and to the Cloud console (shareable).
+- Messages are rendered from templates with the alert context, including deep links to DCAM (local) and to the Cloud console (shareable).
 - Grouping, deduplication, re-notification intervals and rate limits follow `FR-ALRT-04`.
 - Notifier secrets come from environment variables or the OS keychain (`FR-ALRT-03`, `NFR-SEC-03`).
 
@@ -3245,16 +3245,16 @@ export:
 | AL-09 | Failure spike | Failed task instances ≥ 3 × the same-hour baseline over 1 h | warning / info | RB-11 | Partial |
 | AL-10 | Database CPU or memory high | Database CPU ≥ 90 % for 15 min, or CPU or memory ≥ 80 % over 12 h | warning / info | RB-07 | Yes |
 | AL-11 | Database size runway | Projected to reach the threshold within 14 days | warning / info | RB-07 | No (forecast) |
-| AL-12 | Airflow API unreachable from DCM | Health checks fail for 5 min | warning / warning | RB-10 | No (DCM-local) |
+| AL-12 | Airflow API unreachable from DCAM | Health checks fail for 5 min | warning / warning | RB-10 | No (DCAM-local) |
 | AL-13 | Triggerer saturated | ≥ 90 % of capacity for 15 min | warning / info | RB-08 | Partial |
 | AL-14 | Timeliness target missed | A DAG run misses its configured target (opt-in per DAG) | warning / info | RB-06 | No |
 | AL-15 | Pool starvation | A pool has no open slots with queued work for 30 min | warning / info | RB-01 | No |
 | AL-16 | Environment operation failed | A Composer update or upgrade operation ended in error | warning / warning | RB-09 | Yes (via audit or operation logs) |
-| AL-17 | DCM collection stale | A collector has had no successful cycle for 10 min | info / info | RB-10 | No (DCM-local) |
+| AL-17 | DCAM collection stale | A collector has had no successful cycle for 10 min | info / info | RB-10 | No (DCAM-local) |
 | AL-18 | Database unhealthy | `database_health` healthy < 95 % of the time over 4 h | critical / warning | RB-07 | Yes |
 | AL-19 | Worker restarts | > 1 worker container restart in 24 h, excluding scale-down and maintenance | warning / info | RB-04 | Yes |
 
-Several defaults (AL-01, AL-02, AL-08, AL-10, AL-18 and AL-19) follow the alert thresholds Google suggests for Composer key metrics; DCM adds faster symptom-based variants for paging.
+Several defaults (AL-01, AL-02, AL-08, AL-10, AL-18 and AL-19) follow the alert thresholds Google suggests for Composer key metrics; DCAM adds faster symptom-based variants for paging.
 
 ### 16.5 Silences and maintenance windows
 
@@ -3264,12 +3264,12 @@ Several defaults (AL-01, AL-02, AL-08, AL-10, AL-18 and AL-19) follow the alert 
 
 ### 16.6 Export to Cloud Monitoring
 
-For rules expressible on Cloud Monitoring metrics (including log-based metrics), DCM generates alert policy JSON for the Cloud Monitoring API and Terraform `google_monitoring_alert_policy` resources (`FR-ALRT-07`). Export is preview and copy only. Example for AL-02. `scheduler_heartbeat_count` is a DELTA INT64 counter, so a 60 s `ALIGN_SUM` suits an absence condition:
+For rules expressible on Cloud Monitoring metrics (including log-based metrics), DCAM generates alert policy JSON for the Cloud Monitoring API and Terraform `google_monitoring_alert_policy` resources (`FR-ALRT-07`). Export is preview and copy only. Example for AL-02. `scheduler_heartbeat_count` is a DELTA INT64 counter, so a 60 s `ALIGN_SUM` suits an absence condition:
 
 ```hcl
-resource "google_monitoring_alert_policy" "dcm_al_02_acme_prod" {
+resource "google_monitoring_alert_policy" "dcam_al_02_acme_prod" {
   project      = "acme-data-prod"
-  display_name = "[DCM AL-02] acme-prod: scheduler heartbeat missing"
+  display_name = "[DCAM AL-02] acme-prod: scheduler heartbeat missing"
   combiner     = "OR"
 
   conditions {
@@ -3289,18 +3289,18 @@ resource "google_monitoring_alert_policy" "dcm_al_02_acme_prod" {
   }
 
   documentation {
-    content   = "Scheduler heartbeat missing. Runbook: RB-03 (DCM wiki)."
+    content   = "Scheduler heartbeat missing. Runbook: RB-03 (DCAM wiki)."
     mime_type = "text/markdown"
   }
 
   notification_channels = [var.oncall_notification_channel]
-  user_labels           = { managed_by = "dcm-export", dcm_rule = "al-02" }
+  user_labels           = { managed_by = "dcam-export", dcam_rule = "al-02" }
 }
 ```
 
 Export rules:
 
-- Alerts that depend on Airflow API data or DCM-derived signals are marked "not exportable" with the closest exportable alternative (for example a log-based metric for heartbeat-timeout messages, with the generated log filter from [Appendix C](#appendix-c-cloud-logging-query-library)).
+- Alerts that depend on Airflow API data or DCAM-derived signals are marked "not exportable" with the closest exportable alternative (for example a log-based metric for heartbeat-timeout messages, with the generated log filter from [Appendix C](#appendix-c-cloud-logging-query-library)).
 - Exports include `user_labels` for traceability and never include notification channel IDs other than as variables.
 - A PromQL-based condition MAY be generated as an alternative where Cloud Monitoring supports it for the metric.
 
@@ -3316,19 +3316,19 @@ Export rules:
 
 ### 17.1 Files and precedence
 
-- Workspace file: `dcm.config.yaml` in the working directory, or the path from `--config` or `DCM_CONFIG`. A JSON Schema is published with each release and referenced from the file for editor completion.
+- Workspace file: `dcam.config.yaml` in the working directory, or the path from `--config` or `DCAM_CONFIG`. A JSON Schema is published with each release and referenced from the file for editor completion.
 - Precedence: built-in defaults < configuration file < environment variables < command-line flags.
 - The file contains no secrets and is safe to commit (`FR-SETUP-07`). Secret values are referenced by environment variable name or keychain entry.
 
 ### 17.2 Annotated example
 
 ```yaml
-# yaml-language-server: $schema=./node_modules/@dcm/contracts/schemas/dcm.config.schema.json
+# yaml-language-server: $schema=./node_modules/@dcam/contracts/schemas/dcam.config.schema.json
 version: 1
 
 workspace:
   name: acme-data-platform
-  dataDir: ~/.dcm/data            # DuckDB file, Parquet cold tier, caches
+  dataDir: ~/.dcam/data            # DuckDB file, Parquet cold tier, caches
   displayTimezone: browser        # browser | environment | IANA name
   stateColours: auto              # auto | airflow2 | airflow3 (§12.6)
 
@@ -3359,7 +3359,7 @@ environments:
     displayName: Production
     color: "#F28B82"
     team: data-platform
-    impersonateServiceAccount: dcm-reader@acme-data-prod.iam.gserviceaccount.com
+    impersonateServiceAccount: dcam-reader@acme-data-prod.iam.gserviceaccount.com
     collectors:
       airflowCli: { enabled: false, intervalMinutes: 60 }     # opt-in (FR-COLL-12)
       bucket: { enabled: true, includePlugins: false, maxFileSizeKb: 512 }
@@ -3430,10 +3430,10 @@ alerting:
   notifiers:
     - id: oncall-webhook
       type: webhook
-      urlFromEnv: DCM_ONCALL_WEBHOOK_URL
+      urlFromEnv: DCAM_ONCALL_WEBHOOK_URL
     - id: team-chat
       type: google-chat
-      urlFromKeychain: dcm/team-chat-webhook
+      urlFromKeychain: dcam/team-chat-webhook
   routes:
     - match: { tier: prod, severity: [critical, warning] }
       notify: [inbox, desktop, oncall-webhook]
@@ -3456,12 +3456,12 @@ features:
 
 | Variable | Purpose |
 |---|---|
-| `DCM_CONFIG` | Path to the workspace configuration file |
-| `DCM_DATA_DIR` | Overrides `workspace.dataDir` |
-| `DCM_HOST`, `DCM_PORT` | Override `server.host` and `server.port` |
-| `DCM_LOG_LEVEL` | `trace`, `debug`, `info` (default), `warn`, `error` |
-| `DCM_ACCESS_TOKEN` | Required access token when binding to a non-loopback interface |
-| `DCM_DEMO` | `1` starts in demo mode |
+| `DCAM_CONFIG` | Path to the workspace configuration file |
+| `DCAM_DATA_DIR` | Overrides `workspace.dataDir` |
+| `DCAM_HOST`, `DCAM_PORT` | Override `server.host` and `server.port` |
+| `DCAM_LOG_LEVEL` | `trace`, `debug`, `info` (default), `warn`, `error` |
+| `DCAM_ACCESS_TOKEN` | Required access token when binding to a non-loopback interface |
+| `DCAM_DEMO` | `1` starts in demo mode |
 | `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | Proxy configuration |
 | `NODE_EXTRA_CA_CERTS` | Additional CA certificates |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Standard ADC override (for example a mounted credential in Docker) |
@@ -3471,27 +3471,27 @@ features:
 
 | Command | Purpose |
 |---|---|
-| `dcm start [--config <file>] [--port <n>] [--no-open] [--demo] [--allow-remote]` | Start the server and UI |
-| `dcm doctor [--env <id>] [--json]` | Run preflight checks (`FR-AUTH-05`) |
-| `dcm discover --project <id>… [--location <loc>…]` | List Composer environments and print configuration stubs |
-| `dcm config init`, `dcm config validate`, `dcm config print-effective` | Manage configuration |
-| `dcm export --env <id> --from <t> --to <t> [--format parquet]` | Export a bundle |
-| `dcm import <bundle>` | Import a bundle as a read-only snapshot |
-| `dcm mcp [--stdio] [--demo-only]` | Run the MCP stdio bridge to a running instance. With `--demo-only`, the bridge refuses to connect unless the instance runs in demo mode; repository-level MCP configuration always uses it, so a coding assistant can never read real monitoring data |
-| `dcm rules test [--rule <id>]`, `dcm metrics test [--metric <id>]` | Run golden tests for content packs |
-| `dcm kb verify` | Check knowledge base entries against the configured Airflow versions |
-| `dcm version` | Print versions and build provenance |
+| `dcam start [--config <file>] [--port <n>] [--no-open] [--demo] [--allow-remote]` | Start the server and UI |
+| `dcam doctor [--env <id>] [--json]` | Run preflight checks (`FR-AUTH-05`) |
+| `dcam discover --project <id>… [--location <loc>…]` | List Composer environments and print configuration stubs |
+| `dcam config init`, `dcam config validate`, `dcam config print-effective` | Manage configuration |
+| `dcam export --env <id> --from <t> --to <t> [--format parquet]` | Export a bundle |
+| `dcam import <bundle>` | Import a bundle as a read-only snapshot |
+| `dcam mcp [--stdio] [--demo-only]` | Run the MCP stdio bridge to a running instance. With `--demo-only`, the bridge refuses to connect unless the instance runs in demo mode; repository-level MCP configuration always uses it, so a coding assistant can never read real monitoring data |
+| `dcam rules test [--rule <id>]`, `dcam metrics test [--metric <id>]` | Run golden tests for content packs |
+| `dcam kb verify` | Check knowledge base entries against the configured Airflow versions |
+| `dcam version` | Print versions and build provenance |
 
 ### 17.5 Data directory layout
 
 ```text
-~/.dcm/data/
-├── dcm.duckdb            # hot store
-├── dcm.duckdb.wal
+~/.dcam/data/
+├── dcam.duckdb            # hot store
+├── dcam.duckdb.wal
 ├── cold/                 # Parquet partitions (env_id=…/date=…)
 ├── cache/bucket/<env>/   # DAG source cache for static analysis (never exported by default)
 ├── backups/              # pre-migration backups (last 3 kept)
-└── logs/                 # DCM's own JSON logs (rotated)
+└── logs/                 # DCAM's own JSON logs (rotated)
 ```
 
 The directory is created with owner-only permissions (`0700`).
@@ -3504,21 +3504,21 @@ The directory is created with owner-only permissions (`0700`).
 
 | Threat (STRIDE) | Scenario | Mitigation |
 |---|---|---|
-| Spoofing | A malicious web page calls DCM's localhost API (CSRF, DNS rebinding) | Host header allowlist, Origin checks, session token exchanged for a `SameSite=Strict` cookie, CSRF tokens, no CORS ([§18.5](#185-local-web-application-security)) |
+| Spoofing | A malicious web page calls DCAM's localhost API (CSRF, DNS rebinding) | Host header allowlist, Origin checks, session token exchanged for a `SameSite=Strict` cookie, CSRF tokens, no CORS ([§18.5](#185-local-web-application-security)) |
 | Spoofing | A local process impersonates an MCP client | MCP HTTP endpoint requires a bearer token and validates `Origin`; stdio bridge authenticates with a local token file readable only by the user |
 | Tampering | A malicious plugin or content pack | Explicit enablement, integrity hashes, declarative-first plugins, code plugins labelled as trusted code (`FR-EXT-03`, `FR-EXT-04`) |
 | Repudiation | Unclear who exported or sent data | Local audit log of exports, prompt sends, LLM calls and MCP calls |
 | Information disclosure | Secrets or personal data in logs, DAG code or configuration leave the machine | Redaction at ingest and egress; masked sensitive options; DAG source cache excluded from exports by default; no telemetry |
-| Information disclosure | Another OS user reads DCM data | Owner-only data directory; no credentials stored |
-| Denial of service | DCM overloads a production environment | Observer budgets, circuit breakers, priority scheduling ([§7.11](#711-observer-budget-do-no-harm)) |
-| Denial of service | Huge API responses or logs exhaust DCM memory | Streaming parsers, response size limits, pagination caps |
-| Elevation of privilege | DCM runs with a user identity that can modify environments | Read-only guarantee ([§18.2](#182-read-only-guarantee)); doctor recommends a read-only identity |
+| Information disclosure | Another OS user reads DCAM data | Owner-only data directory; no credentials stored |
+| Denial of service | DCAM overloads a production environment | Observer budgets, circuit breakers, priority scheduling ([§7.11](#711-observer-budget-do-no-harm)) |
+| Denial of service | Huge API responses or logs exhaust DCAM memory | Streaming parsers, response size limits, pagination caps |
+| Elevation of privilege | DCAM runs with a user identity that can modify environments | Read-only guarantee ([§18.2](#182-read-only-guarantee)); doctor recommends a read-only identity |
 | Prompt injection | Log lines or DAG code instruct an AI assistant to take actions | MCP tools are read-only; untrusted content is delimited and labelled; the LLM explainer cannot call tools that change anything |
 | Supply chain | Compromised dependency or release | Lockfile, provenance, signatures, dependency review, OpenSSF Scorecard ([§18.8](#188-supply-chain-security)) |
 
 ### 18.2 Read-only guarantee
 
-DCM MUST be incapable of changing a monitored system, even when the user's identity has write permissions (`P-1`).
+DCAM MUST be incapable of changing a monitored system, even when the user's identity has write permissions (`P-1`).
 
 1. **Single choke point.** All calls to Google Cloud and Airflow go through the guarded HTTP client ([§11.4](#114-hexagonal-components-and-dependency-rules), rule 7).
 2. **Default-deny allowlist.** The client permits only declared (host pattern, method, path template, optional body validator) entries. Some read operations use `POST` (for example Cloud Logging `entries:list`); they are allowed explicitly with body validation. Airflow reads are `GET` only. Everything else is rejected before any network I/O and logged as a security event.
@@ -3546,17 +3546,17 @@ DCM MUST be incapable of changing a monitored system, even when the user's ident
   - an Airflow role in the environment.
 
   The web server's IP access rules also apply ([§18.9](#189-enterprise-network-and-policy-constraints)).
-- **Airflow role: `Viewer` is sufficient.** It reads DAGs, DAG runs, task instances, task logs, pools, import errors, jobs and, on Airflow 2, SLA misses. DCM does not need configuration, connections, variables, plugins or providers, which require `Op`. No custom role is needed.
+- **Airflow role: `Viewer` is sufficient.** It reads DAGs, DAG runs, task instances, task logs, pools, import errors, jobs and, on Airflow 2, SLA misses. DCAM does not need configuration, connections, variables, plugins or providers, which require `Op`. No custom role is needed.
 - **Registration default.** Composer registers an identity as an Airflow user on first access, with the role from `[api] composer_auth_user_registration_role` (API) or `[webserver] rbac_user_registration_role` (UI). The default is **`Op`**, which can trigger, clear and pause DAGs.
-  - Administrators SHOULD register the DCM identity (user or service account) as `Viewer` before its first access, or lower the registration default.
-  - DCM's guarded client prevents writes in any case ([§18.2](#182-read-only-guarantee)), but least privilege still applies.
+  - Administrators SHOULD register the DCAM identity (user or service account) as `Viewer` before its first access, or lower the registration default.
+  - DCAM's guarded client prevents writes in any case ([§18.2](#182-read-only-guarantee)), but least privilege still applies.
 - **Privilege probe.** The doctor calls `GET /providers?limit=1`. This is harmless metadata that `Viewer` cannot read. If the call succeeds, the identity has `Op` or higher, and the doctor warns and shows how to assign `Viewer` (⚠️ VERIFY per Airflow version).
 
 ### 18.4 Least-privilege IAM
 
 | Need | Predefined role (simplest) | Notes |
 |---|---|---|
-| Read environments, workloads, operations and image versions; access the Airflow web server and API | `roles/composer.viewer` | Includes `composer.environments.get`. Combine with the Airflow `Viewer` role ([§18.3](#183-authentication-and-identity)). `roles/composer.user` also works but adds permissions DCM does not need |
+| Read environments, workloads, operations and image versions; access the Airflow web server and API | `roles/composer.viewer` | Includes `composer.environments.get`. Combine with the Airflow `Viewer` role ([§18.3](#183-authentication-and-identity)). `roles/composer.user` also works but adds permissions DCAM does not need |
 | Read the environment bucket (DAG inventory and source) | `roles/storage.objectViewer`, granted on the environment bucket only | Needed for `HM-014` and `SCAN`. Avoid `roles/composer.environmentAndStorageObjectViewer`, which grants object read on every bucket in the project |
 | Read metrics | `roles/monitoring.viewer` | |
 | Read logs | `roles/logging.viewer` | Private logs (Data Access audit logs) are not needed |
@@ -3571,8 +3571,8 @@ A ready-made custom role definition with the minimal permission list is provided
 
 ### 18.5 Local web application security
 
-- Bind to `127.0.0.1` by default (`NFR-SEC-01`). Binding elsewhere requires `--allow-remote` and `DCM_ACCESS_TOKEN`.
-- On start, DCM prints a URL with a one-time session token; the browser exchanges it for an `HttpOnly`, `SameSite=Strict` session cookie.
+- Bind to `127.0.0.1` by default (`NFR-SEC-01`). Binding elsewhere requires `--allow-remote` and `DCAM_ACCESS_TOKEN`.
+- On start, DCAM prints a URL with a one-time session token; the browser exchanges it for an `HttpOnly`, `SameSite=Strict` session cookie.
 - Validate the `Host` header against `localhost:<port>` and `127.0.0.1:<port>` (DNS rebinding protection) and the `Origin` header on every state-changing request.
 - CSRF tokens on state-changing requests; no CORS headers.
 - Content Security Policy: `default-src 'self'`, scripts from self only, style nonces for the CSS-in-JS runtime, `frame-ancestors 'none'`, `object-src 'none'`.
@@ -3610,14 +3610,14 @@ The redaction pipeline detects common credential formats (Google API keys, OAuth
 
 ### 18.9 Enterprise network and policy constraints
 
-- **VPC Service Controls.** A laptop outside a service perimeter may be denied access to Monitoring, Logging, Storage or Composer APIs. DCM classifies these errors (`FR-AUTH-06`) and the documentation explains options: access levels for corporate networks or devices, or running DCM on a machine inside the perimeter.
+- **VPC Service Controls.** A laptop outside a service perimeter may be denied access to Monitoring, Logging, Storage or Composer APIs. DCAM classifies these errors (`FR-AUTH-06`) and the documentation explains options: access levels for corporate networks or devices, or running DCAM on a machine inside the perimeter.
 - **Airflow web server access control.** Composer can restrict web server access to IP ranges. The restriction also applies to the Airflow REST API, so the egress IP of the laptop or corporate proxy must be allowed. The doctor detects blocked access and explains the setting (⚠️ VERIFY the error signature, and behaviour for private environments).
-- **Organization policies** may restrict service account impersonation or key usage; DCM never requires service account keys.
+- **Organization policies** may restrict service account impersonation or key usage; DCAM never requires service account keys.
 - **Proxies and TLS inspection.** Supported through proxy variables and custom CA bundles (`FR-AUTH-07`).
 
 ### 18.10 Privacy and compliance notes
 
-- DCM is a local tool; the organisation running it remains the data controller for any personal data in logs or metadata. Documentation includes a data inventory ([§18.6](#186-data-handling-and-redaction)) to support privacy assessments.
+- DCAM is a local tool; the organisation running it remains the data controller for any personal data in logs or metadata. Documentation includes a data inventory ([§18.6](#186-data-handling-and-redaction)) to support privacy assessments.
 - Data minimisation: no full log storage, bounded samples, configurable retention, redaction by default.
 - Licence compliance: third-party notices are generated at build time; fonts and icons use open licences.
 
@@ -3637,7 +3637,7 @@ The redaction pipeline detects common credential formats (Google API keys, OAuth
 
 ## 19. Testing, validation and quality strategy
 
-Testing is how DCM keeps its promises: read-only behaviour, bounded load, correct analytics and an honest UI. Principle P-12 applies everywhere. No production code is written without a failing test linked to a requirement ID, and no requirement is complete without its tests.
+Testing is how DCAM keeps its promises: read-only behaviour, bounded load, correct analytics and an honest UI. Principle P-12 applies everywhere. No production code is written without a failing test linked to a requirement ID, and no requirement is complete without its tests.
 
 ### 19.1 Test pyramid and tooling
 
@@ -3645,8 +3645,8 @@ Testing is how DCM keeps its promises: read-only behaviour, bounded load, correc
 |---|---|---|---|---|
 | Unit | Domain formulas, statistics, classifiers, parsers, redaction, budget arithmetic | Vitest, fast-check (property-based) | Watch mode, pre-commit (changed packages), every PR | Most of the suite; ≥ 90 % lines in `domain`, `analytics`, `rules-pack` (`NFR-MAINT-02`) |
 | Golden analytics | Each `HM-*` signal and `REC-*` rule on frozen datasets | Vitest + DuckDB + golden files with per-column tolerances | Every PR | 100 % of signals and rules |
-| Contract (adapters) | Each adapter against recorded responses from Google APIs and Airflow API v1 and v2 | Vitest + recorded fixtures + Zod schemas | Every PR | Every endpoint and field DCM reads |
-| Contract (DCM API) | DCM's own OpenAPI document | Schemathesis (Docker), response validation in development, `oasdiff` breaking-change check | Every PR (diff), nightly (fuzzing) | 100 % of operations |
+| Contract (adapters) | Each adapter against recorded responses from Google APIs and Airflow API v1 and v2 | Vitest + recorded fixtures + Zod schemas | Every PR | Every endpoint and field DCAM reads |
+| Contract (DCAM API) | DCAM's own OpenAPI document | Schemathesis (Docker), response validation in development, `oasdiff` breaking-change check | Every PR (diff), nightly (fuzzing) | 100 % of operations |
 | Component | React components, states, (i) registry entries, chart table alternatives | Vitest + Testing Library + MSW + axe-core | Every PR | Every panel and every state (empty, loading, partial, error, ready) |
 | Integration | Server + store + fakes, use-case level | Vitest, Fastify `inject`, fake clocks | Every PR | Every use case |
 | End-to-end | Full application against demo data and the emulator | Playwright + `@axe-core/playwright` | PR smoke; full suite in the merge queue and nightly | Every journey and every top question `Q-01`…`Q-20` |
@@ -3713,7 +3713,7 @@ CI fails when a Must requirement of a milestone marked done has no passing test.
 
 ### 19.4 Contract tests and recorded fixtures
 
-- **Recording.** `dcm dev record` is a developer-only command, disabled in release builds. It captures responses from a real environment through the guarded client. It needs explicit opt-in and runs read-only with the observer budget applied. Before anything is written, it pseudonymises:
+- **Recording.** `dcam dev record` is a developer-only command, disabled in release builds. It captures responses from a real environment through the guarded client. It needs explicit opt-in and runs read-only with the observer budget applied. Before anything is written, it pseudonymises:
   - project IDs become `acme-*`;
   - environment names and DAG IDs are replaced from a dictionary;
   - e-mail addresses and IPs are removed;
@@ -3741,7 +3741,7 @@ CI fails when a Must requirement of a milestone marked done has no passing test.
 - **Journey tests.** Each journey in [§4.4](#44-key-journeys) is an end-to-end test that also checks URL state round-trips (deep links reproduce the same view).
 - **Visual regression.** Playwright screenshots of key screens in light and dark themes, at 1280 × 800 and 1920 × 1080. Clocks and relative times are masked or fixed with a fake clock.
 - **Accessibility.** Every screen is scanned with axe in each theme, with zero serious or critical violations allowed (`NFR-A11Y-01`). Keyboard-only tests cover the global shortcuts, tables, charts with table alternatives, dialogs and the command palette.
-- **Determinism.** Demo mode fixes "now" with `DCM_FAKE_NOW` and seeds every random source. Tests never depend on wall-clock time.
+- **Determinism.** Demo mode fixes "now" with `DCAM_FAKE_NOW` and seeds every random source. Tests never depend on wall-clock time.
 
 ### 19.6 Browser-driven UI validation loop
 
@@ -3749,7 +3749,7 @@ Every user-facing change is validated in a real browser before review. Automated
 
 ```mermaid
 flowchart LR
-  A[Implement with tests] --> B[Run DCM in demo mode or against the emulator]
+  A[Implement with tests] --> B[Run DCAM in demo mode or against the emulator]
   B --> C{Interactive session?}
   C -- yes --> D[Claude in Chrome: ui-validator checklist]
   C -- headless or CI --> E[Playwright MCP: same checklist]
@@ -3763,16 +3763,16 @@ flowchart LR
 
 **Tools**
 
-- **Claude in Chrome** (the Claude browser extension) is the primary tool for interactive sessions. The `ui-validator` subagent drives the developer's browser to navigate, click, type, read the page and capture screenshots of the locally running DCM. Start validation sessions with `claude --chrome` and check the connection with `/chrome`. It needs the extension (version 1.0.36 or later), a Chromium-based browser such as Chrome or Edge, and a direct Anthropic plan with `/login`. It is not available with API-key authentication, through third-party model providers or in WSL. Contributors without it use Playwright MCP.
+- **Claude in Chrome** (the Claude browser extension) is the primary tool for interactive sessions. The `ui-validator` subagent drives the developer's browser to navigate, click, type, read the page and capture screenshots of the locally running DCAM. Start validation sessions with `claude --chrome` and check the connection with `/chrome`. It needs the extension (version 1.0.36 or later), a Chromium-based browser such as Chrome or Edge, and a direct Anthropic plan with `/login`. It is not available with API-key authentication, through third-party model providers or in WSL. Contributors without it use Playwright MCP.
 - **Playwright MCP** (`@playwright/mcp`) is the headless fallback for CI and for environments without the extension. It drives a browser through accessibility snapshots, with an optional vision capability (`--caps vision`) for visual checks. The same checklist runs headlessly and writes a report.
 - **Chrome DevTools MCP** (`chrome-devtools-mcp`, optional) records performance traces and inspects network requests, which helps `perf-auditor` investigate `NFR-PERF-01` and `NFR-PERF-03`. It is opt-in per developer and runs with `--isolated --headless --no-usage-statistics --no-performance-crux`: usage statistics are collected by default, and the performance tools otherwise query the Chrome UX Report API.
 
 **Safety rules for browser automation**
 
-- Point the browser only at local DCM: `http://127.0.0.1:<port>` or `http://localhost:<port>`, in demo mode or against the emulator.
+- Point the browser only at local DCAM: `http://127.0.0.1:<port>` or `http://localhost:<port>`, in demo mode or against the emulator.
 - Never point it at the Google Cloud console, at production Airflow UIs or at any authenticated third-party site.
 - Use a dedicated Chrome profile with no corporate sessions, and restrict the extension's site permissions to localhost.
-- Playwright MCP runs with an origin allowlist for the local origins and an isolated, in-memory profile. Its documentation states that the allowlist is not a security boundary, so demo mode and DCM's loopback binding remain the real protection.
+- Playwright MCP runs with an origin allowlist for the local origins and an isolated, in-memory profile. Its documentation states that the allowlist is not a security boundary, so demo mode and DCAM's loopback binding remain the real protection.
 
 **UI validation checklist** (the `ui-validation` skill, [§21.7](#217-slash-commands-and-skills))
 
@@ -3786,9 +3786,9 @@ flowchart LR
 | UV-06 | Themes and colour | Light and dark themes are both correct; Airflow state colours are consistent; state is never conveyed by colour alone (`NFR-A11Y-02`) |
 | UV-07 | Keyboard | All actions are reachable by keyboard; focus is visible; Escape closes overlays; the command palette works |
 | UV-08 | Copy | Sentence case, active voice, no jargon without an (i), no truncated labels (`NFR-UX-03`) |
-| UV-09 | Console and network | No console errors or warnings; network requests go only to DCM's local origin; no request bypasses the API |
+| UV-09 | Console and network | No console errors or warnings; network requests go only to DCAM's local origin; no request bypasses the API |
 | UV-10 | Performance | Interactions on large tables and charts feel immediate (sampled INP within `NFR-PERF-03`) |
-| UV-11 | Read-only affordances | No control suggests DCM will change the environment; fix snippets are clearly "copy" actions |
+| UV-11 | Read-only affordances | No control suggests DCAM will change the environment; fix snippets are clearly "copy" actions |
 | UV-12 | Deep links out | Links to the Cloud console, Airflow UI and documentation open in a new tab with the right context |
 
 **Evidence.** The loop writes `specs/<feature>/validation/report.md` with the checklist result, plus light and dark screenshots. The PR template requires a link to it for any change under `apps/web/` or `packages/ui-kit/`.
@@ -3857,13 +3857,13 @@ flowchart LR
 - The repository contains no real customer data, project IDs, DAG code or logs.
 - Demo and synthetic data use the fictitious `acme` organisation and documentation-reserved values (for example `example.com` domains and documentation IP ranges).
 - Recorded fixtures need review by a maintainer and must pass the fixture linter.
-- Users who attach diagnostics to issues use `dcm support-bundle`, which applies the redaction policy ([§18.6](#186-data-handling-and-redaction)) and shows a preview before anything is written.
+- Users who attach diagnostics to issues use `dcam support-bundle`, which applies the redaction policy ([§18.6](#186-data-handling-and-redaction)) and shows a preview before anything is written.
 
 ---
 
 ## 20. Local Airflow emulator, synthetic load and demo mode
 
-DCM must be developable, testable and demonstrable without a Google Cloud project. Three tools provide this:
+DCAM must be developable, testable and demonstrable without a Google Cloud project. Three tools provide this:
 
 | Tool | Purpose | Realism | Speed |
 |---|---|---|---|
@@ -3886,7 +3886,7 @@ DCM must be developable, testable and demonstrable without a Google Cloud projec
 | Google authentication, IAM, VPC Service Controls | **Not reproduced** | Covered by recorded fixtures and the doctor's own tests |
 | Tenant-project internals, Cloud SQL behaviour | **Not reproduced** | Database metrics are synthesised in scenarios that need them |
 
-**Why not only `composer-local-dev`?** Google's local development CLI runs Composer images with LocalExecutor or SequentialExecutor only, in a single container with a small resource limit. It copies only the image version, PyPI packages and environment-variable names. It cannot reproduce Celery worker capacity, autoscaling, multiple schedulers or contention, which are the behaviours DCM analyses. DCM therefore:
+**Why not only `composer-local-dev`?** Google's local development CLI runs Composer images with LocalExecutor or SequentialExecutor only, in a single container with a small resource limit. It copies only the image version, PyPI packages and environment-variable names. It cannot reproduce Celery worker capacity, autoscaling, multiple schedulers or contention, which are the behaviours DCAM analyses. DCAM therefore:
 
 - builds its emulator on the official Apache Airflow Docker Compose setup with CeleryExecutor, Redis and Postgres, pinned to the Airflow version of the target Composer build;
 - uses `composer-local-dev` optionally, for image and package parity only. For example, a user can check that the static analyser's import findings match the exact Composer image.
@@ -3915,11 +3915,11 @@ flowchart LR
     FL[Logging fake with quota]
     FG[GCS fake: environment bucket]
   end
-  DCM[DCM] -->|guarded client, endpoint overrides| API
-  DCM --> FC
-  DCM --> FM
-  DCM --> FL
-  DCM --> FG
+  DCAM[DCAM] -->|guarded client, endpoint overrides| API
+  DCAM --> FC
+  DCAM --> FM
+  DCAM --> FL
+  DCAM --> FG
 ```
 
 **Components** (all under `tools/emulator/`):
@@ -3942,7 +3942,7 @@ flowchart LR
 
   The fake accepts any bearer token. Each fake can inject latency, errors and schema drift for the resilience tests ([§19.8](#198-resilience-and-failure-injection-tests)).
 - **Autoscaler simulator.** Every 30 seconds it reads the four documented inputs (queued Celery tasks, current workers, idle workers and `worker_concurrency`) and computes a simplified scaling factor. It scales the worker service between the configured minimum and maximum, with a configurable reaction delay, and records scale events. Scenarios such as `SC-21` and `SC-22` use it.
-- **DCM configuration.** `tools/emulator/dcm.config.emulator.yaml` declares emulator environments. These point every adapter at the emulator's endpoints and turn off Google authentication. DCM accepts emulator environments only for loopback addresses:
+- **DCAM configuration.** `tools/emulator/dcam.config.emulator.yaml` declares emulator environments. These point every adapter at the emulator's endpoints and turn off Google authentication. DCAM accepts emulator environments only for loopback addresses:
 
   ```yaml
   environments:
@@ -3957,7 +3957,7 @@ flowchart LR
 ```bash
 pnpm emu up --airflow 2 --workers 1..4           # start Airflow + fakes (profile airflow2)
 pnpm emu scenario run SC-03                      # load a scenario: DAGs, pools, config, load
-pnpm dcm --config tools/emulator/dcm.config.emulator.yaml
+pnpm dcam --config tools/emulator/dcam.config.emulator.yaml
 pnpm emu scenario verify SC-03                   # assert expected signals, findings and alerts
 pnpm emu down --volumes
 ```
@@ -4053,7 +4053,7 @@ The generator writes DAG files into the emulator's `dags/` folder and triggers r
 
 ### 20.6 Demo mode and the demo dataset
 
-`dcm --demo` (`FR-EMU-01`) starts DCM with a synthetic workspace. It needs no credentials and makes no network access.
+`dcam --demo` (`FR-EMU-01`) starts DCAM with a synthetic workspace. It needs no credentials and makes no network access.
 
 - **Workspace.** The fictitious organisation "acme" has three environments: `acme-dev`, `acme-test` and `acme-prod`. They span different sizes, Airflow 2 and Airflow 3 builds, and 90 days of history. Project IDs are clearly fake (`acme-data-dev`, …).
 - **Fact synthesiser.** The synthesiser generates canonical facts directly, not through Airflow, with realistic patterns:
@@ -4080,7 +4080,7 @@ The generator writes DAG files into the emulator's `dags/` folder and triggers r
 
 ## 21. Claude Code harness
 
-DCM is designed to be built mostly by Claude Code under human review. The harness turns this specification into a safe, repeatable engineering system with:
+DCAM is designed to be built mostly by Claude Code under human review. The harness turns this specification into a safe, repeatable engineering system with:
 
 - guardrails that make unsafe actions impossible, not merely discouraged;
 - specialists (subagents) for recurring kinds of work;
@@ -4135,8 +4135,8 @@ Hooks are written in Node.js (`.mjs`) rather than shell with `jq`, so they behav
 
 `CLAUDE.md` is loaded into every session, so it is kept short (aim for under 150 lines). It states rules and points to details instead of copying them. It contains:
 
-1. **What DCM is**, in three sentences, with a link to this specification.
-2. **Commands:** `pnpm i`, `pnpm dev`, `pnpm test`, `pnpm test:e2e`, `pnpm emu up`, `pnpm dcm --demo`, `pnpm trace`, `pnpm diagrams`.
+1. **What DCAM is**, in three sentences, with a link to this specification.
+2. **Commands:** `pnpm i`, `pnpm dev`, `pnpm test`, `pnpm test:e2e`, `pnpm emu up`, `pnpm dcam --demo`, `pnpm trace`, `pnpm diagrams`.
 3. **Non-negotiables:**
    - read-only by construction;
    - no network I/O outside adapters;
@@ -4148,11 +4148,11 @@ Hooks are written in Node.js (`.mjs`) rather than shell with `jq`, so they behav
 6. **Workflow:** Spec Kit feature flow, `/tdd`, `/validate-ui`, `/adr`, and when to use each subagent.
 7. **Style:** coding standards ([§21.11](#2111-coding-standards-and-quality-gates)) and UX writing ([§12.12](#1212-ux-writing)).
 
-Detailed material is referenced by path (for example `docs/spec/dcm-spec.md`, section 13), so Claude reads it only when a task needs it. `@path` imports are used only for small files, because imported files are loaded into every session.
+Detailed material is referenced by path (for example `docs/spec/dcam-spec.md`, section 13), so Claude reads it only when a task needs it. `@path` imports are used only for small files, because imported files are loaded into every session.
 
 **Path-scoped rules.** Rules for one area live in `.claude/rules/*.md` with `paths:` front matter (glob patterns), so Claude loads them only when it works on matching files. Examples: `adapters.md` for `packages/adapters/**` (guarded client only, capability flags, recorded fixtures), `web.md` for `apps/web/**` (design tokens, the (i) registry, UX writing, accessibility) and `packs.md` for `packages/metrics-pack/**` and `packages/rules-pack/**` (the signal and rule definition standards).
 
-**Other coding agents.** Claude Code reads `AGENTS.md` only when there is no `CLAUDE.md`. DCM keeps `CLAUDE.md` as the source of truth and adds a short `AGENTS.md` that points to it and to this specification, for contributors who use other agents.
+**Other coding agents.** Claude Code reads `AGENTS.md` only when there is no `CLAUDE.md`. DCAM keeps `CLAUDE.md` as the source of truth and adds a short `AGENTS.md` that points to it and to this specification, for contributors who use other agents.
 
 ### 21.4 Settings and permissions
 
@@ -4165,12 +4165,12 @@ Detailed material is referenced by path (for example `docs/spec/dcm-spec.md`, se
   - package publishing (`npm publish`, `pnpm publish`): releases happen only in CI;
   - reading credential stores such as `~/.config/gcloud/**`, `**/*.pem`, `**/*.key`, `.env*` and `~/.ssh/**`.
 
-Claude Code evaluates the lists in the order deny, ask, allow, and the first matching rule wins. A `PreToolUse` hook that blocks a call (exit code 2) stops it before the rules are evaluated, while a hook that returns "allow" never overrides a `deny` or `ask` rule. DCM's hooks therefore only add protection.
+Claude Code evaluates the lists in the order deny, ask, allow, and the first matching rule wins. A `PreToolUse` hook that blocks a call (exit code 2) stops it before the rules are evaluated, while a hook that returns "allow" never overrides a `deny` or `ask` rule. DCAM's hooks therefore only add protection.
 
 Cloud CLIs (`gcloud`, `gsutil`, `bq`) are in `ask`, and the guard hook blocks them entirely by default. Two modes can be turned on only by a human, in their personal `.claude/settings.local.json` (`env`):
 
-- **Cloud-read mode** (`DCM_HARNESS_CLOUD_READ=1`), for the M1 reality check: the guard allows read verbs only.
-- **Harness maintenance mode** (`DCM_HARNESS_MAINTENANCE=1`): Claude may edit the guardrails themselves (`.claude/settings*.json`, `.claude/hooks/**`, `.mcp.json`), for example to apply a reviewed hook change.
+- **Cloud-read mode** (`DCAM_HARNESS_CLOUD_READ=1`), for the M1 reality check: the guard allows read verbs only.
+- **Harness maintenance mode** (`DCAM_HARNESS_MAINTENANCE=1`): Claude may edit the guardrails themselves (`.claude/settings*.json`, `.claude/hooks/**`, `.mcp.json`), for example to apply a reviewed hook change.
 
 The hooks prevent Claude from changing these files or variables outside maintenance mode, so it cannot turn a mode on for itself.
 
@@ -4179,7 +4179,7 @@ Permission rules are the first line of defence, and the hooks are the enforcemen
 The guard is not a sandbox: a determined program (for example a script that spawns processes) could evade it. It is one layer of defence in depth, together with:
 
 - no credentials in the session environment;
-- `DCM_NETWORK=loopback-only`;
+- `DCAM_NETWORK=loopback-only`;
 - `ask` prompts;
 - human review.
 
@@ -4187,9 +4187,9 @@ The guard is not a sandbox: a determined program (for example a script that spaw
 
 | Variable | Value | Effect |
 |---|---|---|
-| `DCM_NETWORK` | `loopback-only` | The guarded HTTP client refuses any non-loopback host in development and tests; live access requires an explicit `dcm` run by the human user |
+| `DCAM_NETWORK` | `loopback-only` | The guarded HTTP client refuses any non-loopback host in development and tests; live access requires an explicit `dcam` run by the human user |
 | `CLOUDSDK_CORE_DISABLE_PROMPTS` | `1` | No interactive `gcloud` prompts can hang a session |
-| `DCM_FAKE_NOW` | unset (tests set it) | Deterministic time in demo mode and tests |
+| `DCAM_FAKE_NOW` | unset (tests set it) | Deterministic time in demo mode and tests |
 
 **Optional sandboxing.** Claude Code's sandboxed Bash tool adds operating-system limits on files and network beneath the hooks. It uses Seatbelt on macOS and `bubblewrap` with `socat` on Linux and WSL2; it is not available on native Windows. Because it needs per-machine setup, the committed settings leave it off, and maintainers turn it on in `settings.local.json`, for example:
 
@@ -4199,7 +4199,7 @@ The guard is not a sandbox: a determined program (for example a script that spaw
 ```
 
 - By default, sandboxed commands can write only to the working directory and the temporary directory.
-- Localhost differs by platform. On macOS, set `sandbox.network.allowLocalBinding` so tests can reach a local DCM. On Linux and WSL2, a sandboxed command reaches only servers it started itself, so run `pnpm dev` outside the sandbox for UI validation.
+- Localhost differs by platform. On macOS, set `sandbox.network.allowLocalBinding` so tests can reach a local DCAM. On Linux and WSL2, a sandboxed command reaches only servers it started itself, so run `pnpm dev` outside the sandbox for UI validation.
 - If the sandbox cannot start, Claude Code runs commands without it unless `sandbox.failIfUnavailable` is set.
 
 ### 21.5 Hooks
@@ -4220,11 +4220,11 @@ The guard is not a sandbox: a determined program (for example a script that spaw
 | `gsutil` | Only in cloud-read mode: `ls` | Everything else, including `cat` (DAG code can contain secrets) |
 | `bq` | Only in cloud-read mode: `ls`, `show` | Everything else, including `query` and `head` (data exposure) |
 | `terraform`, `tofu` | `fmt`, `validate`, `version` | Everything else: `plan` reads state and needs credentials; `apply`, `destroy`, `import` and `state` change infrastructure |
-| `kubectl`, `helm` | ― | Everything: DCM development never needs them |
-| `curl`, `wget` | `GET` requests, for example to localhost and documentation sites | Other methods, request bodies and uploads; any request to `*.googleapis.com` or `*.googleusercontent.com` (live calls go through DCM itself, run by a human) |
+| `kubectl`, `helm` | ― | Everything: DCAM development never needs them |
+| `curl`, `wget` | `GET` requests, for example to localhost and documentation sites | Other methods, request bodies and uploads; any request to `*.googleapis.com` or `*.googleusercontent.com` (live calls go through DCAM itself, run by a human) |
 | `git` | Normal work | Force pushes, remote branch deletes, mirrors, `reset --hard`, `filter-branch`, `filter-repo`, `config --global`: these need a human |
 | `sudo`, `doas`, `su` | ― | Everything: these need a human |
-| Harness files | Reading them with Claude Code's Read tool | Shell commands that mention `.claude/settings*.json`, `.claude/hooks/`, `.mcp.json` or a `DCM_HARNESS_*` variable, outside maintenance mode |
+| Harness files | Reading them with Claude Code's Read tool | Shell commands that mention `.claude/settings*.json`, `.claude/hooks/`, `.mcp.json` or a `DCAM_HARNESS_*` variable, outside maintenance mode |
 | Unverifiable commands | ― | `eval`, `source` and `.`, and commands whose name is computed at runtime (`$TOOL …`, `$(…) …`) |
 
 The guard sees through wrappers before applying these rules: `env`, `time`, `timeout`, `nice`, `nohup`, variable assignments, `sh -c` and `bash -c`, `xargs`, `find -exec`, command substitution (`$(…)` and backticks) and process substitution (`<(…)`). It fails closed: if it cannot read its input, it blocks. Both guards are also registered with `"onFailure": "block"` (Claude Code v2.1.295 or later). By default Claude Code treats a hook that is missing, crashes or times out as a non-blocking error and lets the action through; with this setting, the tool call is blocked instead.
@@ -4252,14 +4252,14 @@ Subagents live in `.claude/agents/<name>.md`. Each has a focused prompt, a restr
 
 ### 21.7 Slash commands and skills
 
-**Slash commands** (`.claude/commands/<name>.md`) are entry points for recurring workflows. They take `$ARGUMENTS` and delegate to subagents and skills. Claude Code has merged custom commands into skills: files in `.claude/commands/` keep working, and a skill with the same name creates the same slash command. DCM keeps these thin entry points as command files and puts procedures in skills; new workflows MAY be written as skills directly.
+**Slash commands** (`.claude/commands/<name>.md`) are entry points for recurring workflows. They take `$ARGUMENTS` and delegate to subagents and skills. Claude Code has merged custom commands into skills: files in `.claude/commands/` keep working, and a skill with the same name creates the same slash command. DCAM keeps these thin entry points as command files and puts procedures in skills; new workflows MAY be written as skills directly.
 
 | Command | Arguments | What it does |
 |---|---|---|
 | `/spec` | Requirement IDs or an epic slice, for example `FR-BOTL-01..03`; or a feature folder to check | Drafts the feature brief through `spec-author`, saves it as `docs/spec/briefs/<feature>.md`, and prints the `/speckit-specify` and `/speckit-clarify` commands to run next, because Spec Kit skills are user-invocable only ([§21.8](#218-spec-driven-development-with-spec-kit)). Given a feature folder, it checks the generated `spec.md` against the cited requirements. Stops for human review |
 | `/adr` | A title, or an ADR number from the backlog | Creates the next ADR from the MADR template through `adr-author`, linking the requirements and specs it affects |
 | `/tdd` | A task ID from `tasks.md`, or a requirement ID | Runs the red, green, refactor loop through `test-first-implementer`, then `code-reviewer` |
-| `/validate-ui` | A route or screen ID, for example `S-07` | Starts DCM in demo mode if needed and runs the checklist through `ui-validator` ([§19.6](#196-browser-driven-ui-validation-loop)) |
+| `/validate-ui` | A route or screen ID, for example `S-07` | Starts DCAM in demo mode if needed and runs the checklist through `ui-validator` ([§19.6](#196-browser-driven-ui-validation-loop)) |
 | `/diagram` | A diagram name and intent | Creates or updates `docs/diagrams/<name>.drawio` and exports SVG and PNG through the `drawio-diagrams` skill |
 | `/rule` | A new rule title or an existing `REC-*` ID | Scaffolds or updates a rule (YAML, SQL, templates, golden tests, scenario link, wiki page) through the `rule-authoring` skill |
 | `/metric` | A new signal title or an existing `HM-*` ID | Scaffolds or updates a signal following the definition standard ([§8.1](#81-signal-definition-standard)) through the `metric-entry` skill |
@@ -4270,21 +4270,21 @@ Subagents live in `.claude/agents/<name>.md`. Each has a focused prompt, a restr
 
 | Skill | Contents |
 |---|---|
-| `drawio-diagrams` | Conventions: C4 levels, Google Cloud and Airflow icon sets, DCM design tokens as colours, one diagram per file, page naming. Export with the draw.io desktop CLI in both formats: `drawio -x -f svg -e -b 10 -o out.drawio.svg in.drawio` and `drawio -x -f png -e -s 2 -b 10 -o out.png in.drawio` (`-x` export, `-f` format, `-e` embed the diagram so the exported file stays editable, `-s` scale, `-b` border, `-o` output). In CI it runs headless under `xvfb-run` with `--no-sandbox`. The skill includes `scripts/export-all.mjs`, which exports every changed `.drawio` file and fails if exports are stale |
+| `drawio-diagrams` | Conventions: C4 levels, Google Cloud and Airflow icon sets, DCAM design tokens as colours, one diagram per file, page naming. Export with the draw.io desktop CLI in both formats: `drawio -x -f svg -e -b 10 -o out.drawio.svg in.drawio` and `drawio -x -f png -e -s 2 -b 10 -o out.png in.drawio` (`-x` export, `-f` format, `-e` embed the diagram so the exported file stays editable, `-s` scale, `-b` border, `-o` output). In CI it runs headless under `xvfb-run` with `--no-sandbox`. The skill includes `scripts/export-all.mjs`, which exports every changed `.drawio` file and fails if exports are stale |
 | `adr-madr` | MADR 4.0 template, numbering, status lifecycle (proposed, accepted, deprecated, superseded by), the rule that accepted ADRs are never edited, only superseded, and examples |
-| `spec-driven-feature` | The Spec Kit flow for DCM ([§21.8](#218-spec-driven-development-with-spec-kit)), feature naming, the Definition of Done ([§19.9](#199-ci-pipeline-and-quality-gates)) and traceability tags |
+| `spec-driven-feature` | The Spec Kit flow for DCAM ([§21.8](#218-spec-driven-development-with-spec-kit)), feature naming, the Definition of Done ([§19.9](#199-ci-pipeline-and-quality-gates)) and traceability tags |
 | `rule-authoring` | The rule model ([§13.1](#131-rule-model)), the evidence and confidence requirements, the snippet template rules, the false-positive review questions and the quality gates ([§13.8](#138-rule-quality-gates)) as a checklist |
 | `metric-entry` | The signal definition standard ([§8.1](#81-signal-definition-standard)), unit and provenance conventions, the (i) explanation template, the capability-flag and degradation rules, and the golden test template |
 | `ui-validation` | The UV-01…UV-12 checklist, safety rules for browser automation, how to use Claude in Chrome and the Playwright MCP tools, and the evidence report template |
 | `wiki-authoring` | MDX conventions, runbook format ([§15.4](#154-runbook-format)), live-data embeds, UX writing style, link checking and the documentation-link policy (official sources only) |
 
-**Official draw.io plugin.** draw.io publishes its `drawio` skill as a Claude Code plugin (`/plugin marketplace add jgraph/drawio-mcp`, then `/plugin install drawio@drawio`; Apache-2.0). The skill writes `.drawio` files locally and exports them with the local draw.io desktop CLI, but the plugin also bundles draw.io's hosted MCP App Server, which receives the content of diagrams drawn with it. DCM keeps its own `drawio-diagrams` skill, which adds the project's conventions and never sends diagrams off the machine. Adopting the plugin, or self-hosting the App Server, requires an ADR.
+**Official draw.io plugin.** draw.io publishes its `drawio` skill as a Claude Code plugin (`/plugin marketplace add jgraph/drawio-mcp`, then `/plugin install drawio@drawio`; Apache-2.0). The skill writes `.drawio` files locally and exports them with the local draw.io desktop CLI, but the plugin also bundles draw.io's hosted MCP App Server, which receives the content of diagrams drawn with it. DCAM keeps its own `drawio-diagrams` skill, which adds the project's conventions and never sends diagrams off the machine. Adopting the plugin, or self-hosting the App Server, requires an ADR.
 
 ### 21.8 Spec-driven development with Spec Kit
 
-DCM uses GitHub Spec Kit to turn this specification into small, verifiable features.
+DCAM uses GitHub Spec Kit to turn this specification into small, verifiable features.
 
-**Setup at M0.** A maintainer runs this once, on a clean branch and outside Claude Code. The Spec Kit CLI needs Python 3.11 or later and `uv`; this is a maintainer tool, not a runtime dependency of DCM.
+**Setup at M0.** A maintainer runs this once, on a clean branch and outside Claude Code. The Spec Kit CLI needs Python 3.11 or later and `uv`; this is a maintainer tool, not a runtime dependency of DCAM.
 
 ```bash
 uv tool install specify-cli
@@ -4304,7 +4304,7 @@ git status && git diff --stat        # review every generated file before commit
 | Article | Rule |
 |---|---|
 | I. Read-only | No code path may issue a mutating request to a monitored system. Allowlist changes need `security-reviewer` approval |
-| II. Do no harm | Every collector declares a budget; budgets are tested; DCM degrades its own fidelity before adding load |
+| II. Do no harm | Every collector declares a budget; budgets are tested; DCAM degrades its own fidelity before adding load |
 | III. Test-first | No production code without a failing test that names a requirement ID |
 | IV. Contract-first | OpenAPI is the source of truth; generated types only; breaking changes need an ADR and a major version |
 | V. Boundaries | Hexagonal architecture is enforced by `dependency-cruiser`; network I/O only in adapters |
@@ -4365,7 +4365,7 @@ Accepted ADRs are immutable: a change of mind is a new ADR that supersedes the o
 | ADR-0006 | Guarded read-only outbound client | One HTTP client with method and endpoint allowlist, budgets and circuit breakers | M0 |
 | ADR-0007 | Observer budgets and polling profiles | Token buckets per API and environment; `live`, `standard`, `eco`, `background`; patient mode | M1 |
 | ADR-0008 | Live updates transport | Server-Sent Events | M1 |
-| ADR-0009 | UI framework and component library | React + Vite, MUI with DCM tokens, TanStack Router, Query, Table and Virtual | M0 |
+| ADR-0009 | UI framework and component library | React + Vite, MUI with DCAM tokens, TanStack Router, Query, Table and Virtual | M0 |
 | ADR-0010 | Charts and graphs | ECharts and uPlot; React Flow with dagre (ELK only if ADR-0020 admits its licence) | M2 |
 | ADR-0011 | Declarative packs for signals and rules | YAML manifests + DuckDB SQL + templates, schema-validated | M3 |
 | ADR-0012 | Python static analysis engine | `web-tree-sitter` with the Python grammar | M7 |
@@ -4394,8 +4394,8 @@ New ADRs continue from ADR-0024. Candidates already visible:
 
 | Server | Purpose | Notes |
 |---|---|---|
-| `playwright` | Headless UI validation and exploratory E2E authoring | Pinned `@playwright/mcp` version, headless, isolated profile, origins limited to DCM (`127.0.0.1:8787`, `localhost:8787`) and the Vite dev server (`localhost:5173`) with `--headless --isolated --allowed-origins` (semicolon-separated). The allowlist is not a security boundary |
-| `dcm-demo` | Dogfooding: DCM's own read-only MCP server over the demo dataset | `pnpm dcm mcp --stdio --demo-only`, bridging to a running `pnpm dcm --demo` instance; the bridge refuses non-demo instances. Lets Claude query realistic data while building UI and rules. Never configured against real environments in the repository |
+| `playwright` | Headless UI validation and exploratory E2E authoring | Pinned `@playwright/mcp` version, headless, isolated profile, origins limited to DCAM (`127.0.0.1:8787`, `localhost:8787`) and the Vite dev server (`localhost:5173`) with `--headless --isolated --allowed-origins` (semicolon-separated). The allowlist is not a security boundary |
+| `dcam-demo` | Dogfooding: DCAM's own read-only MCP server over the demo dataset | `pnpm dcam mcp --stdio --demo-only`, bridging to a running `pnpm dcam --demo` instance; the bridge refuses non-demo instances. Lets Claude query realistic data while building UI and rules. Never configured against real environments in the repository |
 
 Claude in Chrome is configured per developer, not in the repository. Start it per session with `claude --chrome` rather than "Enabled by default", which loads the browser tools into every session and uses context. Its site permissions, managed in the extension, are restricted to localhost ([§19.6](#196-browser-driven-ui-validation-loop)). Chrome DevTools MCP, when used for performance work, is also configured per developer, with the flags listed in [§19.6](#196-browser-driven-ui-validation-loop).
 
@@ -4500,11 +4500,11 @@ Claude in Chrome is configured per developer, not in the repository. Start it pe
 
 | Milestone | Theme | Main scope (epics and IDs) | Key signals and rules | Exit criteria (demonstration) | Release |
 |---|---|---|---|---|---|
-| **M0** | Foundations and harness | Repository, harness ([§21](#21-claude-code-harness)), constitution, CI skeleton, OpenAPI skeleton, guarded client skeleton with read-only tests, demo mode skeleton (`FR-EMU-01`), `FR-SETUP-01`, ADRs 0001�C0006, 0009, 0020, 0022 | ― | `pnpm dcm --demo` serves the app shell with a fake dataset; CI runs all gate types (even if most suites are still small); a Claude Code session can complete a `/tdd` task end to end with the hooks active | Internal |
-| **M1** | Connect and collect | `AUTH`, `COLL` core, `STORE` core, `UI` shell, `SELF`, `FR-SETUP-02..07`, `FR-EMU-02`; reality-check spike; ADRs 0007, 0008, 0013�C0017 | `HM-030` (observer footprint) | The doctor passes against a real Composer 3 environment and the emulator; collectors run within budget for a day (budget tests green); the DCM health page shows the footprint; every ⚠️ VERIFY item is resolved or has an owner and a fallback | 0.1.0 |
+| **M0** | Foundations and harness | Repository, harness ([§21](#21-claude-code-harness)), constitution, CI skeleton, OpenAPI skeleton, guarded client skeleton with read-only tests, demo mode skeleton (`FR-EMU-01`), `FR-SETUP-01`, ADRs 0001–0006, 0009, 0020, 0022 | ― | `pnpm dcam --demo` serves the app shell with a fake dataset; CI runs all gate types (even if most suites are still small); a Claude Code session can complete a `/tdd` task end to end with the hooks active | Internal |
+| **M1** | Connect and collect | `AUTH`, `COLL` core, `STORE` core, `UI` shell, `SELF`, `FR-SETUP-02..07`, `FR-EMU-02`; reality-check spike; ADRs 0007, 0008, 0013–0017 | `HM-030` (observer footprint) | The doctor passes against a real Composer 3 environment and the emulator; collectors run within budget for a day (budget tests green); the DCAM health page shows the footprint; every ⚠️ VERIFY item is resolved or has an owner and a fallback | 0.1.0 |
 | **M2** | Fleet and environment cockpit | `FLEET`, `ENV`, `CFG` basic (effective config view), `CHG` basic, `FR-COLL-05`, `FR-COLL-07`, `FR-COLL-10`; ADRs 0010, 0021 | `HM-011`, `HM-013`, `HM-018`, `HM-019`, `HM-022`, `HM-026` (image), `HM-028`, `HM-031`, `HM-032`; rules at M2 in [§13.6](#136-seed-rule-catalog) | Journey J-2 (morning check) works against a real environment; `Q-01` and the environment-level questions pass their three-click tests | 0.2.0 |
-| **M3** | DAG analytics (**MVP**) | `DAGX`, `DAGD` core, `TASK` core, `FR-BOTL-02`, `FR-COLL-04` (backfill), Airflow API v2 adapter (`FR-COLL-08`), `FR-INC-03`, CSV export; ADRs 0011, 0023 | `HM-001`�C`HM-005`, `HM-006` v0, `HM-015`, `HM-016`, `HM-021` (estimate) | MVP demo script ([§22.6](#226-mvp-definition-and-demo-script)) passes on demo data, on the emulator and on a real environment; 5,000-DAG performance tests pass; first public release | 0.3.0 |
-| **M4** | Bottlenecks and Advisor | `BOTL`, `ADV`, `FR-FLEET-04`, `DAGD` compare and critical path, internal plugin interfaces (`FR-EXT-01`) | `HM-006` full, `HM-007`�C`HM-010`, `HM-012`, `HM-017`, `HM-023`, `HM-024`, `HM-027`; most rules (M4) | Journeys J-3 (partly) and J-4 work; the throttle classifier reaches ≥ 90 % attribution accuracy and rules ≥ 90 % precision on the scenario library | 0.4.0 |
+| **M3** | DAG analytics (**MVP**) | `DAGX`, `DAGD` core, `TASK` core, `FR-BOTL-02`, `FR-COLL-04` (backfill), Airflow API v2 adapter (`FR-COLL-08`), `FR-INC-03`, CSV export; ADRs 0011, 0023 | `HM-001`–`HM-005`, `HM-006` v0, `HM-015`, `HM-016`, `HM-021` (estimate) | MVP demo script ([§22.6](#226-mvp-definition-and-demo-script)) passes on demo data, on the emulator and on a real environment; 5,000-DAG performance tests pass; first public release | 0.3.0 |
+| **M4** | Bottlenecks and Advisor | `BOTL`, `ADV`, `FR-FLEET-04`, `DAGD` compare and critical path, internal plugin interfaces (`FR-EXT-01`) | `HM-006` full, `HM-007`–`HM-010`, `HM-012`, `HM-017`, `HM-023`, `HM-024`, `HM-027`; most rules (M4) | Journeys J-3 (partly) and J-4 work; the throttle classifier reaches ≥ 90 % attribution accuracy and rules ≥ 90 % precision on the scenario library | 0.4.0 |
 | **M5** | Config Advisor and wiki | `CFG` full, `WIKI`, runbooks, `FR-SCAN-06`, opt-in Airflow CLI (`FR-COLL-12`), deploy propagation (`FR-ENV-04`) | `HM-014`, `HM-025`, `HM-029`; rules at M5 | Journeys J-5 and J-8 work; every option in the KB seed has an (i) explanation; runbooks RB-01…RB-14 link to live data | 0.5.0 |
 | **M6** | Alerting, incidents and change intelligence | `ALRT`, `INC`, `CHG` full, `FR-TASK-03`, `FR-UI-09` | `HM-020`; alert pack `AL-01`…`AL-19`; export to Cloud Monitoring and Terraform | Journey J-3 works end to end; exported alert policies validate in a sandbox project with Terraform `plan` (human-run) | 0.6.0 |
 | **M7** | Static analysis, reports, AI and cost | `SCAN`, `RPT`, `AI` (MCP server, copy-as-prompt, optional explainer), `FR-STORE-03`, `FR-STORE-05`, `FR-DAGD-10`, `FR-SETUP-08`; ADRs 0012, 0018, 0019 | Code rules `REC-CODE-*`, `REC-UPG-02`, cost rules; `HM-021` with billing export (optional) | Journeys J-6 and J-7 work; the MCP server passes its security review; the HTML report renders offline | 0.7.0 |
@@ -4533,9 +4533,9 @@ M5 depends on M4 because the wiki and Config Advisor link to rules and findings.
 - [ ] Repository created from the layout in [§11.5](#115-repository-layout), with pnpm workspaces, Turborepo, TypeScript project references and the shared ESLint, Prettier and `dependency-cruiser` configuration.
 - [ ] Harness installed: `CLAUDE.md`, `.claude/settings.json`, hooks with their tests, subagents, commands, skills and `.mcp.json` ([Appendix F](#appendix-f-starter-harness-files)).
 - [ ] Spec Kit initialised; constitution derived from [§3.3](#33-guiding-principles) and [§21.8](#218-spec-driven-development-with-spec-kit).
-- [ ] ADRs 0001�C0006, 0009, 0020 and 0022 accepted.
+- [ ] ADRs 0001–0006, 0009, 0020 and 0022 accepted.
 - [ ] OpenAPI skeleton (`/api/v1/health`, `/api/v1/meta`) with generated types and client; contract test and `oasdiff` gate working.
-- [ ] Guarded HTTP client skeleton with the allowlist, `DCM_NETWORK=loopback-only` and the read-only enforcement suite ([§18.2](#182-read-only-guarantee)).
+- [ ] Guarded HTTP client skeleton with the allowlist, `DCAM_NETWORK=loopback-only` and the read-only enforcement suite ([§18.2](#182-read-only-guarantee)).
 - [ ] Demo mode skeleton: fact synthesiser v0, DuckDB store, app shell with theme, navigation and one panel with an (i).
 - [ ] CI with every gate type wired: lint, types, boundaries, unit, component, E2E smoke, axe, bundle size, secrets, licences, fixture linter.
 - [ ] Governance files: `LICENSE`, `CONTRIBUTING.md` (with DCO), `CODE_OF_CONDUCT.md`, `SECURITY.md`, issue and PR templates.
@@ -4572,7 +4572,7 @@ The spike runs against at least one real Composer 3 environment with Airflow 2 a
 | VC-20 | `parallelism` default semantics on Composer for Airflow 3 | Composer documentation; `HM-032` inference on a real environment | `HM-032`, Config KB | Inference only, labelled `inferred` |
 | VC-21 | Config KB defaults per supported Airflow version | Airflow configuration reference per version | [Appendix D](#appendix-d-config-knowledge-base-seed) | Per-version table corrected |
 | VC-22 | Listener and plugin support on Composer 3 for each Airflow version | Composer documentation; test plugin in a sandbox | [§7.9](#79-future-in-environment-companion), [§11.12](#1112-embedding-path-into-airflow-and-composer) | Companion design adjusted (future) |
-| VC-23 | State colours per pinned Airflow version (Airflow 2.10.5 `STATE_COLORS` and the Airflow 3.3.2 UI theme already checked) | Airflow source at the pinned tags | [§12.6](#126-airflow-state-colours) | DCM tokens remain; mapping documented |
+| VC-23 | State colours per pinned Airflow version (Airflow 2.10.5 `STATE_COLORS` and the Airflow 3.3.2 UI theme already checked) | Airflow source at the pinned tags | [§12.6](#126-airflow-state-colours) | DCAM tokens remain; mapping documented |
 | VC-24 | Reschedule-mode sensors keep the first `start_date` | Emulator test with a reschedule sensor | `HM-003`, `HM-008` | Adjust occupancy formula |
 | VC-25 | Harness formats: Claude Code permissions, hooks, subagents and skills; Spec Kit CLI and skill names; Playwright MCP flags; draw.io CLI flags. Most were checked against current documentation when this document was written, but they change quickly | Current official documentation; a smoke session | [§21](#21-claude-code-harness), [Appendix F](#appendix-f-starter-harness-files) | Adjust the starter files (M0) |
 | VC-26 | OS keychain library; BigQuery role for `INFORMATION_SCHEMA.JOBS` | Library maintenance; IAM documentation | [§18.7](#187-secrets), [§18.4](#184-least-privilege-iam) | Environment variables only; narrower BigQuery features |
@@ -4583,7 +4583,7 @@ VC-23, VC-25 and VC-26 can be resolved at M0 because they do not need a Composer
 
 The MVP (end of M3) is the smallest product that changes how an operator works with Composer every day. It is demonstrated with this script, on demo data and on a real environment:
 
-1. **Install and run.** Install and start DCM with one command; the onboarding wizard opens (J-1).
+1. **Install and run.** Install and start DCAM with one command; the onboarding wizard opens (J-1).
 2. **Connect.** Add two projects. Discovery lists their environments. The doctor shows green checks, plus one actionable warning (for example "Airflow role is Op; Viewer is enough").
 3. **Fleet overview.** One environment is amber. Health score breakdown (`HM-028`); freshness footer visible.
 4. **Environment cockpit.** Workers at maximum overnight while tasks were queued. Queue wait (`HM-001`) and capacity utilisation (`HM-011`) charts with (i) explanations. Parse loop (`HM-013`) against the 5-minute guidance.
@@ -4591,7 +4591,7 @@ The MVP (end of M3) is the smallest product that changes how an operator works w
 6. **DAG detail.** Duration regression (`HM-016`) after a change event; Gantt with queue wait and run time; failures and retries (`HM-015`).
 7. **Bottleneck v0.** Throttle reasons for a selected window (`HM-006` v0) with confidence and evidence.
 8. **Effective configuration.** Values with provenance labels (`override`, `inferred`, `composer-default`, `airflow-default`).
-9. **Export and footprint.** CSV export of the league table. The DCM health page shows requests per API within budget.
+9. **Export and footprint.** CSV export of the league table. The DCAM health page shows requests per API within budget.
 
 ### 22.7 v1.0 launch checklist
 
@@ -4613,10 +4613,10 @@ The MVP (end of M3) is the smallest product that changes how an operator works w
 
   | Surface | Versioning | Compatibility rule |
   |---|---|---|
-  | DCM HTTP API | `/api/v1` path version | Additive changes only within v1; breaking changes need `/api/v2` and an ADR |
+  | DCAM HTTP API | `/api/v1` path version | Additive changes only within v1; breaking changes need `/api/v2` and an ADR |
   | Configuration file | `version:` key | Automatic migration with a backup; the old format is accepted for one major version |
   | Local data store | Schema migrations | Automatic migration with a backup (`NFR-REL-04`); downgrade documented as unsupported |
-  | Signal and rule packs | Pack `version` and `compatibility` range | Packs declare the DCM versions they support |
+  | Signal and rule packs | Pack `version` and `compatibility` range | Packs declare the DCAM versions they support |
   | Plugin SDK | Semantic versioning (from M8) | Deprecations are announced one minor version before removal |
   | MCP tools | Tool names and schemas | Additive; removals follow the deprecation rule |
 
@@ -4643,14 +4643,14 @@ These are ordered by expected user value. Each needs its own specification updat
 
 | ID | Item | Description | Prerequisites | Related |
 |---|---|---|---|---|
-| FB-01 | Listener companion | Optional Airflow listener plugin that emits task lifecycle, resource and timing events to a sink DCM can read (Cloud Logging, Pub/Sub or the bucket) | VC-22; ADR on transport; security review | [§7.9](#79-future-in-environment-companion) |
+| FB-01 | Listener companion | Optional Airflow listener plugin that emits task lifecycle, resource and timing events to a sink DCAM can read (Cloud Logging, Pub/Sub or the bucket) | VC-22; ADR on transport; security review | [§7.9](#79-future-in-environment-companion) |
 | FB-02 | Airflow 3 plugin embedding | Python twin of the OpenAPI contract plus a React app plugin inside the Airflow 3 UI | Contract stability; FB-01 helpful | [§11.12](#1112-embedding-path-into-airflow-and-composer) |
-| FB-03 | Composer-native integration path | Package DCM's analytics and UI so that a managed service could adopt them, for example as a console or Airflow UI extension; contribute signals upstream | FB-02; community traction | [§1](#1-executive-summary) |
+| FB-03 | Composer-native integration path | Package DCAM's analytics and UI so that a managed service could adopt them, for example as a console or Airflow UI extension; contribute signals upstream | FB-02; community traction | [§1](#1-executive-summary) |
 | FB-04 | Guarded opt-in actions | Strictly opt-in, audited actions (pause a DAG, clear a task, apply a config override) with dry-run, confirmation, change records and a separate permission profile | ADR; threat model update; separate build flag | `NG-2` |
 | FB-05 | What-if capacity simulator | Discrete-event simulation of the scheduler and executor using recorded demand | `HM-006`, `HM-010` maturity | [§22.9](#229-post-v1-directions) |
 | FB-06 | Metadata database snapshot forensics | Import a user-provided snapshot (saved by the user into their own Cloud SQL or local Postgres) for deep historical analysis beyond API retention | Snapshot format stability; privacy review | [§7.8](#78-optional-and-future-sources) |
 | FB-07 | Lineage and data-aware views | Dataset or asset dependency graphs, cross-DAG impact analysis, optional Dataplex lineage read | Airflow datasets or assets API | ― |
-| FB-08 | Google MCP interoperability | Use Composer's remote MCP server as an additional read-only source, or expose DCM's tools next to it in agent workflows | ADR-0018 follow-up | [Appendix G](#appendix-g-oss-landscape-and-positioning) |
+| FB-08 | Google MCP interoperability | Use Composer's remote MCP server as an additional read-only source, or expose DCAM's tools next to it in agent workflows | ADR-0018 follow-up | [Appendix G](#appendix-g-oss-landscape-and-positioning) |
 | FB-09 | ML anomaly models | Seasonal and multivariate anomaly detection beyond the statistical methods in [§8.9](#89-statistical-methods-and-data-quality) | Labelled incident data from users (opt-in) | `HM-016` |
 | FB-10 | BigQuery sink for team analytics | Optional export of derived facts to a BigQuery dataset the user owns | Team-server mode | [§5](#5-scope-and-release-overview) |
 | FB-11 | Autofix pull requests | Generate pull requests for static-analysis findings in the user's DAG repository (opt-in) | SCAN maturity; Git provider integration | `REC-CODE-*` |
@@ -4663,7 +4663,7 @@ These are ordered by expected user value. Each needs its own specification updat
 
 ## 23. Success metrics
 
-DCM collects **no telemetry** (`NFR-PRIV-01`). Success is measured from CI results, public repository signals, voluntary feedback and user-initiated local reports.
+DCAM collects **no telemetry** (`NFR-PRIV-01`). Success is measured from CI results, public repository signals, voluntary feedback and user-initiated local reports.
 
 | ID | Metric | Target | Measured by |
 |---|---|---|---|
@@ -4687,7 +4687,7 @@ DCM collects **no telemetry** (`NFR-PRIV-01`). Success is measured from CI resul
 | ID | Risk | Likelihood | Impact | Mitigation | Early warning |
 |---|---|---|---|---|---|
 | R-01 | Google changes metrics, APIs or names (renames, deprecations such as MQL, new resource types) | High | Medium | Capability probing; contract tests; nightly live drift check; adapters isolated behind ports; supported-version matrix per release | Drift issues; new release notes |
-| R-02 | DCM adds harmful load to the Airflow web server or database | Medium | High | Observer budgets, patient mode and circuit breakers ([§7.11](#711-observer-budget-do-no-harm)); measured in M1; conservative defaults; self-measurement | `HM-030`; API latency during collection |
+| R-02 | DCAM adds harmful load to the Airflow web server or database | Medium | High | Observer budgets, patient mode and circuit breakers ([§7.11](#711-observer-budget-do-no-harm)); measured in M1; conservative defaults; self-measurement | `HM-030`; API latency during collection |
 | R-03 | Cloud Logging quota contention with other tools (60 reads per minute per project, not increasable) | High | Medium | Metrics first; 20 % share by default; backoff; logs only on demand or for specific signals | 429 responses; collector lag |
 | R-04 | Enterprise constraints block access (VPC Service Controls, web server IP allowlists, organisation policies, proxies) | High | High | Doctor with precise diagnoses; documentation; proxy and custom CA support; Monitoring-only degraded mode | Doctor failures in onboarding feedback |
 | R-05 | Effective configuration cannot be read with read-only permissions | Certain | Medium | Inference (`HM-032`) with provenance labels; knowledge base; optional opt-in CLI; honest "unknown" | ― (designed in) |
@@ -4698,7 +4698,7 @@ DCM collects **no telemetry** (`NFR-PRIV-01`). Success is measured from CI resul
 | R-10 | Vulnerability in the local web server or MCP server exposes data | Low | High | Loopback bind; token for other interfaces; CSRF, CSP and Host validation; ZAP; security reviewer; read-only tools | Security reports; scanner findings |
 | R-11 | Naming or trademark conflict | Medium | Medium | Independent final name (OQ-01); trademark check before 1.0; nominative use of Google and Apache marks only | Legal feedback |
 | R-12 | Maintainer bandwidth and bus factor | Medium | High | Governance document; maintainers from more than one organisation; harness makes contributions easier; documented release process | Issue backlog growth; single-maintainer releases |
-| R-13 | Google-native features overlap with DCM (Gemini investigations, the Composer MCP server, dashboards, the Data Agent Kit) | High | Medium | Focus on gaps native tools do not cover ([Appendix G](#appendix-g-oss-landscape-and-positioning)); interoperate rather than compete; re-check positioning each release | New Composer release notes |
+| R-13 | Google-native features overlap with DCAM (Gemini investigations, the Composer MCP server, dashboards, the Data Agent Kit) | High | Medium | Focus on gaps native tools do not cover ([Appendix G](#appendix-g-oss-landscape-and-positioning)); interoperate rather than compete; re-check positioning each release | New Composer release notes |
 | R-14 | Privacy concerns about logs and DAG code in a local tool | Medium | Medium | Local-only data; redaction; opt-in AI with a preview; no telemetry; clear data map in the docs | Questions from security teams |
 | R-15 | AI-generated code quality drifts (subtle bugs, overfitted tests) | Medium | High | Test-first; mutation testing; human review; `code-reviewer` and `security-reviewer` subagents; ADRs; small pull requests | Mutation score drop; bug escape rate |
 | R-16 | Users move to Airflow 3 faster than planned: upstream Airflow 2 is past end of life, and Composer offers Airflow 3.2 and 3.3 builds next to the Airflow 2.11 default | Medium | High | API v2 adapter at M3 with a parity suite; the emulator matrix includes the Airflow 3 versions of Composer's latest builds; OQ-03 revisited at M1 | Share of Airflow 3 environments among users; Composer changing its default build |
@@ -4711,7 +4711,7 @@ Each question has a default assumption, so work can proceed, and a milestone by 
 
 | ID | Question | Default assumption | Decide by |
 |---|---|---|---|
-| OQ-01 | What is the final OSS name? "DEEP_COMPOSER_MONITORING" is a working name. "Composer" is a Google product name, so the final name should not depend on it | Working name DCM; shortlist names that describe Airflow observability without third-party marks; trademark search before the first public release | M3 (public release) |
+| OQ-01 | What is the final OSS name? "deep-gcp-airflow-monitoring" is a working name. "Composer" is a Google product name, so the final name should not depend on it | Working name DCAM; shortlist names that describe Airflow observability without third-party marks; trademark search before the first public release | M3 (public release) |
 | OQ-02 | Licence | Apache-2.0 with DCO (ADR-0020) | M0 |
 | OQ-03 | Should Airflow 3 be first-class (full parity) by v1.0, or "supported" through the API v2 adapter? | Supported at M3, with a parity suite; promoted to first-class by v1.0 if VC-02, VC-12 and VC-13 allow equivalent signals | M5 (revisit at M1, R-16) |
 | OQ-04 | Scope of the Composer 2 adapter (GKE metrics from the customer project) | Optional, M8, environment-level parity only | M6 |
@@ -4719,20 +4719,20 @@ Each question has a default assumption, so work can proceed, and a milestone by 
 | OQ-06 | Default LLM providers and the Copilot CLI integration for the optional explainer | No provider by default; copy-as-prompt always available; providers behind adapters | M7 |
 | OQ-07 | Which Cloud Monitoring path is primary: `timeSeries.list` or the PromQL API? | `timeSeries.list` by default; PromQL where it reduces calls (ADR-0014) | M1 |
 | OQ-08 | Can worker hostnames be mapped reliably to Composer 3 workloads? | Not assumed; environment-level aggregation until VC-04 confirms | M1 |
-| OQ-09 | Should DCM read a user-managed log sink (BigQuery or a log bucket view) to escape the Logging read quota? | Optional source, off by default; documented setup | M6 |
+| OQ-09 | Should DCAM read a user-managed log sink (BigQuery or a log bucket view) to escape the Logging read quota? | Optional source, off by default; documented setup | M6 |
 | OQ-10 | Are default local retention and disk budgets right for laptops (`NFR-RES-03`)? | 90 days hot plus rollups within 2 GB at reference scale | M3 |
 | OQ-11 | Should static analysis read DAG code from the environment bucket only, or also from a local Git checkout? | Both: bucket by default, local path optional (preferred when available) | M7 |
 | OQ-12 | Transport for the future companion: Cloud Logging, Pub/Sub or the bucket? | Cloud Logging structured entries (no new infrastructure) | Post-v1 |
 | OQ-13 | Is a desktop wrapper (for example Tauri or Electron) worth it? | No; browser plus CLI | Post-v1 |
 | OQ-14 | Should usage statistics ever exist? | No telemetry. Revisit only with an ADR, explicit opt-in and public aggregate data | Post-v1 |
 | OQ-15 | Governance model: single-vendor maintainers or a foundation path? | Neutral GitHub organisation with a `GOVERNANCE.md`; consider a foundation after 1.0 | M8 |
-| OQ-16 | How should DCM interoperate with Google's remote MCP server and Gemini features? | Document complementary use; read-only interoperability candidate (FB-08) | M7 |
+| OQ-16 | How should DCAM interoperate with Google's remote MCP server and Gemini features? | Document complementary use; read-only interoperability candidate (FB-08) | M7 |
 
 ---
 
 ## Appendix A. Cloud Composer metric catalog
 
-This catalog lists the Cloud Monitoring metrics DCM reads and what it uses them for. It was verified against the Google Cloud metrics list and the Composer 3 monitoring documentation ([Appendix H](#appendix-h-references)). Google adds metrics regularly, so DCM discovers the full list at runtime with `metricDescriptors.list` and never assumes availability (capability flags, [§8.10](#810-capability-and-degradation-matrix)).
+This catalog lists the Cloud Monitoring metrics DCAM reads and what it uses them for. It was verified against the Google Cloud metrics list and the Composer 3 monitoring documentation ([Appendix H](#appendix-h-references)). Google adds metrics regularly, so DCAM discovers the full list at runtime with `metricDescriptors.list` and never assumes availability (capability flags, [§8.10](#810-capability-and-degradation-matrix)).
 
 ### A.1 Conventions
 
@@ -4744,9 +4744,9 @@ This catalog lists the Cloud Monitoring metrics DCM reads and what it uses them 
   - Every metric is also published under an `internal_composer_*` resource type. Filters MUST always name `resource.type`, and PromQL queries MUST set `monitored_resource`.
 - **Common label.** Every metric carries `image_version`.
 - **Sampling.** Every 60 s by default; data is visible after up to 120 s. Exceptions are listed in the Sample/delay column (seconds).
-- **Retention.** Composer metrics are kept for **6 weeks**, which is why DCM keeps its own long-term rollups.
+- **Retention.** Composer metrics are kept for **6 weeks**, which is why DCAM keeps its own long-term rollups.
 - **Workflow metrics** appear only for completed DAG runs and task instances.
-- **Alignment used by DCM.**
+- **Alignment used by DCAM.**
 
   | Kind | Aligner | Notes |
   |---|---|---|
@@ -4755,11 +4755,11 @@ This catalog lists the Cloud Monitoring metrics DCM reads and what it uses them 
   | `CUMULATIVE` | `ALIGN_DELTA` or `ALIGN_RATE` | Reset handling is done by Monitoring |
   | `DISTRIBUTION` | `ALIGN_DELTA`, then percentiles | Or `ALIGN_PERCENTILE_*` |
 
-- **Units differ between similar metrics.** For example, `workflow/run_duration` is in seconds and `workflow/dag/run_duration` is in milliseconds. DCM converts at ingest and stores a unit with every value (`P-5`).
+- **Units differ between similar metrics.** For example, `workflow/run_duration` is in seconds and `workflow/dag/run_duration` is in milliseconds. DCAM converts at ingest and stores a unit with every value (`P-5`).
 
 ### A.2 Environment: health and components
 
-| Metric | Kind, type, unit | Labels | Sample/delay | DCM use |
+| Metric | Kind, type, unit | Labels | Sample/delay | DCAM use |
 |---|---|---|---|---|
 | `environment/healthy` | GAUGE, BOOL | ― | 300/120 | `HM-028`, `AL-01`. Driven by the `airflow_monitoring` liveness DAG |
 | `environment/database_health` | GAUGE, BOOL | `environment_type` | 60/120 | `HM-028`, `AL-18` |
@@ -4780,7 +4780,7 @@ This catalog lists the Cloud Monitoring metrics DCM reads and what it uses them 
 
 ### A.3 Environment: scheduler, executor, pools and task instances
 
-| Metric | Kind, type, unit | Labels | DCM use |
+| Metric | Kind, type, unit | Labels | DCAM use |
 |---|---|---|---|
 | `environment/scheduler/critical_section_duration` | GAUGE, DOUBLE, ms | ― | `HM-031` |
 | `environment/scheduler/critical_section_lock_failure_count` | CUMULATIVE, INT64 | ― | `HM-031` |
@@ -4803,7 +4803,7 @@ This catalog lists the Cloud Monitoring metrics DCM reads and what it uses them 
 
 ### A.4 Environment: workers and autoscaling
 
-| Metric | Kind, type, unit | Labels | Sample/delay | DCM use |
+| Metric | Kind, type, unit | Labels | Sample/delay | DCAM use |
 |---|---|---|---|---|
 | `environment/num_celery_workers` | GAUGE, INT64 | ― | 60/120 | `HM-011`, `HM-012`, `AL-05` |
 | `environment/worker/min_workers`, `max_workers` | GAUGE, INT64 | ― | 60/120 | `HM-011`, `HM-012`, `AL-05` |
@@ -4813,7 +4813,7 @@ This catalog lists the Cloud Monitoring metrics DCM reads and what it uses them 
 
 ### A.5 Environment: DAG processing
 
-| Metric | Kind, type, unit | Labels | DCM use |
+| Metric | Kind, type, unit | Labels | DCAM use |
 |---|---|---|---|
 | `environment/dag_processing/total_parse_time` | GAUGE, DOUBLE, s | ― | `HM-013`, `REC-PARSE-08`. Google's guidance is to keep it under 5 minutes; gaps in this series are themselves a symptom |
 | `environment/dag_processing/last_duration` | GAUGE, DOUBLE, ms | `dag_file` | `HM-013` per file, `REC-PARSE-01` |
@@ -4827,7 +4827,7 @@ This catalog lists the Cloud Monitoring metrics DCM reads and what it uses them 
 
 ### A.6 Environment: triggerer, database, Airflow API and snapshots
 
-| Metric | Kind, type, unit | Labels | Sample/delay | DCM use |
+| Metric | Kind, type, unit | Labels | Sample/delay | DCAM use |
 |---|---|---|---|---|
 | `environment/trigger/blocking_count`, `failed_count`, `succeeded_count` | DELTA, INT64 | ― | 60/120 | `HM-022`, `REC-TRG-03` |
 | `environment/database/airflow/size` | GAUGE, INT64, By | ― | 60/120 | `HM-019`, `AL-11` |
@@ -4843,7 +4843,7 @@ This catalog lists the Cloud Monitoring metrics DCM reads and what it uses them 
 | `environment/api/request_latencies` | DELTA, DISTRIBUTION, ms | `status`, `api_version`, `api_method` | 60/180 | `HM-030`; patient mode |
 | `environment/snapshot/creation_count` (DELTA, `result`), `creation_elapsed_time` (GAUGE, s), `size` (GAUGE, By) | see cell | see cell | 60/120 | Change timeline; `HM-019` context |
 
-**Deprecated.** These are not used by DCM. Use the `workload/*` metrics instead:
+**Deprecated.** These are not used by DCAM. Use the `workload/*` metrics instead:
 
 - `environment/smart_sensor/*`;
 - `environment/web_server/cpu/*`;
@@ -4851,9 +4851,9 @@ This catalog lists the Cloud Monitoring metrics DCM reads and what it uses them 
 
 ### A.7 Workflow metrics (per DAG)
 
-The resource is `cloud_composer_workflow`, and `workflow_name` is the DAG ID. Because there is no environment label, DCM detects DAG IDs shared by several environments in the same project and location, and prefers the Airflow API for those DAGs ([§7.2](#72-cloud-monitoring-src-mon)).
+The resource is `cloud_composer_workflow`, and `workflow_name` is the DAG ID. Because there is no environment label, DCAM detects DAG IDs shared by several environments in the same project and location, and prefers the Airflow API for those DAGs ([§7.2](#72-cloud-monitoring-src-mon)).
 
-| Metric | Kind, type, unit | Labels | Airflow source metric | DCM use |
+| Metric | Kind, type, unit | Labels | Airflow source metric | DCAM use |
 |---|---|---|---|---|
 | `workflow/run_count` | DELTA, INT64 | `state` | ― | `HM-015` |
 | `workflow/run_duration` | GAUGE, DOUBLE, **s** | `state` (`success`, `shutdown`, `skipped`, `failed`) | ― | `HM-016` (cross-check) |
@@ -4875,7 +4875,7 @@ The resource is `cloud_composer_workflow`, and `workflow_name` is the DAG ID. Be
 
 The resource is `cloud_composer_workload`. On Composer 3 these metrics are the only source of per-component CPU, memory, disk and restarts, because the cluster runs in the tenant project.
 
-| Metric | Kind, type, unit | Labels | DCM use |
+| Metric | Kind, type, unit | Labels | DCAM use |
 |---|---|---|---|
 | `workload/cpu/reserved_cores` | GAUGE, DOUBLE | ― | `HM-011`, `HM-027`, `HM-021` |
 | `workload/cpu/usage_time` | DELTA, DOUBLE, s | ― | `HM-011`, `HM-027`, `REC-CAP-04`, `REC-SCH-02` |
@@ -4922,15 +4922,15 @@ The legacy name form `composer_googleapis_com:environment_executor_queued_tasks`
 ### B.1 Rules
 
 - **Generated clients.** Clients are generated from the official OpenAPI documents of the pinned Airflow versions. Exact parameter and body field names come from those documents, not from this table.
-- **Public API only.** DCM never calls UI-private endpoints, such as the `/ui/*` routes in Airflow 3 or the grid and graph data routes in Airflow 2. They are unstable and not covered by the API's compatibility promise.
+- **Public API only.** DCAM never calls UI-private endpoints, such as the `/ui/*` routes in Airflow 3 or the grid and graph data routes in Airflow 2. They are unstable and not covered by the API's compatibility promise.
 - **Base URLs.** `{airflowUri}/api/v1` for Airflow 2 and `{airflowUri}/api/v2` for Airflow 3. Authentication uses a Google OAuth 2.0 bearer token; the Airflow role `Viewer` is sufficient ([§18.3](#183-authentication-and-identity)).
-- **`GET` only.** DCM sends no `POST`, `PATCH` or `DELETE` request to the Airflow REST API ([§18.2](#182-read-only-guarantee)).
+- **`GET` only.** DCAM sends no `POST`, `PATCH` or `DELETE` request to the Airflow REST API ([§18.2](#182-read-only-guarantee)).
 - **Paging.** Every request sets an explicit page size of at most 100, because API v1 task instance lists do not cap it (VC-11). Fact reads use closed `updated_at` windows that are split until they fit in one page (B.3); on Airflow 3.2.2 and later, keyset paging with `cursor` replaces splitting. An overlap re-read and idempotent upserts complete the pattern ([§7.5](#75-airflow-rest-api-src-af-api)).
 - **Budget.** Every call counts against the Airflow API budget of its environment ([§7.11](#711-observer-budget-do-no-harm)).
 
 ### B.2 Endpoints
 
-| Purpose | Airflow 2 (`/api/v1`) | Airflow 3 (`/api/v2`) | When | DCM use |
+| Purpose | Airflow 2 (`/api/v1`) | Airflow 3 (`/api/v2`) | When | DCAM use |
 |---|---|---|---|---|
 | Version | `GET /version` | `GET /version` | At connect; daily | Adapter selection (`FR-COLL-08`) |
 | Health | `GET /health` | `GET /monitor/health` | Every minute | Scheduler and triggerer heartbeat as seen by Airflow; patient mode |
@@ -4966,7 +4966,7 @@ GET {airflowUri}/api/v1/dags/~/dagRuns/~/taskInstances
 Authorization: Bearer <access token>
 ```
 
-The query string is wrapped for readability. The window end is a closed boundary (now minus a settling delay). `updated_at` changes whenever the row changes, so the window also returns finished task instances that were marked again by hand; Airflow keeps the first `end_date` in that case, so an `end_date` window would miss them. The state filter keeps running work out of the window, because its rows change often. The API v1 task instance endpoints return rows in no defined order, so offset paging within a window can skip or repeat rows. DCM therefore keeps each request to one page: when `total_entries` exceeds the page size, the window is split in half and each half is requested, recursively. At the minimum window width (1 s by default), DCM falls back to offset paging within that window and, within the budget, re-reads it until the number of distinct natural keys equals `total_entries`; otherwise the window is marked incomplete and retried in the next cycle. When every window up to the window end is complete, the watermark advances to it. On Airflow 3.2.2 and later, the same request adds `order_by=id` and pages with `cursor` instead of splitting; earlier Airflow 3 builds split windows in the same way.
+The query string is wrapped for readability. The window end is a closed boundary (now minus a settling delay). `updated_at` changes whenever the row changes, so the window also returns finished task instances that were marked again by hand; Airflow keeps the first `end_date` in that case, so an `end_date` window would miss them. The state filter keeps running work out of the window, because its rows change often. The API v1 task instance endpoints return rows in no defined order, so offset paging within a window can skip or repeat rows. DCAM therefore keeps each request to one page: when `total_entries` exceeds the page size, the window is split in half and each half is requested, recursively. At the minimum window width (1 s by default), DCAM falls back to offset paging within that window and, within the budget, re-reads it until the number of distinct natural keys equals `total_entries`; otherwise the window is marked incomplete and retried in the next cycle. When every window up to the window end is complete, the watermark advances to it. On Airflow 3.2.2 and later, the same request adds `order_by=id` and pages with `cursor` instead of splitting; earlier Airflow 3 builds split windows in the same way.
 
 ---
 
@@ -5044,14 +5044,14 @@ The Config KB ([§14.2](#142-knowledge-base-model)) starts with these entries. E
 | `scheduler.stale_dag_threshold` (Airflow 3: `dag_processor.stale_dag_threshold`) | 50 s | ― | Wait after re-parsing a file before deactivating DAGs that are no longer in it | `HM-013` |
 | `scheduler.scheduler_zombie_task_threshold` (Airflow 3: `scheduler.task_instance_heartbeat_timeout`) | 300 s | ― | Heartbeat age after which a running task is a zombie | `HM-018` |
 | `scheduler.catchup_by_default` | Airflow 2: `True`; Airflow 3: `False` | ― | Default `catchup` for DAGs that do not set it | `HM-024`, `REC-CODE-08` |
-| `celery.worker_concurrency` | 16 | **`auto`** (calculated by Composer; formula not published); Composer 3 range **1�C24**; sizing guidance CPU ≥ value ÷ 12, memory GB ≥ value ÷ 8 (VC-19) | Task slots per Celery worker | `HM-027`, `REC-CAP-05`, `REC-CAP-08` |
+| `celery.worker_concurrency` | 16 | **`auto`** (calculated by Composer; formula not published); Composer 3 range **1–24**; sizing guidance CPU ≥ value ÷ 12, memory GB ≥ value ÷ 8 (VC-19) | Task slots per Celery worker | `HM-027`, `REC-CAP-05`, `REC-CAP-08` |
 | `triggerer.default_capacity` (Airflow 3: `triggerer.capacity`) | 1000 | ― | Triggers one triggerer runs concurrently | `HM-022`, `REC-TRG-01` |
 | `triggerer.job_heartbeat_sec` | ― | Minimum 30 s | Triggerer heartbeat interval | `HM-022` |
 | `triggerer.triggerer_health_check_threshold` | 30 s | Minimum 30 s or 2 × `job_heartbeat_sec` | When a triggerer is considered unhealthy | `HM-022` |
 | `api.maximum_page_limit` | 100 | ― | Maximum `limit` on API list calls | Collector paging (VC-11) |
 | `api.composer_auth_user_registration_role` (Composer-specific) | ― | **`Op`** | Airflow role given to identities registered through the API | Doctor ([§18.3](#183-authentication-and-identity)) |
 | `webserver.rbac_user_registration_role` | `Public` | **`Op`** | Airflow role given to identities registered through the UI | Doctor |
-| `kubernetes_executor.worker_pods_queued_check_interval` | 60 s | Range 30�C60 s | Check interval for queued Kubernetes worker pods | ― |
+| `kubernetes_executor.worker_pods_queued_check_interval` | 60 s | Range 30–60 s | Check interval for queued Kubernetes worker pods | ― |
 
 **Blocked sections on Composer 3:** `[metrics]` (no custom StatsD), `[logging]`, `[cli]`, most of `[celery]` broker settings, `[kubernetes]` internals, and core paths and executor settings. Airflow 3 additionally blocks the JWT and DAG bundle options. The Config Advisor shows blocked options as "Managed by Composer" and never recommends them.
 
@@ -5059,15 +5059,15 @@ The Config KB ([§14.2](#142-knowledge-base-model)) starts with these entries. E
 
 | Setting | Values and limits (Composer 3) | Notes |
 |---|---|---|
-| Schedulers (`workloadsConfig.scheduler`) | Count 1�C3; 0.5�C2 vCPU; 1�C8 GB | Google recommends 2 schedulers; more than 3 hurts. Not autoscaled |
-| DAG processors (`workloadsConfig.dagProcessor`) | Count 1�C3 (⚠️ the documentation also mentions up to 10 in high-resilience mode); 0.5�C32 vCPU; 1�C256 GB | Not autoscaled |
-| Triggerers (`workloadsConfig.triggerer`) | Count 0�C10 (high resilience: 0 or 2�C10); 0.5�C1 vCPU; 1�C8 GB | ― |
-| Web server (`workloadsConfig.webServer`) | 1�C4 vCPU; 2�C32 GB | Serves the Airflow REST API on Airflow 2 |
-| Workers (`workloadsConfig.worker`) | `minCount`�C`maxCount` within 1�C100; 0.5�C32 vCPU; 1�C256 GB | Autoscaled from the scaling factor (queued tasks, workers, idle workers, `worker_concurrency`) |
-| Memory per vCPU | 1�C8 GB per vCPU (Airflow 3 components need at least 2 GB) | ― |
+| Schedulers (`workloadsConfig.scheduler`) | Count 1–3; 0.5–2 vCPU; 1–8 GB | Google recommends 2 schedulers; more than 3 hurts. Not autoscaled |
+| DAG processors (`workloadsConfig.dagProcessor`) | Count 1–3 (⚠️ the documentation also mentions up to 10 in high-resilience mode); 0.5–32 vCPU; 1–256 GB | Not autoscaled |
+| Triggerers (`workloadsConfig.triggerer`) | Count 0–10 (high resilience: 0 or 2–10); 0.5–1 vCPU; 1–8 GB | ― |
+| Web server (`workloadsConfig.webServer`) | 1–4 vCPU; 2–32 GB | Serves the Airflow REST API on Airflow 2 |
+| Workers (`workloadsConfig.worker`) | `minCount`–`maxCount` within 1–100; 0.5–32 vCPU; 1–256 GB | Autoscaled from the scaling factor (queued tasks, workers, idle workers, `worker_concurrency`) |
+| Memory per vCPU | 1–8 GB per vCPU (Airflow 3 components need at least 2 GB) | ― |
 | Environment size | Small, Medium, Large, Extra Large | Google's presets: 50, 250, 1,000 and 3,000 DAGs, with matching run and task concurrency |
 | Resilience mode | Standard or high resilience | High resilience: 2 schedulers, 2 web servers, at least 2 DAG processors, triggerers 0 or at least 2, at least 2 workers, regional database |
-| Airflow database retention | On by default; 60 days; range 30�C730; runs at least daily | `HM-019`, `REC-DB-04`, `REC-DB-05` |
+| Airflow database retention | On by default; 60 days; range 30–730; runs at least daily | `HM-019`, `REC-DB-04`, `REC-DB-05` |
 | Airflow database size | Upgrades and snapshots are blocked above 20 GB; disk never shrinks | `HM-019`, `AL-11` |
 | Image support | Each Composer 3 build is supported for 12 months from its release | `HM-026`, `REC-UPG-01` |
 
@@ -5077,7 +5077,7 @@ The Config KB ([§14.2](#142-knowledge-base-model)) starts with these entries. E
 
 ### E.1 Permissions by feature
 
-| DCM feature | Permission or role | If missing |
+| DCAM feature | Permission or role | If missing |
 |---|---|---|
 | Discover and read environments, workloads, operations and image versions | `roles/composer.viewer` | Environment is not usable; doctor error |
 | Airflow REST API | `composer.environments.get` (in `roles/composer.viewer`) **and** Airflow role `Viewer` | DAG-level analytics degrade to Monitoring workflow metrics |
@@ -5096,9 +5096,9 @@ The Config KB ([§14.2](#142-knowledge-base-model)) starts with these entries. E
 Organisations that prefer custom roles can use this definition instead of the predefined Composer, Monitoring and Logging viewer roles. Grant bucket read separately on the environment bucket.
 
 ```yaml
-# dcm-reader.yaml  (⚠️ VERIFY the permission list against the IAM reference at M1; log views may also need logging.views.access)
-title: "DCM reader"
-description: "Read-only access for DCM (DEEP_COMPOSER_MONITORING)"
+# dcam-reader.yaml  (⚠️ VERIFY the permission list against the IAM reference at M1; log views may also need logging.views.access)
+title: "DCAM reader"
+description: "Read-only access for DCAM (deep-gcp-airflow-monitoring)"
 stage: "GA"
 includedPermissions:
   # Composer API (also covers environments.workloads.list and access to the Airflow web server and API)
@@ -5123,33 +5123,33 @@ includedPermissions:
 ### E.3 Opt-in Airflow CLI role
 
 ```yaml
-# dcm-airflow-cli.yaml  (opt-in, FR-COLL-12; ⚠️ VERIFY whether polling needs further permissions)
-title: "DCM Airflow CLI (opt-in)"
-description: "Lets DCM run its allowlisted read-only Airflow CLI commands. Warning: this permission also allows mutating CLI commands. Use a dedicated identity."
+# dcam-airflow-cli.yaml  (opt-in, FR-COLL-12; ⚠️ VERIFY whether polling needs further permissions)
+title: "DCAM Airflow CLI (opt-in)"
+description: "Lets DCAM run its allowlisted read-only Airflow CLI commands. Warning: this permission also allows mutating CLI commands. Use a dedicated identity."
 stage: "GA"
 includedPermissions:
   - composer.environments.get
   - composer.environments.executeAirflowCommand
 ```
 
-`composer.environments.executeAirflowCommand` is otherwise only in administrator and editor roles. DCM's guard restricts the commands it will send ([§18.2](#182-read-only-guarantee)), but the permission does not. Grant it only to a dedicated identity that DCM impersonates when the collector runs.
+`composer.environments.executeAirflowCommand` is otherwise only in administrator and editor roles. DCAM's guard restricts the commands it will send ([§18.2](#182-read-only-guarantee)), but the permission does not. Grant it only to a dedicated identity that DCAM impersonates when the collector runs.
 
-### E.4 Setup commands (run by an administrator, not by DCM)
+### E.4 Setup commands (run by an administrator, not by DCAM)
 
 ```bash
 # Reader service account and roles (project level)
-gcloud iam service-accounts create dcm-reader --project=PROJECT_ID --display-name="DCM reader"
+gcloud iam service-accounts create dcam-reader --project=PROJECT_ID --display-name="DCAM reader"
 for ROLE in roles/composer.viewer roles/monitoring.viewer roles/logging.viewer; do
   gcloud projects add-iam-policy-binding PROJECT_ID \
-    --member="serviceAccount:dcm-reader@PROJECT_ID.iam.gserviceaccount.com" --role="$ROLE"
+    --member="serviceAccount:dcam-reader@PROJECT_ID.iam.gserviceaccount.com" --role="$ROLE"
 done
 
 # Bucket read on the environment bucket only
 gcloud storage buckets add-iam-policy-binding gs://ENVIRONMENT_BUCKET \
-  --member="serviceAccount:dcm-reader@PROJECT_ID.iam.gserviceaccount.com" --role="roles/storage.objectViewer"
+  --member="serviceAccount:dcam-reader@PROJECT_ID.iam.gserviceaccount.com" --role="roles/storage.objectViewer"
 
 # Let a user impersonate the reader
-gcloud iam service-accounts add-iam-policy-binding dcm-reader@PROJECT_ID.iam.gserviceaccount.com \
+gcloud iam service-accounts add-iam-policy-binding dcam-reader@PROJECT_ID.iam.gserviceaccount.com \
   --member="user:USER_EMAIL" --role="roles/iam.serviceAccountTokenCreator"
 ```
 
@@ -5157,7 +5157,7 @@ gcloud iam service-accounts add-iam-policy-binding dcm-reader@PROJECT_ID.iam.gse
 
 ### E.5 Quota project
 
-With user credentials, client-based APIs bill quota to a quota project. DCM sends `x-goog-user-project` with the target project of each call. The caller then needs `serviceusage.services.use` on that project, and the API must be enabled there. The doctor checks both (`FR-AUTH-05`) and explains how to fix them.
+With user credentials, client-based APIs bill quota to a quota project. DCAM sends `x-goog-user-project` with the target project of each call. The caller then needs `serviceusage.services.use` on that project, and the API must be enabled there. The doctor checks both (`FR-AUTH-05`) and explains how to fix them.
 
 ---
 
@@ -5171,18 +5171,18 @@ These files are the starting point for the M0 harness ([§21](#21-claude-code-ha
 ### F.1 `CLAUDE.md`
 
 ```markdown
-# DCM (DEEP_COMPOSER_MONITORING)
+# DCAM (deep-gcp-airflow-monitoring)
 
-DCM is a local-first, read-only monitoring and advisory tool for Google Cloud Composer (Apache Airflow).
+DCAM is a local-first, read-only monitoring and advisory tool for Google Cloud Composer (Apache Airflow).
 It shows what limits each environment (capacity, concurrency, parsing, scheduling), with evidence,
 and recommends copy-paste fixes that humans review and apply.
-Product specification: docs/spec/dcm-spec.md (read the sections a task needs; do not load it all).
+Product specification: docs/spec/dcam-spec.md (read the sections a task needs; do not load it all).
 Engineering constitution: .specify/memory/constitution.md
 
 ## Commands
 - `pnpm i`: install dependencies
 - `pnpm dev`: server and UI with hot reload (UI http://localhost:5173, API http://127.0.0.1:8787)
-- `pnpm dcm --demo`: run DCM on the synthetic demo dataset (no Google Cloud access)
+- `pnpm dcam --demo`: run DCAM on the synthetic demo dataset (no Google Cloud access)
 - `pnpm test` ・ `pnpm test:e2e` ・ `pnpm golden`: unit and integration, end-to-end, golden tests
 - `pnpm emu up` ・ `pnpm emu down` ・ `pnpm emu scenario <SC-ID>`: local Airflow emulator
 - `pnpm trace`: requirement traceability check
@@ -5253,7 +5253,7 @@ Signals, rules, the Config KB and runbooks are declarative packs (YAML + SQL + M
     ]
   },
   "env": {
-    "DCM_NETWORK": "loopback-only",
+    "DCAM_NETWORK": "loopback-only",
     "CLOUDSDK_CORE_DISABLE_PROMPTS": "1"
   },
   "hooks": {
@@ -5285,26 +5285,26 @@ Notes:
 - `"onFailure": "block"` makes the guards fail closed even when the script is missing or crashes (Claude Code v2.1.295 or later). The minimum Claude Code version is recorded in ADR-0022.
 - `Bash(tool:*)` is equivalent to `Bash(tool *)`; the `:*` form is recognised only at the end of a rule.
 - `.gitignore` must contain `.claude/settings.local.json` and `.claude/.stop-attempts`.
-- DCM does not use `.env` files; configuration examples live in `dcm.config.example.yaml`.
-- A maintainer's personal `.claude/settings.local.json` turns on a mode only for the session that needs it, for example `{ "env": { "DCM_HARNESS_CLOUD_READ": "1" } }`.
+- DCAM does not use `.env` files; configuration examples live in `dcam.config.example.yaml`.
+- A maintainer's personal `.claude/settings.local.json` turns on a mode only for the session that needs it, for example `{ "env": { "DCAM_HARNESS_CLOUD_READ": "1" } }`.
 
 ### F.3 `.claude/hooks/guard-bash.mjs`
 
 ```js
 #!/usr/bin/env node
-// PreToolUse(Bash) guard for DCM (§21.5). Blocks commands that could change cloud
+// PreToolUse(Bash) guard for DCAM (§21.5). Blocks commands that could change cloud
 // resources, expose credentials or data, or rewrite shared Git history.
 // Exit code 2 blocks the call; stderr is shown to Claude. One layer of defence, not a sandbox.
 import { readFileSync } from 'node:fs';
 
-const CLOUD_READ = process.env.DCM_HARNESS_CLOUD_READ === '1';
-const MAINTENANCE = process.env.DCM_HARNESS_MAINTENANCE === '1';
+const CLOUD_READ = process.env.DCAM_HARNESS_CLOUD_READ === '1';
+const MAINTENANCE = process.env.DCAM_HARNESS_MAINTENANCE === '1';
 const MAX_DEPTH = 3;
-const SUBST = '__DCM_SUBST__';
+const SUBST = '__DCAM_SUBST__';
 
 const CREDENTIALS =
   /\.config\/gcloud|application_default_credentials|\.ssh\/|\.netrc|\.git-credentials|\.docker\/config\.json|\.kube\/config|\.(pem|key|p12)\b|(^|[\s/'"=])\.env(?!\.example\b)\b/i;
-const HARNESS = /\.claude\/(settings[^/\s]*\.json|hooks\/)|\.mcp\.json|DCM_HARNESS_/;
+const HARNESS = /\.claude\/(settings[^/\s]*\.json|hooks\/)|\.mcp\.json|DCAM_HARNESS_/;
 const CLOUD_HOSTS = /googleapis\.com|googleusercontent\.com|metadata\.google\.internal|169\.254\.169\.254/i;
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh']);
 const PREFIXES = new Set(['env', 'exec', 'time', 'nice', 'nohup', 'command', 'builtin', 'timeout', 'stdbuf']);
@@ -5313,7 +5313,7 @@ const UNVERIFIABLE = new Set(['eval', 'source', '.']);
 const GCLOUD_READ_VERBS = new Set(['list', 'describe', 'ls']);
 const GCLOUD_READ_COMMANDS = ['config list', 'auth list', 'version', 'info', 'help'];
 const NOT_ALLOWED_DEFAULT =
-  'cloud CLIs are blocked in Claude Code sessions. A maintainer can enable read-only verification with DCM_HARNESS_CLOUD_READ=1 (§21.4)';
+  'cloud CLIs are blocked in Claude Code sessions. A maintainer can enable read-only verification with DCAM_HARNESS_CLOUD_READ=1 (§21.4)';
 
 const positional = (args) => args.filter((a) => !a.startsWith('-'));
 
@@ -5341,11 +5341,11 @@ const RULES = {
   },
   terraform: (args) =>
     ['fmt', 'validate', 'version'].includes(positional(args)[0]) ? null : 'only fmt, validate and version are allowed',
-  kubectl: () => 'DCM development never needs kubectl',
-  helm: () => 'DCM development never needs helm',
+  kubectl: () => 'DCAM development never needs kubectl',
+  helm: () => 'DCAM development never needs helm',
   http: () => 'use curl for GET requests instead',
   curl(args) {
-    if (args.some((a) => CLOUD_HOSTS.test(a))) return 'requests to Google APIs go through DCM itself, run by a human';
+    if (args.some((a) => CLOUD_HOSTS.test(a))) return 'requests to Google APIs go through DCAM itself, run by a human';
     for (let i = 0; i < args.length; i++) {
       const a = args[i];
       const method =
@@ -5356,7 +5356,7 @@ const RULES = {
     return null;
   },
   wget(args) {
-    if (args.some((a) => CLOUD_HOSTS.test(a))) return 'requests to Google APIs go through DCM itself, run by a human';
+    if (args.some((a) => CLOUD_HOSTS.test(a))) return 'requests to Google APIs go through DCAM itself, run by a human';
     const bad = args.find((a) => /^--(post-data|post-file|body-data|body-file)/.test(a) || /^--method=(?!GET\b|HEAD\b)/i.test(a));
     return bad ? `"${bad}" is not allowed` : null;
   },
@@ -5516,12 +5516,12 @@ let command = '';
 try {
   command = JSON.parse(readFileSync(0, 'utf8'))?.tool_input?.command ?? '';
 } catch {
-  process.stderr.write('DCM guard: could not read the hook input, so the command is blocked.\n');
+  process.stderr.write('DCAM guard: could not read the hook input, so the command is blocked.\n');
   process.exit(2);
 }
 const reason = check(command);
 if (reason) {
-  process.stderr.write(`Blocked by the DCM guard: ${reason}. See CLAUDE.md (non-negotiables) and spec §21.5.\n`);
+  process.stderr.write(`Blocked by the DCAM guard: ${reason}. See CLAUDE.md (non-negotiables) and spec §21.5.\n`);
   process.exit(2);
 }
 ```
@@ -5530,23 +5530,23 @@ if (reason) {
 
 ```js
 #!/usr/bin/env node
-// PreToolUse(Edit|MultiEdit|Write) guard for DCM (§21.5). Exit code 2 blocks the edit.
+// PreToolUse(Edit|MultiEdit|Write) guard for DCAM (§21.5). Exit code 2 blocks the edit.
 import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, relative, resolve } from 'node:path';
 
 const root = process.env.CLAUDE_PROJECT_DIR ?? process.cwd();
-const maintenance = process.env.DCM_HARNESS_MAINTENANCE === '1';
+const maintenance = process.env.DCAM_HARNESS_MAINTENANCE === '1';
 
 const RULES = [
   [/(^|\/)\.env(?!\.example$)[^/]*$|\.(pem|key|p12)$|(^|\/)\.ssh\//, 'credential-like files are never edited in a Claude Code session'],
   [/^pnpm-lock\.yaml$/, 'change dependencies with pnpm commands instead of editing the lockfile'],
   [/^packages\/contracts\/generated\//, 'this is generated code: edit packages/contracts/openapi.yaml and regenerate'],
-  [/^\.claude\/(hooks\/|settings(\.local)?\.json$)|^\.mcp\.json$/, 'guardrails change only in harness maintenance mode (DCM_HARNESS_MAINTENANCE=1, set by a human)', () => !maintenance],
+  [/^\.claude\/(hooks\/|settings(\.local)?\.json$)|^\.mcp\.json$/, 'guardrails change only in harness maintenance mode (DCAM_HARNESS_MAINTENANCE=1, set by a human)', () => !maintenance],
 ];
 
 function block(reason) {
-  process.stderr.write(`Blocked by the DCM path guard: ${reason}. See spec §21.5.\n`);
+  process.stderr.write(`Blocked by the DCAM path guard: ${reason}. See spec §21.5.\n`);
   process.exit(2);
 }
 
@@ -5579,7 +5579,7 @@ if (/^docs\/adr\/\d{4}-.*\.md$/.test(rel) && existsSync(abs) && /^status:\s*"?ac
 
 ```js
 #!/usr/bin/env node
-// Stop hook for DCM (§21.5): Claude keeps working until typecheck and the affected tests pass.
+// Stop hook for DCAM (§21.5): Claude keeps working until typecheck and the affected tests pass.
 // Exit code 2 blocks stopping and shows stderr to Claude; after three attempts it hands over to a human.
 import { spawnSync } from 'node:child_process';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -5637,14 +5637,14 @@ rmSync(counterFile, { force: true });
 ```markdown
 ---
 name: ui-validator
-description: Validates DCM user interface changes in a real browser against the UV checklist (spec §19.6) and writes an evidence report. Use after changes under apps/web or packages/ui-kit, and whenever /validate-ui runs.
+description: Validates DCAM user interface changes in a real browser against the UV checklist (spec §19.6) and writes an evidence report. Use after changes under apps/web or packages/ui-kit, and whenever /validate-ui runs.
 tools: Read, Grep, Glob, Write, Bash, mcp__playwright__browser_navigate, mcp__playwright__browser_snapshot, mcp__playwright__browser_click, mcp__playwright__browser_type, mcp__playwright__browser_press_key, mcp__playwright__browser_resize, mcp__playwright__browser_wait_for, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_console_messages, mcp__playwright__browser_network_requests
 ---
 
-You validate DCM screens the way a user sees them. You never change product code; you report.
+You validate DCAM screens the way a user sees them. You never change product code; you report.
 
 ## Safety
-- Open only DCM: http://127.0.0.1:8787, http://localhost:8787 or http://localhost:5173.
+- Open only DCAM: http://127.0.0.1:8787, http://localhost:8787 or http://localhost:5173.
   Never open other sites, never sign in anywhere, never type credentials.
 - Validate demo mode only. If GET http://127.0.0.1:8787/api/v1/self does not report demo mode,
   stop and report.
@@ -5652,12 +5652,12 @@ You validate DCM screens the way a user sees them. You never change product code
 
 ## Procedure
 1. Read the feature's spec.md and the screen's section in spec §12 for intent and acceptance criteria.
-2. If DCM is not running, start it with `pnpm dcm --demo --no-open` and wait for /api/v1/self.
+2. If DCAM is not running, start it with `pnpm dcam --demo --no-open` and wait for /api/v1/self.
 3. For each viewport (1440×900, 1024×768, 390×844): navigate, take an accessibility snapshot,
    take a screenshot.
 4. Run checklist items UV-01 to UV-12 (spec §19.6). For each item record pass or fail with evidence:
    a snapshot excerpt, a screenshot path, or a console or network entry.
-5. Confirm there are no console errors and no requests to hosts other than DCM.
+5. Confirm there are no console errors and no requests to hosts other than DCAM.
 6. Write specs/<feature>/validation/report.md using the template below; save screenshots next to it.
 7. Reply with a summary: failed items first, each with the smallest suggested fix.
 
@@ -5699,7 +5699,7 @@ Implement $ARGUMENTS test-first.
 ```markdown
 ---
 name: drawio-diagrams
-description: Create, update and export draw.io diagrams for DCM documentation and the in-app wiki, such as architecture, data flow and the concurrency stack. Use when a task mentions a diagram, a .drawio file, or an illustration for the docs or the wiki.
+description: Create, update and export draw.io diagrams for DCAM documentation and the in-app wiki, such as architecture, data flow and the concurrency stack. Use when a task mentions a diagram, a .drawio file, or an illustration for the docs or the wiki.
 ---
 
 # draw.io diagrams
@@ -5708,7 +5708,7 @@ description: Create, update and export draw.io diagrams for DCM documentation an
 - One diagram per file: docs/diagrams/<kebab-name>.drawio. Use one page per C4 level when needed.
 - Exports sit next to the source: <name>.drawio.svg (diagram embedded, stays editable) and <name>.png (2× scale).
   Documentation and wiki pages embed the SVG.
-- Colours come from the DCM design tokens (spec §12): neutral surfaces, tier colours for environments,
+- Colours come from the DCAM design tokens (spec §12): neutral surfaces, tier colours for environments,
   and Airflow state colours only for task and run states. Never rely on colour alone: label everything.
 - Use the official Google Cloud icons and the Apache Airflow logo as published; never redraw or recolour them.
 - Every Composer diagram shows the boundary between the customer project and the Google-managed tenant project.
@@ -5744,9 +5744,9 @@ description: Create, update and export draw.io diagrams for DCM documentation an
         "--allowed-origins", "http://127.0.0.1:8787;http://localhost:8787;http://localhost:5173"
       ]
     },
-    "dcm-demo": {
+    "dcam-demo": {
       "command": "pnpm",
-      "args": ["--silent", "dcm", "mcp", "--stdio", "--demo-only"]
+      "args": ["--silent", "dcam", "mcp", "--stdio", "--demo-only"]
     }
   }
 }
@@ -5763,7 +5763,7 @@ description: Create, update and export draw.io diagrams for DCM documentation an
 ---
 status: proposed
 date: YYYY-MM-DD
-decision-makers: DCM maintainers
+decision-makers: DCAM maintainers
 consulted: gcp-composer-expert subagent; early adopters
 informed: contributors
 ---
@@ -5771,9 +5771,9 @@ informed: contributors
 # Use timeSeries.list with server-side aggregation as the default Cloud Monitoring query path
 
 ## Context and Problem Statement
-DCM reads Composer metrics for many environments every minute. Cloud Monitoring offers timeSeries.list
+DCAM reads Composer metrics for many environments every minute. Cloud Monitoring offers timeSeries.list
 (filters and aligners), PromQL through a Prometheus-compatible API, and MQL. Every Composer metric is also
-published under an internal resource type. Which query path should DCM use by default?
+published under an internal resource type. Which query path should DCAM use by default?
 
 ## Decision Drivers
 - Observer budget: few, predictable requests (spec §7.11)
@@ -5794,7 +5794,7 @@ PromQL remains available behind the same port for multi-metric expressions.
 ### Consequences
 - Good, because explicit resource.type filters remove the duplicate internal series.
 - Good, because request counts per cycle are easy to budget and test.
-- Bad, because ratios across metrics are computed in DCM instead of in the query.
+- Bad, because ratios across metrics are computed in DCAM instead of in the query.
 
 ### Confirmation
 Contract tests replay recorded responses; the budget test asserts requests per cycle;
@@ -5841,7 +5841,7 @@ Spec §7.2 and Appendix A.9. Revisit if read pricing or quotas change.
 
 | Command | Mode | Expected | Why |
 |---|---|---|---|
-| `pnpm test --filter @dcm/domain` | default | Allowed | Routine work |
+| `pnpm test --filter @dcam/domain` | default | Allowed | Routine work |
 | `gcloud composer environments list --locations=europe-west1` | default | Blocked | Cloud CLIs are off by default |
 | `gcloud composer environments list --locations=europe-west1` | cloud-read | Allowed | Read verb |
 | `gcloud composer environments describe acme-prod --location europe-west1` | cloud-read | Blocked | Needs a `--format` projection |
@@ -5855,7 +5855,7 @@ Spec §7.2 and Appendix A.9. Revisit if read pricing or quotas change.
 | `curl -H "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/` | default | Blocked | Metadata server |
 | `git -C ../other push -f` | default | Blocked | Force push after a global option |
 | `$TOOL delete everything` | default | Blocked | Command name computed at runtime |
-| `echo '{"env":{"DCM_HARNESS_CLOUD_READ":"1"}}' > .claude/settings.local.json` | default | Blocked | Claude cannot turn on a mode |
+| `echo '{"env":{"DCAM_HARNESS_CLOUD_READ":"1"}}' > .claude/settings.local.json` | default | Blocked | Claude cannot turn on a mode |
 | `echo 'gcloud composer environments delete x'` | default | Allowed | Quoted text is not a command |
 | Edit `docs/adr/0005-…md` (accepted), body change | ― | Blocked | Accepted ADRs are immutable |
 | Edit the same ADR, `status:` line only | ― | Allowed | Superseding is allowed |
@@ -5865,40 +5865,40 @@ Spec §7.2 and Appendix A.9. Revisit if read pricing or quotas change.
 
 ## Appendix G. OSS landscape and positioning
 
-DCM complements Google's own tools and general observability platforms; it does not replace them. Its position: deep, explainable, fleet-wide analysis of Composer environments from a read-only, local-first tool, with an open contract that can later move into the environment itself.
+DCAM complements Google's own tools and general observability platforms; it does not replace them. Its position: deep, explainable, fleet-wide analysis of Composer environments from a read-only, local-first tool, with an open contract that can later move into the environment itself.
 
 ### G.1 Google-native capabilities
 
-| Capability | What it offers | Where DCM adds value | How DCM relates |
+| Capability | What it offers | Where DCAM adds value | How DCAM relates |
 |---|---|---|---|
-| Composer monitoring dashboard (console) | Per-environment charts: environment overview, Airflow components, DAG statistics, scheduler, workers, triggerer, web server, SQL database | Fleet view; per-DAG attribution and ranking; cause classification; history beyond the 6-week metric retention | Deep links from DCM charts to the matching console views |
-| Cloud Monitoring alerting and Google's key-metric guidance | Alert policies on published metrics, with suggested thresholds | Alerts on derived signals (for example the binding limit, stale-DAG risk, queue wait per pool) | DCM exports exportable alerts as Cloud Monitoring policies and Terraform ([§16.6](#166-export-to-cloud-monitoring)) |
+| Composer monitoring dashboard (console) | Per-environment charts: environment overview, Airflow components, DAG statistics, scheduler, workers, triggerer, web server, SQL database | Fleet view; per-DAG attribution and ranking; cause classification; history beyond the 6-week metric retention | Deep links from DCAM charts to the matching console views |
+| Cloud Monitoring alerting and Google's key-metric guidance | Alert policies on published metrics, with suggested thresholds | Alerts on derived signals (for example the binding limit, stale-DAG risk, queue wait per pool) | DCAM exports exportable alerts as Cloud Monitoring policies and Terraform ([§16.6](#166-export-to-cloud-monitoring)) |
 | Liveness DAG `airflow_monitoring` | Drives `environment/healthy` | Explains *why* an environment is unhealthy | One input of the health score (`HM-028`); never modified |
-| Gemini troubleshooting ("Investigate" on failed DAG runs and tasks) | Problem, evidence and recommendation report for one failure, on demand. Google documents its data residency separately | Continuous, deterministic, fleet-wide analysis that is reproducible from stored evidence | Complementary. DCM's "copy as prompt" and MCP server can feed any assistant |
-| Google agent skills for managed Airflow (recommendations, migrations) | On-demand advice on utilisation, restarts, parsing latency and bucket hygiene; Airflow 3 migration help | History-based, explainable rules with confidence; prioritised backlog; verification after changes | Overlapping topics. DCM cites Google guidance and shows the evidence behind each rule |
-| Remote MCP server for Composer | Read-only tools for assistants, such as listing environments, failed task instances and DAG source | Derived signals, findings, history and runbooks | Can be used side by side with DCM's MCP server in the same assistant |
-| Recommender | No Composer or Airflow recommender exists | DCM's Advisor fills this gap | ― |
+| Gemini troubleshooting ("Investigate" on failed DAG runs and tasks) | Problem, evidence and recommendation report for one failure, on demand. Google documents its data residency separately | Continuous, deterministic, fleet-wide analysis that is reproducible from stored evidence | Complementary. DCAM's "copy as prompt" and MCP server can feed any assistant |
+| Google agent skills for managed Airflow (recommendations, migrations) | On-demand advice on utilisation, restarts, parsing latency and bucket hygiene; Airflow 3 migration help | History-based, explainable rules with confidence; prioritised backlog; verification after changes | Overlapping topics. DCAM cites Google guidance and shows the evidence behind each rule |
+| Remote MCP server for Composer | Read-only tools for assistants, such as listing environments, failed task instances and DAG source | Derived signals, findings, history and runbooks | Can be used side by side with DCAM's MCP server in the same assistant |
+| Recommender | No Composer or Airflow recommender exists | DCAM's Advisor fills this gap | ― |
 | Airflow UI (grid, graph, Cluster Activity) | Per-environment, per-DAG operational views | Cross-DAG and cross-environment comparison | Deep links to the matching Airflow views |
 | Environment labels in billing | Cost per environment | Estimated cost per DAG (`HM-021`) | Uses billing export data when configured |
 | `composer-local-dev` | Local DAG development with Composer images (LocalExecutor, single container) | Not a monitoring tool | Optional image and package parity for the emulator ([§20](#20-local-airflow-emulator-synthetic-load-and-demo-mode)) |
 
 ### G.2 Open-source and commercial landscape
 
-| Category | Typical use | Limits for Composer 3 users | DCM relationship |
+| Category | Typical use | Limits for Composer 3 users | DCAM relationship |
 |---|---|---|---|
-| Airflow's own metrics (StatsD, OpenTelemetry) with Prometheus and Grafana | Standard for self-managed Airflow | Composer 3 blocks the `[metrics]` section, so custom StatsD or OpenTelemetry export is not available; Composer publishes its own selection to Cloud Monitoring | DCM uses what Composer publishes and derives the rest |
-| General-purpose observability platforms | Dashboards, alerting and log search across many systems, often with Google Cloud integrations | They work with metrics as published. Airflow-specific depth varies by product, but concurrency-limit modelling, per-DAG capacity attribution and configuration explanation are uncommon | DCM can export derived signals as files (`FR-STORE-04`) or through an opt-in OpenMetrics endpoint (`FR-RPT-02`) for use in such platforms |
-| Data lineage and data observability (for example OpenLineage) | Dataset lineage, data quality, freshness of data products | Focus on data, not on platform capacity | Complementary; data-aware scheduling events appear in DCM's delay explanations |
-| Airflow linters (Ruff's `AIR` rules) | Code-level checks: `AIR301` and `AIR302` flag Airflow 3 breaking changes, `AIR311` and `AIR312` recommended updates | No runtime evidence such as parse cost or failure history | DCM's static analysis links code findings to measured cost ([§9.18](#918-scan--dag-static-analysis)); `REC-CODE-04` points to the Ruff rules |
-| Google's diagnostics tool (gcpdiag, Apache-2.0) | One-shot lint of a project. Its Composer rules cover, for example, total DAG parse time, task SIGKILLs and resource pressure, worker pod evictions, scheduler and database health and CPU, zombie detection, DAG timeouts and service-account permissions | Point-in-time checks of the current state; no history, per-DAG attribution or continuous view | DCM SHOULD cover the same checks continuously, and runbooks cite the matching gcpdiag rule so users can cross-check |
+| Airflow's own metrics (StatsD, OpenTelemetry) with Prometheus and Grafana | Standard for self-managed Airflow | Composer 3 blocks the `[metrics]` section, so custom StatsD or OpenTelemetry export is not available; Composer publishes its own selection to Cloud Monitoring | DCAM uses what Composer publishes and derives the rest |
+| General-purpose observability platforms | Dashboards, alerting and log search across many systems, often with Google Cloud integrations | They work with metrics as published. Airflow-specific depth varies by product, but concurrency-limit modelling, per-DAG capacity attribution and configuration explanation are uncommon | DCAM can export derived signals as files (`FR-STORE-04`) or through an opt-in OpenMetrics endpoint (`FR-RPT-02`) for use in such platforms |
+| Data lineage and data observability (for example OpenLineage) | Dataset lineage, data quality, freshness of data products | Focus on data, not on platform capacity | Complementary; data-aware scheduling events appear in DCAM's delay explanations |
+| Airflow linters (Ruff's `AIR` rules) | Code-level checks: `AIR301` and `AIR302` flag Airflow 3 breaking changes, `AIR311` and `AIR312` recommended updates | No runtime evidence such as parse cost or failure history | DCAM's static analysis links code findings to measured cost ([§9.18](#918-scan--dag-static-analysis)); `REC-CODE-04` points to the Ruff rules |
+| Google's diagnostics tool (gcpdiag, Apache-2.0) | One-shot lint of a project. Its Composer rules cover, for example, total DAG parse time, task SIGKILLs and resource pressure, worker pod evictions, scheduler and database health and CPU, zombie detection, DAG timeouts and service-account permissions | Point-in-time checks of the current state; no history, per-DAG attribution or continuous view | DCAM SHOULD cover the same checks continuously, and runbooks cite the matching gcpdiag rule so users can cross-check |
 | Google's sample dashboards (`monitoring-dashboard-samples`, Apache-2.0) | Importable Cloud Monitoring dashboards, including one for Composer | Charts of published metrics only; no derived signals or explanations | Complementary: a reference for the published metrics teams already watch, linked from the wiki |
 | Airflow platform vendors | Managed Airflow with built-in observability | Specific to their platform | Not applicable to Composer |
 
-At the time of writing, no open-source tool combined Cloud Monitoring, Cloud Logging, the Composer API, the Airflow API and the environment bucket into one explainable view of Composer capacity and configuration. This is the gap DCM addresses.
+At the time of writing, no open-source tool combined Cloud Monitoring, Cloud Logging, the Composer API, the Airflow API and the environment bucket into one explainable view of Composer capacity and configuration. This is the gap DCAM addresses.
 
 ### G.3 Capability comparison
 
-| Capability | Google-native | General observability | DCM |
+| Capability | Google-native | General observability | DCAM |
 |---|---|---|---|
 | Fleet view across environments and projects | Partly (metrics scopes, custom dashboards) | Yes | Yes (`FR-FLEET-*`) |
 | Per-DAG capacity attribution and ranking | No | Partly | Yes (`HM-003`, `HM-004`) |
@@ -5915,12 +5915,12 @@ At the time of writing, no open-source tool combined Cloud Monitoring, Cloud Log
 
 ### G.4 Path into Composer and Airflow
 
-DCM is built so that it can later run inside an environment or become part of the platform:
+DCAM is built so that it can later run inside an environment or become part of the platform:
 
-- **Portable contract.** The OpenAPI contract, the event schema and the declarative packs (signals, rules, Config KB, runbooks) do not depend on where DCM runs ([§11.12](#1112-embedding-path-into-airflow-and-composer)).
+- **Portable contract.** The OpenAPI contract, the event schema and the declarative packs (signals, rules, Config KB, runbooks) do not depend on where DCAM runs ([§11.12](#1112-embedding-path-into-airflow-and-composer)).
 - **In-environment companion.** An optional listener plugin can provide event-level data without polling ([§7.9](#79-future-in-environment-companion)).
-- **Embedded mode.** The same contract can be served from an Airflow 3 plugin (`fastapi_apps`), with DCM's UI mounted through `react_apps` or linked through `external_views` ([§11.11](#1111-deployment-targets)).
-- **Upstream contributions.** Gaps found while building DCM are proposed upstream, for example missing metrics, API fields or documentation corrections, rather than worked around privately.
+- **Embedded mode.** The same contract can be served from an Airflow 3 plugin (`fastapi_apps`), with DCAM's UI mounted through `react_apps` or linked through `external_views` ([§11.11](#1111-deployment-targets)).
+- **Upstream contributions.** Gaps found while building DCAM are proposed upstream, for example missing metrics, API fields or documentation corrections, rather than worked around privately.
 - **Licence and governance.** Apache-2.0, a DCO and open governance (ADR-0020) remove barriers to adoption by Google or the Airflow community.
 
 ---
@@ -6044,7 +6044,7 @@ The original brief (`gcp-composer-deep-monitroing.md`) is kept unchanged for his
 | BR-20 | Research existing OSS tools that give a unified view of Google Cloud, Airflow and GKE | [Appendix G](#appendix-g-oss-landscape-and-positioning) | Addressed |
 | BR-21 | Runs on localhost, built with TypeScript and React | [§11](#11-architecture); ADR-0002, ADR-0009 | Addressed |
 | BR-22 | Stores history locally (database or files) for trend analysis | [§11.7](#117-data-architecture-and-storage); `FR-STORE-*` | Adapted |
-| BR-23 | Exports data for further analysis and reporting | `FR-STORE-04`; `FR-RPT-*`; `dcm export` ([§17.4](#174-command-line-interface)) | Addressed |
+| BR-23 | Exports data for further analysis and reporting | `FR-STORE-04`; `FR-RPT-*`; `dcam export` ([§17.4](#174-command-line-interface)) | Addressed |
 | BR-24 | Extensible, so new metrics and logs can be added | Packs and the signal standard ([§8.1](#81-signal-definition-standard)); plugin SDK (`FR-EXT-*`) | Addressed |
 | BR-25 | Launched locally after a git pull; project IDs configurable; easy `gcloud` sign-in from the terminal or a button in the UI | `FR-SETUP-01`; `FR-AUTH-*`; [§18.3](#183-authentication-and-identity) | Addressed |
 | BR-26 | Dark, blue-toned theme in the spirit of Airflow and Composer; an OSS tool any Composer user can adopt, with clear documentation | [§12.5](#125-design-tokens-and-theme); documentation site (ADR-0021); [§10.10](#1010-maintainability-documentation-and-oss-readiness) | Addressed |
@@ -6059,12 +6059,12 @@ The original brief (`gcp-composer-deep-monitroing.md`) is kept unchanged for his
 
 | Brief item | Decision | Reason |
 |---|---|---|
-| BR-06 (GKE cluster) | On Composer 3, DCM uses Composer workload metrics and the Composer API instead of the cluster. A GKE adapter exists only for Composer 2 | Composer 3 runs its cluster in a Google-managed tenant project that customers cannot access |
-| BR-22 (store logs) | DCM stores derived signals, rollups, error signatures and bounded log samples, not full logs | Logging read quotas and cost, privacy, and the local disk budget (`NFR-RES-03`) |
+| BR-06 (GKE cluster) | On Composer 3, DCAM uses Composer workload metrics and the Composer API instead of the cluster. A GKE adapter exists only for Composer 2 | Composer 3 runs its cluster in a Google-managed tenant project that customers cannot access |
+| BR-22 (store logs) | DCAM stores derived signals, rollups, error signatures and bounded log samples, not full logs | Logging read quotas and cost, privacy, and the local disk budget (`NFR-RES-03`) |
 | BR-15 (cadence) | The standard profile polls live Airflow data every 30 seconds and facts and metrics every 60 seconds; other profiles trade freshness for load | Matches the brief while respecting the observer budget; most Composer metrics are sampled every 60 seconds, so faster polling of Cloud Monitoring adds load without adding information |
-| BR-28 (configuration changes) | DCM never changes configuration. It produces reviewed, copy-paste snippets (`gcloud`, Terraform, DAG code) | Read-only guarantee ([§18.2](#182-read-only-guarantee)); changes go through each organisation's normal change process |
+| BR-28 (configuration changes) | DCAM never changes configuration. It produces reviewed, copy-paste snippets (`gcloud`, Terraform, DAG code) | Read-only guarantee ([§18.2](#182-read-only-guarantee)); changes go through each organisation's normal change process |
 | BR-30 ("Claude Explorer extension") | Interpreted as Claude in Chrome, with Playwright MCP as the headless fallback for CI | No product with that exact name was found; both options drive a real browser for validation |
-| BR-27 (online theme reference) | DCM follows Google Cloud console and Airflow UI conventions through its own design tokens, without copying proprietary themes or fonts | Licensing (VC-26) and a consistent, accessible design system |
-| BR-18 (OSS tools) | DCM builds on open-source libraries and documented APIs, and positions itself against existing tools in Appendix G | No existing OSS tool covers this scope for Composer 3 |
+| BR-27 (online theme reference) | DCAM follows Google Cloud console and Airflow UI conventions through its own design tokens, without copying proprietary themes or fonts | Licensing (VC-26) and a consistent, accessible design system |
+| BR-18 (OSS tools) | DCAM builds on open-source libraries and documented APIs, and positions itself against existing tools in Appendix G | No existing OSS tool covers this scope for Composer 3 |
 | BR-32 (`CLAUDE.md` content) | `CLAUDE.md` holds a short architecture overview, the setup, test and run commands, and the non-negotiable rules. Design decisions and implementation details live in this specification, the ADRs and the documentation site, which it links to | `CLAUDE.md` is loaded into every session, so a long file lowers quality and raises cost |
-| BR-01 (organisation context) | This specification is generic and contains no organisation-specific data; the experience behind BR-01 shapes the Config Advisor and the Composer 3 rules | DCM is an open-source tool for any Composer user |
+| BR-01 (organisation context) | This specification is generic and contains no organisation-specific data; the experience behind BR-01 shapes the Config Advisor and the Composer 3 rules | DCAM is an open-source tool for any Composer user |
