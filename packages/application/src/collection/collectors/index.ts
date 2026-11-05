@@ -6,8 +6,10 @@
  * @implements FR-COLL-01
  */
 import type { Collector } from '../types';
+import { afInventoryCollector } from './af-inventory';
 import { composerConfigCollector } from './composer-config';
 
+export { afInventoryCollector } from './af-inventory';
 export { composerConfigCollector } from './composer-config';
 export {
   parseImageVersion,
@@ -22,5 +24,5 @@ export {
 } from './mapping';
 
 export function createCollectors(): readonly Collector[] {
-  return [composerConfigCollector()];
+  return [composerConfigCollector(), afInventoryCollector()];
 }
