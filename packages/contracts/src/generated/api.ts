@@ -169,6 +169,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/collection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Collector health and DCAM's own footprint per environment (FR-COLL-11, FR-SELF-01, HM-030) */
+        get: operations["getCollection"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -184,6 +201,21 @@ export interface components {
             /** @enum {string} */
             mode: "demo" | "live";
             environments: components["schemas"]["EnvironmentSummary"][];
+            /**
+             * @description Setup mode (FR-SETUP-02): present when the configuration file is missing or invalid. Collectors
+             *     do not run; each issue names its path in the file and how to fix it.
+             */
+            setup?: {
+                /** @description File that was read; null when none was found. */
+                config_path: string | null;
+                issues: components["schemas"]["ConfigIssue"][];
+            };
+        };
+        ConfigIssue: {
+            /** @description Dotted path in the file, for example environments.0.projectId. */
+            path: string;
+            message: string;
+            fix_hint: string;
         };
         EnvironmentSummary: {
             env_id: string;
@@ -622,6 +654,68 @@ export interface components {
             sources: components["schemas"]["SourceId"][];
             environments: components["schemas"]["FleetCard"][];
         };
+        Collection: {
+            /** @enum {string} */
+            mode: "demo" | "live";
+            /** Format: date-time */
+            generated_at: string;
+            environments: components["schemas"]["CollectionEnvironment"][];
+        };
+        CollectionEnvironment: {
+            env_id: string;
+            /** @enum {string} */
+            profile: "live" | "standard" | "eco" | "off";
+            /** @description A request budget ran out in the last 15 min, so collection slowed down instead (FR-COLL-06). */
+            reduced_fidelity: boolean;
+            /** @description At least one collector failed three or more consecutive cycles (FR-COLL-11). */
+            failing: boolean;
+            collectors: components["schemas"]["CollectorStatus"][];
+            footprint: components["schemas"]["ApiFootprint"][];
+            /** @description Cloud Monitoring time series returned in the last 24 h (NFR-OBS-06); null without Monitoring. */
+            series_24h: number | null;
+        };
+        CollectorStatus: {
+            /** @description Collector ID, for example af.live. */
+            id: string;
+            source: components["schemas"]["SourceId"];
+            /**
+             * @description ok: the last cycle succeeded. waiting: no cycle finished yet. degraded: the last cycle failed, or a
+             *     budget slowed it down. failing: three or more consecutive failures. disabled: not used for this
+             *     environment (profile off, or the source does not apply).
+             * @enum {string}
+             */
+            state: "ok" | "waiting" | "degraded" | "failing" | "disabled";
+            cadence_seconds: number;
+            /** Format: date-time */
+            last_attempt_at: string | null;
+            /** Format: date-time */
+            last_success_at: string | null;
+            /** Format: date-time */
+            next_run_at: string | null;
+            /** @description Age of the newest data this collector committed; null before its first success. */
+            lag_seconds: number | null;
+            consecutive_failures: number;
+            error_rate_1h: number | null;
+            last_error: null | {
+                /** @description Error class, for example unauthenticated or rate-limited. */
+                kind: string;
+                message: string;
+                fix_hint: string | null;
+                /** Format: date-time */
+                at: string;
+            };
+        };
+        /** @description DCAM's own requests to one API for this environment (HM-030, §7.11 item 9). */
+        ApiFootprint: {
+            /** @enum {string} */
+            api: "airflow" | "composer" | "monitoring";
+            budget_per_minute: number;
+            requests_1h: number;
+            requests_24h: number;
+            errors_24h: number;
+            bytes_24h: number;
+            p95_latency_ms: number | null;
+        };
         /** @description RFC 9457 problem details with DCAM extensions. */
         Problem: {
             /** Format: uri-reference */
@@ -882,6 +976,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Fleet"];
+                };
+            };
+        };
+    };
+    getCollection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Collector state per environment; empty in demo mode, which has no collectors. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Collection"];
                 };
             };
         };

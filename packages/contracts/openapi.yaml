@@ -154,6 +154,16 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Fleet' }
+  /api/v1/collection:
+    get:
+      operationId: getCollection
+      summary: Collector health and DCAM's own footprint per environment (FR-COLL-11, FR-SELF-01, HM-030)
+      responses:
+        '200':
+          description: Collector state per environment; empty in demo mode, which has no collectors.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Collection' }
 components:
   parameters:
     EnvId:
@@ -195,6 +205,27 @@ components:
         environments:
           type: array
           items: { $ref: '#/components/schemas/EnvironmentSummary' }
+        setup:
+          description: |
+            Setup mode (FR-SETUP-02): present when the configuration file is missing or invalid. Collectors
+            do not run; each issue names its path in the file and how to fix it.
+          type: object
+          additionalProperties: false
+          required: [config_path, issues]
+          properties:
+            config_path:
+              { type: ['string', 'null'], description: File that was read; null when none was found. }
+            issues:
+              type: array
+              items: { $ref: '#/components/schemas/ConfigIssue' }
+    ConfigIssue:
+      type: object
+      additionalProperties: false
+      required: [path, message, fix_hint]
+      properties:
+        path: { type: string, description: 'Dotted path in the file, for example environments.0.projectId.' }
+        message: { type: string }
+        fix_hint: { type: string }
     EnvironmentSummary:
       type: object
       additionalProperties: false
@@ -995,6 +1026,93 @@ components:
         data_as_of: { type: string, format: date-time }
         sources: { type: array, items: { $ref: '#/components/schemas/SourceId' } }
         environments: { type: array, items: { $ref: '#/components/schemas/FleetCard' } }
+    Collection:
+      type: object
+      additionalProperties: false
+      required: [mode, generated_at, environments]
+      properties:
+        mode: { type: string, enum: [demo, live] }
+        generated_at: { type: string, format: date-time }
+        environments: { type: array, items: { $ref: '#/components/schemas/CollectionEnvironment' } }
+    CollectionEnvironment:
+      type: object
+      additionalProperties: false
+      required: [env_id, profile, reduced_fidelity, failing, collectors, footprint, series_24h]
+      properties:
+        env_id: { type: string }
+        profile: { type: string, enum: [live, standard, eco, off] }
+        reduced_fidelity:
+          type: boolean
+          description: A request budget ran out in the last 15 min, so collection slowed down instead (FR-COLL-06).
+        failing:
+          type: boolean
+          description: At least one collector failed three or more consecutive cycles (FR-COLL-11).
+        collectors: { type: array, items: { $ref: '#/components/schemas/CollectorStatus' } }
+        footprint: { type: array, items: { $ref: '#/components/schemas/ApiFootprint' } }
+        series_24h:
+          type: ['integer', 'null']
+          minimum: 0
+          description: Cloud Monitoring time series returned in the last 24 h (NFR-OBS-06); null without Monitoring.
+    CollectorStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - source
+        - state
+        - cadence_seconds
+        - last_attempt_at
+        - last_success_at
+        - next_run_at
+        - lag_seconds
+        - consecutive_failures
+        - error_rate_1h
+        - last_error
+      properties:
+        id: { type: string, description: 'Collector ID, for example af.live.' }
+        source: { $ref: '#/components/schemas/SourceId' }
+        state:
+          type: string
+          enum: [ok, waiting, degraded, failing, disabled]
+          description: |
+            ok: the last cycle succeeded. waiting: no cycle finished yet. degraded: the last cycle failed, or a
+            budget slowed it down. failing: three or more consecutive failures. disabled: not used for this
+            environment (profile off, or the source does not apply).
+        cadence_seconds: { type: integer, minimum: 0 }
+        last_attempt_at: { type: ['string', 'null'], format: date-time }
+        last_success_at: { type: ['string', 'null'], format: date-time }
+        next_run_at: { type: ['string', 'null'], format: date-time }
+        lag_seconds:
+          type: ['number', 'null']
+          minimum: 0
+          description: Age of the newest data this collector committed; null before its first success.
+        consecutive_failures: { type: integer, minimum: 0 }
+        error_rate_1h: { type: ['number', 'null'], minimum: 0, maximum: 1 }
+        last_error:
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [kind, message, fix_hint, at]
+              properties:
+                kind:
+                  { type: string, description: 'Error class, for example unauthenticated or rate-limited.' }
+                message: { type: string }
+                fix_hint: { type: ['string', 'null'] }
+                at: { type: string, format: date-time }
+    ApiFootprint:
+      type: object
+      additionalProperties: false
+      required: [api, budget_per_minute, requests_1h, requests_24h, errors_24h, bytes_24h, p95_latency_ms]
+      description: DCAM's own requests to one API for this environment (HM-030, §7.11 item 9).
+      properties:
+        api: { type: string, enum: [airflow, composer, monitoring] }
+        budget_per_minute: { type: number, minimum: 0 }
+        requests_1h: { type: integer, minimum: 0 }
+        requests_24h: { type: integer, minimum: 0 }
+        errors_24h: { type: integer, minimum: 0 }
+        bytes_24h: { type: integer, minimum: 0 }
+        p95_latency_ms: { type: ['number', 'null'], minimum: 0 }
     Problem:
       type: object
       description: RFC 9457 problem details with DCAM extensions.

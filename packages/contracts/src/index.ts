@@ -24,6 +24,11 @@ export type Alerts = Schemas['Alerts'];
 export type HealthCheck = Schemas['HealthCheck'];
 export type FleetCard = Schemas['FleetCard'];
 export type Fleet = Schemas['Fleet'];
+export type Collection = Schemas['Collection'];
+export type CollectionEnvironment = Schemas['CollectionEnvironment'];
+export type CollectorStatus = Schemas['CollectorStatus'];
+export type ApiFootprint = Schemas['ApiFootprint'];
+export type ConfigIssue = Schemas['ConfigIssue'];
 export type Range = '1h' | '6h' | '24h';
 
 /** Typed client for DCAM's own API, generated from openapi.yaml. */
