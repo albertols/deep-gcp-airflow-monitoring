@@ -286,9 +286,10 @@ export function acmeScenario(env: AcmeEnvironment): Scenario {
           dbHealthyRatio: 0.99,
           heartbeatCompleteness: 0.93,
           webServerHealthyRatio: 1,
-          dbCpuMemoryMax: 0.48,
-          zombies24h: 1,
-          workerRestarts24h: 0,
+          // Several non-critical checks fail: a "degraded" environment for the fleet view (HM-028).
+          dbCpuMemoryMax: 0.86,
+          zombies24h: 3,
+          workerRestarts24h: 2,
           importErrors: 2,
           parseLoopP95Seconds: 140,
         },
