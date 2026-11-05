@@ -35,7 +35,7 @@ export const REC_CONC_01: RuleDefinition = {
   title: 'Global parallelism is binding',
   category: 'concurrency',
   inputs: ['snapshots'],
-  wiki: 'parallelism',
+  wiki: 'concurrency-stack',
   evaluate(s) {
     const t = RULE_THRESHOLDS['REC-CONC-01'];
     const { config } = s;

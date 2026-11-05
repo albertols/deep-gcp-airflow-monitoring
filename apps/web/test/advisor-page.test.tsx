@@ -205,11 +205,21 @@ describe('S-18 advisor page (FR-ADV-01..04, FR-ADV-08)', () => {
     );
     expect(within(first).getByRole('link', { name: /wiki/i })).toHaveAttribute(
       'href',
-      '#/wiki/worker-scaling?env=acme-prod',
+      '#/wiki/advisor-rules?env=acme-prod',
     );
     const doc = within(first).getByRole('link', { name: /scale environments/ });
     expect(doc).toHaveAttribute('target', '_blank');
     expect(doc).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('FR-WIKI-06: links the wiki page the finding names when it exists, else the rule catalogue', async () => {
+    const known = finding({ links: { wiki: 'pools', docs: [] } });
+    renderPage([known]);
+    const first = await openFirst();
+    expect(within(first).getByRole('link', { name: /wiki/i })).toHaveAttribute(
+      'href',
+      '#/wiki/pools?env=acme-prod',
+    );
   });
 
   it('FR-UI-07: shows an empty state with the next step when there are no findings', async () => {

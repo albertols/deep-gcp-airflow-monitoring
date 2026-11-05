@@ -39,7 +39,7 @@ export const REC_CAP_01: RuleDefinition = {
   title: 'Workers at maximum while tasks are queued',
   category: 'capacity',
   inputs: ['samples'],
-  wiki: 'worker-scaling',
+  wiki: 'worker-capacity-and-autoscaling',
   inhibits: ['REC-CAP-05'],
   evaluate(s) {
     const t = RULE_THRESHOLDS['REC-CAP-01'];
@@ -180,7 +180,7 @@ export const REC_CAP_05: RuleDefinition = {
   title: 'Under-packed workers',
   category: 'capacity',
   inputs: ['samples'],
-  wiki: 'worker-concurrency',
+  wiki: 'worker-capacity-and-autoscaling',
   evaluate(s) {
     const t = CAP05;
     const f = s.capacity.slotsFullAtMax;
@@ -261,7 +261,7 @@ export const REC_CAP_08: RuleDefinition = {
   title: 'Scale-out suppressed by high worker_concurrency',
   category: 'capacity',
   inputs: ['samples'],
-  wiki: 'worker-concurrency',
+  wiki: 'worker-capacity-and-autoscaling',
   evaluate(s) {
     const t = RULE_THRESHOLDS['REC-CAP-08'];
     const x = s.capacity.scaleOutSuppressed;

@@ -115,7 +115,7 @@ export const REC_DAG_01: RuleDefinition = {
   title: 'DAG throttled by max_active_tasks',
   category: 'dag',
   inputs: ['snapshots'],
-  wiki: 'max-active-tasks',
+  wiki: 'concurrency-stack',
   evaluate(s) {
     const t = RULE_THRESHOLDS['REC-DAG-01'];
     return evaluated(
@@ -211,7 +211,7 @@ export const REC_DAG_05: RuleDefinition = {
   title: 'Sensor slot waste',
   category: 'dag',
   inputs: ['tries'],
-  wiki: 'sensors',
+  wiki: 'sensor-slot-waste',
   evaluate(s) {
     const t = RULE_THRESHOLDS['REC-DAG-05'];
     return evaluated(

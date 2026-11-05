@@ -24,6 +24,7 @@ import WarningAmber from '@mui/icons-material/WarningAmberOutlined';
 import type { Finding, Severity, SourceId } from '@dcam/contracts';
 import { InfoPopover, type Explanation } from '@dcam/ui-kit';
 import type { PageProps } from '../types';
+import { RULE_WIKI_PAGES, WIKI_SLUGS } from '../wiki/content/slugs';
 import { ADVISOR_EXPLANATIONS as X } from './explanations';
 import { SnippetBlock } from './SnippetBlock';
 
@@ -94,6 +95,17 @@ function Lead({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+const WIKI_PAGES: ReadonlySet<string> = new Set(Object.values(WIKI_SLUGS));
+
+/**
+ * The wiki page for a finding (FR-WIKI-06): the page it names when the wiki has it, else the rule
+ * catalogue entry, so a link never leads to a missing page.
+ */
+function wikiPageFor(f: Finding): string | null {
+  if (f.links.wiki && WIKI_PAGES.has(f.links.wiki)) return f.links.wiki;
+  return (RULE_WIKI_PAGES as Partial<Record<string, string>>)[f.rule_id] ?? null;
+}
+
 export function FindingItem({
   finding: f,
   rank,
@@ -105,6 +117,7 @@ export function FindingItem({
 }) {
   const factors = `Impact ${f.impact}/5 · Confidence ${fixed2(f.confidence)} · Effort ${f.effort} (${EFFORT[f.effort]}) · Priority ${fixed2(f.priority_score)}`;
   const shownDags = f.affected_dags.slice(0, DAG_LINKS);
+  const wikiSlug = wikiPageFor(f);
   return (
     <Box component="li" sx={{ listStyle: 'none' }}>
       <Accordion disableGutters slotProps={{ transition: { unmountOnExit: true } }}>
@@ -226,8 +239,8 @@ export function FindingItem({
             <Stack spacing={1}>
               <SectionTitle>Learn more</SectionTitle>
               <Stack spacing={0.5}>
-                {f.links.wiki && (
-                  <Link href={linkTo({ page: 'wiki', slug: f.links.wiki })} variant="body2">
+                {wikiSlug && (
+                  <Link href={linkTo({ page: 'wiki', slug: wikiSlug })} variant="body2">
                     Read the wiki page for {f.rule_id}
                   </Link>
                 )}
