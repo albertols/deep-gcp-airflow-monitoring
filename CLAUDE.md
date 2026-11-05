@@ -10,6 +10,7 @@ with evidence, and recommends copy-paste fixes that humans review and apply.
 - Current milestone: **M0 foundations done → M1 connect and collect** (spec §22.2).
 
 ## Commands
+
 - `pnpm i`: install (Node.js ≥ 22.12, pnpm 11 via Corepack)
 - `pnpm dcam --demo`: run DCAM on the synthetic demo workspace at http://127.0.0.1:8787 (no Google Cloud access)
 - `pnpm dev`: server (tsx watch) and UI (Vite, http://127.0.0.1:5173, proxies /api)
@@ -20,6 +21,7 @@ with evidence, and recommends copy-paste fixes that humans review and apply.
 - `pnpm diagrams`: export changed draw.io diagrams (local draw.io, else Docker)
 
 ## Non-negotiables
+
 1. Read-only by construction. Never add a code path that changes Google Cloud or Airflow.
    Outbound HTTP to monitored systems goes only through `packages/adapters/http-guard`; never
    widen its allowlist without security review (spec §18.2).
@@ -33,6 +35,7 @@ with evidence, and recommends copy-paste fixes that humans review and apply.
    uncertain with ⚠️ VERIFY.
 
 ## Architecture (spec §11.4, §11.5)
+
 - `packages/domain`: pure computations (occupancy sweep: slot-seconds, concurrency).
 - `packages/ports`: interfaces (Clock, TaskInstanceStore). `packages/application`: use cases.
 - `packages/adapters/*`: http-guard (only network path), duckdb-store (DuckDB 2.0 LTS), fakes (demo data).
@@ -42,6 +45,7 @@ with evidence, and recommends copy-paste fixes that humans review and apply.
 - Internal packages export TypeScript source (`exports: ./src/index.ts`); tsx, Vite and Vitest run it directly.
 
 ## Workflow
+
 - New capability: `/spec <requirement IDs>` → review → `/tdd <task>` per task → `code-reviewer` subagent.
 - UI change: `/validate-ui` (Claude in Chrome against `pnpm dcam --demo`; Playwright MCP as fallback).
 - Lasting decision: `/adr`. Diagram: `/diagram`. Domain fact: ask the `gcp-airflow-expert` subagent.
@@ -50,6 +54,7 @@ with evidence, and recommends copy-paste fixes that humans review and apply.
   mode, set by a human (spec §21.4).
 
 ## Style
+
 - TypeScript strict, no `any`, named exports, Zod or explicit checks at adapter boundaries.
 - Every number has a unit and a source; estimates are labelled with their method (spec §8.1).
 - UI text: sentence case, plain words, say what to do next (spec §12.12).

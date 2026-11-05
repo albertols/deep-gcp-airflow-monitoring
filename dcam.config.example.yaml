@@ -1,0 +1,24 @@
+# DCAM workspace configuration (example). Copy to dcam.config.yaml, which is git-ignored.
+# Never commit real project IDs or environment names to this repository (spec §18.12).
+# The JSON Schema and the full option set arrive in milestone M1 (spec §17.2).
+version: 1
+
+workspace:
+  timezone: browser # or an IANA zone such as Europe/Madrid
+  dataDir: ~/.dcam/data # owner-only permissions
+
+auth:
+  # Application Default Credentials from `gcloud auth application-default login`.
+  quotaProjectId: acme-data-prod # optional; defaults to each environment's project
+
+network:
+  # Leave empty to use HTTPS_PROXY / NO_PROXY from the environment.
+  caBundlePath: # for example /etc/ssl/corp-root-ca.pem when TLS is inspected
+
+environments:
+  - id: acme-prod # DCAM's own slug, used in URLs
+    projectId: acme-data-prod
+    location: europe-west1
+    environment: acme-prod
+    tier: prod # dev | test | uat | prod | other
+    profile: standard # live | standard | eco | off

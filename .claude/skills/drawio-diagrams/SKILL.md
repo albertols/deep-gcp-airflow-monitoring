@@ -6,6 +6,7 @@ description: Create, update and export draw.io diagrams for DCAM documentation a
 # draw.io diagrams
 
 ## Conventions
+
 - One diagram per file: `docs/diagrams/<kebab-name>.drawio` (uncompressed XML, so diffs are readable).
   Use one page per C4 level when needed.
 - Exports sit next to the source: `<name>.drawio.svg` (diagram embedded, stays editable) and `<name>.png`
@@ -20,6 +21,7 @@ description: Create, update and export draw.io diagrams for DCAM documentation a
 - Fictitious identifiers only (`acme-*`).
 
 ## Export
+
 - `pnpm diagrams` runs `scripts/export-all.mjs`: it exports every diagram whose SVG or PNG is missing or
   older than the source. `pnpm diagrams --check` only verifies (used in CI).
 - The draw.io binary is found in this order: `$DRAWIO_BIN`, `drawio` on PATH,
@@ -31,6 +33,7 @@ description: Create, update and export draw.io diagrams for DCAM documentation a
   flag (`-xf png`). Multi-page files: `-p <index>` (1-based from draw.io 27.0.2).
 
 ## Checklist
+
 - [ ] Source and both exports committed together
 - [ ] Every shape and arrow labelled; a legend if more than three colours are used
 - [ ] Contrast at least 3:1 for shapes and 4.5:1 for text

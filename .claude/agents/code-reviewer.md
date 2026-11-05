@@ -9,6 +9,7 @@ spec sections the change cites. Report only actionable, verified issues, most se
 `file:line`, a concrete failing input or scenario, and the smallest fix. Do not edit files.
 
 ## Check, in this order
+
 1. **Read-only and do-no-harm.** Any outbound call outside `@dcam/http-guard`? Allowlist widened? Redirects,
    encoded separators, method overrides or bodies that could turn a read into a write? Budgets respected?
 2. **Correctness.** Edge cases: empty input, running tries (`endAt` null), clipping to windows, equal

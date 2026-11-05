@@ -17,7 +17,11 @@ const run = (hook: string, input: unknown, env: Record<string, string> = {}, pro
   });
 
 const bash = (command: string, mode: 'default' | 'cloud-read' = 'default') =>
-  run('guard-bash.mjs', { tool_name: 'Bash', tool_input: { command } }, mode === 'cloud-read' ? { DCAM_HARNESS_CLOUD_READ: '1' } : {}).status;
+  run(
+    'guard-bash.mjs',
+    { tool_name: 'Bash', tool_input: { command } },
+    mode === 'cloud-read' ? { DCAM_HARNESS_CLOUD_READ: '1' } : {},
+  ).status;
 
 describe('guard-bash.mjs (spec Appendix F.12)', () => {
   const cases: Array<[string, 'default' | 'cloud-read', 'allowed' | 'blocked']> = [
@@ -29,7 +33,7 @@ describe('guard-bash.mjs (spec Appendix F.12)', () => {
     ['gcloud auth print-access-token', 'cloud-read', 'blocked'],
     ['sh -c "gcloud composer environments delete x"', 'cloud-read', 'blocked'],
     ['echo x | xargs -I {} gcloud composer environments delete {}', 'cloud-read', 'blocked'],
-    ['find . -name "*.yaml" -exec kubectl apply -f {} \;', 'default', 'blocked'],
+    [String.raw`find . -name "*.yaml" -exec kubectl apply -f {} \;`, 'default', 'blocked'],
     ['curl -s http://127.0.0.1:8787/api/v1/health', 'default', 'allowed'],
     ['curl -sd @body.json http://localhost/x', 'default', 'blocked'],
     ['curl -H "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/', 'default', 'blocked'],
@@ -47,7 +51,10 @@ describe('guard-bash.mjs (spec Appendix F.12)', () => {
   });
 
   it('fails closed when the hook input cannot be read', () => {
-    const res = spawnSync('node', [join(ROOT, '.claude/hooks/guard-bash.mjs')], { input: 'not json', encoding: 'utf8' });
+    const res = spawnSync('node', [join(ROOT, '.claude/hooks/guard-bash.mjs')], {
+      input: 'not json',
+      encoding: 'utf8',
+    });
     expect(res.status).toBe(2);
   });
 });
@@ -58,23 +65,39 @@ describe('guard-paths.mjs', () => {
   const adr = join(project, 'docs/adr/0005-analytical-store.md');
   writeFileSync(adr, '---\nstatus: accepted\ndate: 2026-11-05\n---\n\n# Use DuckDB\n\nBody.\n');
   afterAll(() => rmSync(project, { recursive: true, force: true }));
-  const edit = (input: Record<string, unknown>, tool = 'Edit') => run('guard-paths.mjs', { tool_name: tool, tool_input: input }, {}, project).status;
+  const edit = (input: Record<string, unknown>, tool = 'Edit') =>
+    run('guard-paths.mjs', { tool_name: tool, tool_input: input }, {}, project).status;
 
   it('blocks body edits of accepted ADRs and allows status-only edits', () => {
     expect(edit({ file_path: adr, old_string: 'Body.', new_string: 'Changed.' })).toBe(2);
-    expect(edit({ file_path: adr, old_string: 'status: accepted', new_string: 'status: superseded by ADR-0030' })).toBe(0);
+    expect(
+      edit({ file_path: adr, old_string: 'status: accepted', new_string: 'status: superseded by ADR-0030' }),
+    ).toBe(0);
   });
 
   it('blocks writes outside the repository and to protected files', () => {
     expect(edit({ file_path: join(homedir(), '.zshrc'), content: '' }, 'Write')).toBe(2);
-    for (const file of ['pnpm-lock.yaml', '.env', '.dcam-denylist', 'dcam.config.yaml', '.claude/settings.json', '.claude/hooks/guard-bash.mjs', 'packages/contracts/generated/x.ts']) {
+    for (const file of [
+      'pnpm-lock.yaml',
+      '.env',
+      '.dcam-denylist',
+      'dcam.config.yaml',
+      '.claude/settings.json',
+      '.claude/hooks/guard-bash.mjs',
+      'packages/contracts/generated/x.ts',
+    ]) {
       expect(edit({ file_path: join(project, file), content: '' }, 'Write')).toBe(2);
     }
   });
 
   it('allows ordinary source edits, and harness edits only in maintenance mode', () => {
     expect(edit({ file_path: join(project, 'packages/domain/src/x.ts'), content: '' }, 'Write')).toBe(0);
-    const maintenance = run('guard-paths.mjs', { tool_name: 'Write', tool_input: { file_path: join(project, '.claude/settings.json'), content: '' } }, { DCAM_HARNESS_MAINTENANCE: '1' }, project);
+    const maintenance = run(
+      'guard-paths.mjs',
+      { tool_name: 'Write', tool_input: { file_path: join(project, '.claude/settings.json'), content: '' } },
+      { DCAM_HARNESS_MAINTENANCE: '1' },
+      project,
+    );
     expect(maintenance.status).toBe(0);
   });
 });

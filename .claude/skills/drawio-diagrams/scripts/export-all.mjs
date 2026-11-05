@@ -12,16 +12,26 @@ const IMAGE = process.env.DRAWIO_DOCKER_IMAGE ?? 'rlespinasse/drawio-desktop-hea
 
 /** Last commit time, or modification time for uncommitted files (git checkouts reset mtimes). */
 function changedAt(file) {
-  const dirty = execFileSync('git', ['status', '--porcelain', '--', file], { cwd: root, encoding: 'utf8' }).trim();
+  const dirty = execFileSync('git', ['status', '--porcelain', '--', file], {
+    cwd: root,
+    encoding: 'utf8',
+  }).trim();
   if (!dirty) {
-    const committed = execFileSync('git', ['log', '-1', '--format=%ct', '--', file], { cwd: root, encoding: 'utf8' }).trim();
+    const committed = execFileSync('git', ['log', '-1', '--format=%ct', '--', file], {
+      cwd: root,
+      encoding: 'utf8',
+    }).trim();
     if (committed) return Number(committed) * 1000;
   }
   return statSync(file).mtimeMs;
 }
 
 function localBinary() {
-  const candidates = [process.env.DRAWIO_BIN, 'drawio', '/Applications/draw.io.app/Contents/MacOS/draw.io'].filter(Boolean);
+  const candidates = [
+    process.env.DRAWIO_BIN,
+    'drawio',
+    '/Applications/draw.io.app/Contents/MacOS/draw.io',
+  ].filter(Boolean);
   for (const bin of candidates) {
     const probe = spawnSync(bin, ['--version'], { encoding: 'utf8' });
     if (probe.status === 0) return bin;
@@ -38,7 +48,10 @@ function exporter() {
   }
   console.log(`Using Docker image ${IMAGE} (draw.io desktop not found).`);
   return (args) =>
-    spawnSync('docker', ['run', '--rm', '-v', `${root}:/data`, '-w', '/data', IMAGE, ...args], { cwd: root, stdio: 'inherit' });
+    spawnSync('docker', ['run', '--rm', '-v', `${root}:/data`, '-w', '/data', IMAGE, ...args], {
+      cwd: root,
+      stdio: 'inherit',
+    });
 }
 
 const sources = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.drawio')) : [];
@@ -52,7 +65,8 @@ for (const name of sources) {
 }
 
 if (check) {
-  for (const s of stale) console.error(`Stale or missing export: ${relative(root, s.out)} (source ${relative(root, s.src)})`);
+  for (const s of stale)
+    console.error(`Stale or missing export: ${relative(root, s.out)} (source ${relative(root, s.src)})`);
   if (stale.length > 0) process.exit(1);
   console.log(`Diagram exports up to date (${sources.length} diagrams).`);
   process.exit(0);

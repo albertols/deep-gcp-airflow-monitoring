@@ -1,0 +1,73 @@
+<mxfile host="drawio" agent="DCAM drawio-diagrams skill" version="24.0.0">
+  <diagram id="dcam-context" name="System context">
+    <mxGraphModel dx="1200" dy="700" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1180" pageHeight="640" background="#0B1320" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="&lt;b&gt;DCAM system context&lt;/b&gt; · spec §11.2 · read-only, local-first" style="text;html=1;fontColor=#E3E8F0;fontSize=16;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="40" y="16" width="620" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="user" value="&lt;b&gt;Engineer&lt;/b&gt;&lt;br&gt;browser on 127.0.0.1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#111B2B;strokeColor=#22324D;fontColor=#E3E8F0;arcSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="110" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="gcloud" value="&lt;b&gt;gcloud CLI&lt;/b&gt;&lt;br&gt;Application Default Credentials" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#111B2B;strokeColor=#22324D;fontColor=#E3E8F0;arcSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="270" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ai" value="&lt;b&gt;AI clients&lt;/b&gt; (from M8)&lt;br&gt;Claude Code, Copilot, Gemini CLI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#111B2B;strokeColor=#9AA9BF;dashed=1;fontColor=#9AA9BF;arcSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="430" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="dcam" value="&lt;b style=&quot;font-size:15px&quot;&gt;DCAM&lt;/b&gt;&lt;br&gt;local process (Node.js)&lt;br&gt;&lt;br&gt;HTTP API + web UI on 127.0.0.1&lt;br&gt;collectors → &lt;b&gt;guarded read-only client&lt;/b&gt;&lt;br&gt;DuckDB store on the laptop&lt;br&gt;signals · findings · (i) explanations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#16233A;strokeColor=#8AB4F8;strokeWidth=2;fontColor=#E3E8F0;arcSize=8;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="340" y="170" width="270" height="250" as="geometry" />
+        </mxCell>
+        <mxCell id="proxy" value="Corporate HTTPS proxy&lt;br&gt;(optional, FR-AUTH-07)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0B1320;strokeColor=#9AA9BF;dashed=1;fontColor=#9AA9BF;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="640" y="560" width="170" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="gcp" value="Google Cloud · customer project" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0E1726;strokeColor=#22324D;fontColor=#9AA9BF;verticalAlign=top;align=left;spacingLeft=12;spacingTop=6;arcSize=3;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="720" y="60" width="420" height="480" as="geometry" />
+        </mxCell>
+        <mxCell id="af" value="&lt;b&gt;Airflow REST API&lt;/b&gt;&lt;br&gt;environment web server" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#111B2B;strokeColor=#22324D;fontColor=#E3E8F0;" vertex="1" parent="1">
+          <mxGeometry x="760" y="100" width="340" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="mon" value="&lt;b&gt;Cloud Monitoring API&lt;/b&gt;&lt;br&gt;composer.googleapis.com metrics" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#111B2B;strokeColor=#22324D;fontColor=#E3E8F0;" vertex="1" parent="1">
+          <mxGeometry x="760" y="165" width="340" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="comp" value="&lt;b&gt;Cloud Composer API&lt;/b&gt;&lt;br&gt;environment config, workloads, operations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#111B2B;strokeColor=#22324D;fontColor=#E3E8F0;" vertex="1" parent="1">
+          <mxGeometry x="760" y="230" width="340" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="log" value="&lt;b&gt;Cloud Logging API&lt;/b&gt; (from M4)&lt;br&gt;bounded entries:list" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#111B2B;strokeColor=#22324D;fontColor=#E3E8F0;" vertex="1" parent="1">
+          <mxGeometry x="760" y="295" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="gcs" value="&lt;b&gt;Environment bucket&lt;/b&gt; (from M4)&lt;br&gt;dags/ listing" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#111B2B;strokeColor=#22324D;fontColor=#E3E8F0;" vertex="1" parent="1">
+          <mxGeometry x="940" y="295" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="tenant" value="&lt;b&gt;Google-managed tenant project&lt;/b&gt; (Composer 3)&lt;br&gt;GKE cluster · Cloud SQL · Redis&lt;br&gt;&lt;i&gt;not reachable: seen only through exported metrics and logs&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0B1320;strokeColor=#FDD663;dashed=1;fontColor=#E3E8F0;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="760" y="380" width="340" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="e-user" value="HTTP + SSE (loopback only)" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#8AB4F8;fontColor=#9AA9BF;fontSize=11;labelBackgroundColor=#0B1320;" edge="1" parent="1" source="user" target="dcam">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-gcloud" value="ADC token (in memory only)" style="endArrow=classic;html=1;strokeColor=#9AA9BF;fontColor=#9AA9BF;fontSize=11;labelBackgroundColor=#0B1320;" edge="1" parent="1" source="gcloud" target="dcam">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-ai" value="MCP, read-only tools" style="endArrow=classic;html=1;strokeColor=#9AA9BF;dashed=1;fontColor=#9AA9BF;fontSize=11;labelBackgroundColor=#0B1320;" edge="1" parent="1" source="ai" target="dcam">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-af" value="GET only, 30–60 s" style="endArrow=classic;html=1;strokeColor=#81C995;fontColor=#9AA9BF;fontSize=11;labelBackgroundColor=#0B1320;exitX=1;exitY=0.15;exitDx=0;exitDy=0;" edge="1" parent="1" source="dcam" target="af">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-mon" value="metrics, 60 s (series budget)" style="endArrow=classic;html=1;strokeColor=#81C995;fontColor=#9AA9BF;fontSize=11;labelBackgroundColor=#0B1320;exitX=1;exitY=0.35;exitDx=0;exitDy=0;" edge="1" parent="1" source="dcam" target="mon">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-comp" value="config, 10 min" style="endArrow=classic;html=1;strokeColor=#81C995;fontColor=#9AA9BF;fontSize=11;labelBackgroundColor=#0B1320;exitX=1;exitY=0.55;exitDx=0;exitDy=0;" edge="1" parent="1" source="dcam" target="comp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-log" value="bounded, budgeted" style="endArrow=classic;html=1;strokeColor=#81C995;dashed=1;fontColor=#9AA9BF;fontSize=11;labelBackgroundColor=#0B1320;exitX=1;exitY=0.75;exitDx=0;exitDy=0;" edge="1" parent="1" source="dcam" target="log">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="legend" value="&lt;b&gt;Legend&lt;/b&gt;&lt;br&gt;green arrow: read-only call through the guarded client&lt;br&gt;dashed: later milestone or optional&lt;br&gt;yellow dashed box: not reachable from DCAM" style="text;html=1;fontColor=#9AA9BF;fontSize=11;align=left;verticalAlign=top;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="340" y="460" width="290" height="80" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

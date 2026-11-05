@@ -1,0 +1,29 @@
+name: Bug report
+description: Something in DCAM does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **This repository is public.** Do not paste real project IDs, environment or DAG names, hostnames,
+        tokens, logs or screenshots of real environments. Use fictitious values such as `acme-prod`, or
+        attach a redacted debug bundle.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce (demo mode if possible)
+  - type: input
+    id: version
+    attributes:
+      label: DCAM version, Node.js version and OS
+  - type: dropdown
+    id: target
+    attributes:
+      label: Environment type
+      options: [Demo mode, Local emulator, Composer 3 / Airflow 2, Composer 3 / Airflow 3, Composer 2]

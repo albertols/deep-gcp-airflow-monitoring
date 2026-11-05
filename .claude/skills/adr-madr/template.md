@@ -12,11 +12,11 @@ informed: contributors
 
 ## Decision Drivers
 
-- 
+-
 
 ## Considered Options
 
-- 
+-
 
 ## Decision Outcome
 
@@ -24,8 +24,8 @@ Chosen option: "<option>", because <justification>.
 
 ### Consequences
 
-- Good, because 
-- Bad, because 
+- Good, because
+- Bad, because
 
 ### Confirmation
 
@@ -33,7 +33,7 @@ Chosen option: "<option>", because <justification>.
 
 ### <option 1>
 
-- Good, because 
-- Bad, because 
+- Good, because
+- Bad, because
 
 ## More Information

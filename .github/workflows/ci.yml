@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24, 26]
+    env:
+      DCAM_NETWORK: loopback-only
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Enable pnpm through Corepack
+        run: npm i -g corepack && corepack enable
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Quality gate (format, lint, typecheck, boundaries, tests, hygiene)
+        run: pnpm check
+      - name: Build the web UI
+        run: pnpm build
+      - name: Diagram exports up to date
+        run: pnpm diagrams --check
