@@ -15,8 +15,10 @@ const tryOf = (dagId: string, startAt: number, endAt: number | null): StoredTask
   poolSlots: 1,
   state: endAt === null ? 'running' : 'success',
   queuedAt: startAt,
+  readyAt: null,
   startAt,
   endAt,
+  operator: null,
   sourceUpdatedAt: endAt ?? startAt,
 });
 
