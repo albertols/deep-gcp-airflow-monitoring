@@ -1,0 +1,529 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "version": {
+      "type": "number",
+      "const": 1,
+      "description": "Version of this file format."
+    },
+    "workspace": {
+      "description": "Workspace settings.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+        },
+        "dataDir": {
+          "default": "~/.dcam/data",
+          "description": "Folder for the DuckDB store and backups (owner-only). `~` is your home folder; a relative path is relative to this file. DCAM_DATA_DIR overrides it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "displayTimezone": {
+          "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+        },
+        "stateColours": {
+          "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+        }
+      },
+      "additionalProperties": false
+    },
+    "auth": {
+      "description": "Authentication. DCAM uses your Application Default Credentials.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "quotaProjectId": {
+          "default": null,
+          "description": "Project billed for Google API quota; null uses each environment’s own project (FR-AUTH-04).",
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "network": {
+      "description": "Network settings for Google API and Airflow calls.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "proxy": {
+          "default": "from-env",
+          "description": "from-env honours HTTPS_PROXY, HTTP_PROXY and NO_PROXY.",
+          "type": "string",
+          "const": "from-env"
+        },
+        "caBundlePath": {
+          "default": null,
+          "description": "PEM bundle for TLS-inspecting proxies; NODE_EXTRA_CA_CERTS is honoured as well (FR-AUTH-07).",
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "profiles": {
+      "description": "Collector cadences per profile, in seconds (FR-SETUP-05).",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "live": {
+          "description": "Cadences of the live profile; keys you leave out keep their defaults.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "airflowLive": {
+              "default": 10,
+              "description": "Live snapshot of pools and waiting task instances, in seconds.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "airflowFacts": {
+              "default": 30,
+              "description": "Finished task instances (incremental facts), in seconds.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "airflowInventory": {
+              "default": 900,
+              "description": "DAG list and import errors, in seconds.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "monitoring": {
+              "default": 60,
+              "description": "Cloud Monitoring metrics, in seconds.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "composer": {
+              "default": 300,
+              "description": "Composer environment configuration, in seconds.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "bucket": {
+              "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+            }
+          },
+          "additionalProperties": false
+        },
+        "standard": {
+          "description": "Cadences of the standard profile; keys you leave out keep their defaults.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "airflowLive": {
+              "default": 30,
+              "description": "Live snapshot of pools and waiting task instances, in seconds.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "airflowFacts": {
+              "default": 60,
+              "description": "Finished task instances (incremental facts), in seconds.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "airflowInventory": {
+              "default": 3600,
+              "description": "DAG list and import errors, in seconds.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "monitoring": {
+              "default": 60,
+              "description": "Cloud Monitoring metrics, in seconds.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "composer": {
+              "default": 600,
+              "description": "Composer environment configuration, in seconds.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "bucket": {
+              "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+            }
+          },
+          "additionalProperties": false
+        },
+        "eco": {
+          "description": "Cadences of the eco profile; keys you leave out keep their defaults.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "airflowLive": {
+              "default": 120,
+              "description": "Live snapshot of pools and waiting task instances, in seconds.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "airflowFacts": {
+              "default": 300,
+              "description": "Finished task instances (incremental facts), in seconds.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "airflowInventory": {
+              "default": 3600,
+              "description": "DAG list and import errors, in seconds.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "monitoring": {
+              "default": 300,
+              "description": "Cloud Monitoring metrics, in seconds.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "composer": {
+              "default": 1800,
+              "description": "Composer environment configuration, in seconds.",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "bucket": {
+              "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+            }
+          },
+          "additionalProperties": false
+        },
+        "background": {
+          "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+        }
+      },
+      "additionalProperties": false
+    },
+    "budgets": {
+      "description": "Request budgets (spec §7.11). Values above the hard maxima are rejected.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "airflowApi": {
+          "description": "Airflow API budget per environment.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "live": {
+              "default": 60,
+              "description": "Airflow API, live profile, in requests per minute (hard maximum 120).",
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 120
+            },
+            "standard": {
+              "default": 12,
+              "description": "Airflow API, standard profile, in requests per minute (hard maximum 120).",
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 120
+            },
+            "eco": {
+              "default": 4,
+              "description": "Airflow API, eco profile, in requests per minute (hard maximum 120).",
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 120
+            },
+            "background": {
+              "default": 2,
+              "description": "Airflow API, background work such as inventory refreshes, in requests per minute (hard maximum 120).",
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 120
+            },
+            "maxConcurrent": {
+              "default": 2,
+              "description": "Airflow API requests in flight at once (hard maximum 4).",
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 4
+            }
+          },
+          "additionalProperties": false
+        },
+        "monitoring": {
+          "description": "Cloud Monitoring budget.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "perProjectPerMinute": {
+              "default": 30,
+              "description": "Cloud Monitoring, per project, in requests per minute (hard maximum 120).",
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 120
+            }
+          },
+          "additionalProperties": false
+        },
+        "composerApi": {
+          "description": "Composer API budget.",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "perMinute": {
+              "default": 6,
+              "description": "Composer API, per environment, in requests per minute (hard maximum 30).",
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 30
+            }
+          },
+          "additionalProperties": false
+        },
+        "logging": {
+          "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+        },
+        "gcs": {
+          "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+        },
+        "patientMode": {
+          "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+        }
+      },
+      "additionalProperties": false
+    },
+    "environments": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+            "description": "DCAM slug used in URLs and the API, for example acme-prod."
+          },
+          "displayName": {
+            "description": "Name shown in the UI; defaults to the id.",
+            "type": "string",
+            "minLength": 1
+          },
+          "tier": {
+            "default": "other",
+            "type": "string",
+            "enum": [
+              "dev",
+              "test",
+              "uat",
+              "prod",
+              "other"
+            ]
+          },
+          "profile": {
+            "description": "Collection profile; defaults to standard for the prod tier and eco for every other tier.",
+            "type": "string",
+            "enum": [
+              "live",
+              "standard",
+              "eco",
+              "off"
+            ]
+          },
+          "projectId": {
+            "description": "Google Cloud project of the Composer environment.",
+            "type": "string",
+            "minLength": 1
+          },
+          "location": {
+            "description": "Region of the Composer environment, for example europe-west1.",
+            "type": "string",
+            "minLength": 1
+          },
+          "environment": {
+            "description": "Composer environment name.",
+            "type": "string",
+            "minLength": 1
+          },
+          "airflow": {
+            "type": "object",
+            "properties": {
+              "baseUrl": {
+                "type": "string",
+                "description": "Airflow web server URL on this machine: http or https on 127.0.0.1, localhost or [::1]."
+              },
+              "usernameEnv": {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "description": "Name of the environment variable that holds the Airflow user name (never the value itself)."
+              },
+              "passwordEnv": {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "description": "Name of the environment variable that holds the Airflow password (never the value itself)."
+              },
+              "limits": {
+                "type": "object",
+                "properties": {
+                  "parallelism": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                    "description": "`[core] parallelism`."
+                  },
+                  "schedulers": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                    "description": "Number of schedulers."
+                  },
+                  "maxActiveTasksPerDag": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                    "description": "`[core] max_active_tasks_per_dag`."
+                  },
+                  "maxActiveRunsPerDag": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                    "description": "`[core] max_active_runs_per_dag`."
+                  },
+                  "workerConcurrency": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                    "description": "`[celery] worker_concurrency`."
+                  },
+                  "workers": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                    "description": "Number of Celery workers."
+                  }
+                },
+                "required": [
+                  "parallelism",
+                  "schedulers",
+                  "maxActiveTasksPerDag",
+                  "maxActiveRunsPerDag",
+                  "workerConcurrency",
+                  "workers"
+                ],
+                "additionalProperties": false,
+                "description": "Airflow limits, which a self-managed Airflow has no Composer API to read from."
+              }
+            },
+            "required": [
+              "baseUrl",
+              "usernameEnv",
+              "passwordEnv",
+              "limits"
+            ],
+            "additionalProperties": false,
+            "description": "A self-managed Airflow on this machine, such as the emulator (FR-EMU-02)."
+          },
+          "color": {
+            "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+          },
+          "team": {
+            "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+          },
+          "impersonateServiceAccount": {
+            "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+          },
+          "collectors": {
+            "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+          },
+          "backfill": {
+            "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false,
+        "description": "One monitored environment: either a Composer environment (projectId, location, environment) or an airflow block.",
+        "oneOf": [
+          {
+            "required": [
+              "projectId",
+              "location",
+              "environment"
+            ]
+          },
+          {
+            "required": [
+              "airflow"
+            ]
+          }
+        ]
+      },
+      "description": "The environments DCAM monitors."
+    },
+    "server": {
+      "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+    },
+    "tiers": {
+      "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+    },
+    "discovery": {
+      "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+    },
+    "retention": {
+      "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+    },
+    "teams": {
+      "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+    },
+    "cost": {
+      "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+    },
+    "advisor": {
+      "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+    },
+    "alerting": {
+      "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+    },
+    "ai": {
+      "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+    },
+    "redaction": {
+      "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+    },
+    "features": {
+      "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+    }
+  },
+  "required": [
+    "version",
+    "environments"
+  ],
+  "additionalProperties": false,
+  "title": "DCAM workspace configuration",
+  "description": "dcam.config.yaml (spec §17). Generated from the Zod schema in @dcam/config-file; do not edit."
+}

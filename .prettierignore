@@ -11,3 +11,5 @@ docs/diagrams/**
 # never require a Claude Code session to rewrite them.
 .claude/hooks/**
 .claude/settings*.json
+# Generated from the Zod schema by `pnpm gen`; a test compares it byte for byte.
+packages/adapters/config-file/dcam.config.schema.json
