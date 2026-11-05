@@ -2,7 +2,7 @@
  * Application shell (spec §12.2): top context bar, left navigation, demo banner, routed content.
  * Pages are separate chunks loaded on first visit (NFR-PERF-05).
  *
- * @implements FR-UI-06, FR-EMU-01, FR-SELF-01
+ * @implements FR-UI-06, FR-EMU-01, FR-SELF-01, FR-SETUP-02
  */
 import { useQuery } from '@tanstack/react-query';
 import { Suspense, lazy, useCallback, type ComponentType } from 'react';
@@ -38,6 +38,11 @@ const PAGES: Record<Exclude<Page, 'overview'>, ComponentType<PageProps>> = {
   health: named(() => import('./pages/health/HealthPage'), 'HealthPage'),
 };
 
+/** Shown only in setup mode (FR-SETUP-02), so it stays out of the main chunk. */
+const SetupPage = lazy(async () => ({ default: (await import('./pages/setup/SetupPage')).SetupPage }));
+
+const LOADING = <Skeleton variant="rounded" height={240} aria-label="Loading page" />;
+
 const NAV: ReadonlyArray<{ label: string; route: Route; hint: string; matches: readonly Page[] }> = [
   { label: 'Fleet', route: { page: 'fleet' }, hint: 'Every environment', matches: ['fleet'] },
   { label: 'Capacity overview', route: { page: 'overview' }, hint: 'One environment', matches: ['overview'] },
@@ -60,6 +65,8 @@ export function App({ api }: { api: DcamApi }) {
   const link = useCallback((route: Route) => linkTo(route, envId), [envId]);
   const navigate = useCallback((route: Route) => go(linkTo(route, envId)), [go, envId]);
   const { route } = location;
+  // Setup mode (FR-SETUP-02): no environment is configured, so only the setup page applies.
+  const setup = meta.data?.setup;
   const PageComponent = route.page === 'overview' ? null : PAGES[route.page];
 
   return (
@@ -97,6 +104,7 @@ export function App({ api }: { api: DcamApi }) {
           {meta.data?.mode === 'demo' && (
             <Chip size="small" color="warning" variant="outlined" label="Demo data" />
           )}
+          {setup && <Chip size="small" color="warning" variant="outlined" label="Setup needed" />}
           {meta.data && (
             <Typography variant="caption" color="text.secondary">
               v{meta.data.version}
@@ -116,51 +124,61 @@ export function App({ api }: { api: DcamApi }) {
         </Alert>
       )}
 
-      <Box sx={{ display: 'flex', flex: 1, flexDirection: { xs: 'column', md: 'row' } }}>
-        <Box
-          component="nav"
-          aria-label="Main"
-          sx={{
-            width: { md: NAV_WIDTH },
-            flexShrink: 0,
-            borderRight: { md: 1 },
-            borderBottom: { xs: 1, md: 0 },
-            borderColor: 'divider',
-          }}
-        >
-          <List dense>
-            {NAV.map((item) => {
-              const current = item.matches.includes(route.page);
-              return (
-                <ListItemButton
-                  key={item.label}
-                  component="a"
-                  href={link(item.route)}
-                  selected={current}
-                  aria-current={current ? 'page' : undefined}
-                >
-                  <ListItemText primary={item.label} secondary={item.hint} />
-                </ListItemButton>
-              );
-            })}
-          </List>
-        </Box>
-        <Box component="main" sx={{ flex: 1, p: { xs: 4, md: 6 }, minWidth: 0 }}>
-          {meta.isError && (
-            <Alert severity="error">
-              Couldn't reach the DCAM server. Check that it is still running, then reload the page.
-            </Alert>
-          )}
-          <PageErrorBoundary resetKey={linkTo(route, envId)}>
-            {envId && route.page === 'overview' && <OverviewPage api={api} envId={envId} />}
-            {envId && PageComponent && (
-              <Suspense fallback={<Skeleton variant="rounded" height={240} aria-label="Loading page" />}>
-                <PageComponent api={api} envId={envId} route={route} linkTo={link} navigate={navigate} />
-              </Suspense>
-            )}
+      {setup ? (
+        <Box component="main" sx={{ flex: 1, p: { xs: 4, md: 6 }, minWidth: 0, maxWidth: 1100 }}>
+          <PageErrorBoundary resetKey="setup">
+            <Suspense fallback={LOADING}>
+              <SetupPage setup={setup} />
+            </Suspense>
           </PageErrorBoundary>
         </Box>
-      </Box>
+      ) : (
+        <Box sx={{ display: 'flex', flex: 1, flexDirection: { xs: 'column', md: 'row' } }}>
+          <Box
+            component="nav"
+            aria-label="Main"
+            sx={{
+              width: { md: NAV_WIDTH },
+              flexShrink: 0,
+              borderRight: { md: 1 },
+              borderBottom: { xs: 1, md: 0 },
+              borderColor: 'divider',
+            }}
+          >
+            <List dense>
+              {NAV.map((item) => {
+                const current = item.matches.includes(route.page);
+                return (
+                  <ListItemButton
+                    key={item.label}
+                    component="a"
+                    href={link(item.route)}
+                    selected={current}
+                    aria-current={current ? 'page' : undefined}
+                  >
+                    <ListItemText primary={item.label} secondary={item.hint} />
+                  </ListItemButton>
+                );
+              })}
+            </List>
+          </Box>
+          <Box component="main" sx={{ flex: 1, p: { xs: 4, md: 6 }, minWidth: 0 }}>
+            {meta.isError && (
+              <Alert severity="error">
+                Couldn't reach the DCAM server. Check that it is still running, then reload the page.
+              </Alert>
+            )}
+            <PageErrorBoundary resetKey={linkTo(route, envId)}>
+              {envId && route.page === 'overview' && <OverviewPage api={api} envId={envId} />}
+              {envId && PageComponent && (
+                <Suspense fallback={LOADING}>
+                  <PageComponent api={api} envId={envId} route={route} linkTo={link} navigate={navigate} />
+                </Suspense>
+              )}
+            </PageErrorBoundary>
+          </Box>
+        </Box>
+      )}
     </Box>
   );
 }
