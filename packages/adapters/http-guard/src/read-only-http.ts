@@ -28,6 +28,16 @@ export function toReadOnlyHttp(client: GuardedClient, defaults: ReadOnlyHttpDefa
             error.fixHint === undefined ? {} : { fixHint: error.fixHint },
           );
         }
+        if (error instanceof GuardError && error.code === 'redirect') {
+          // Not a DCAM bug: proxies send sign-in or block pages this way, and web servers send expired
+          // sessions to a login page.
+          throw new SourceError('network', error.message, {
+            ...(error.status === undefined ? {} : { status: error.status }),
+            fixHint:
+              'DCAM never follows redirects. A proxy sign-in or block page often causes this: check ' +
+              'HTTPS_PROXY and NO_PROXY. If it persists, sign in again: gcloud auth application-default login',
+          });
+        }
         if (error instanceof GuardError) {
           throw new SourceError('guard', `DCAM refused its own request (${error.code}): ${error.message}`);
         }

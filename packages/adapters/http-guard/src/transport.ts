@@ -49,6 +49,8 @@ interface ProxySetting {
   readonly href: string;
   /** `host:port`, safe to show. */
   readonly display: string;
+  /** The proxy itself runs on this machine. */
+  readonly loopback: boolean;
 }
 
 /** The first non-empty value; lower case wins over upper case, as in undici and curl. */
@@ -84,7 +86,10 @@ function parseProxy(variable: string, raw: string): { proxy: ProxySetting; secre
     }
     return [s, decoded];
   });
-  return { proxy: { href: url.href, display: url.host }, secrets: secrets.filter((s) => s.length >= 3) };
+  return {
+    proxy: { href: url.href, display: url.host, loopback: isLoopbackHostname(url.hostname) },
+    secrets: secrets.filter((s) => s.length >= 3),
+  };
 }
 
 function readPem(path: string): string {
@@ -158,10 +163,15 @@ export function createNetworkTransport(options: NetworkTransportOptions): Networ
     if (!found) continue;
     const parsed = parseProxy(...found);
     secrets.push(...parsed.secrets);
-    if (options.loopbackOnly && !isLoopbackHostname(new URL(parsed.proxy.href).hostname)) continue;
+    if (options.loopbackOnly && !parsed.proxy.loopback) continue;
     proxies[scheme] = parsed.proxy;
   }
-  const noProxy = pick(env, 'NO_PROXY')?.[1] ?? '';
+  // A remote proxy cannot reach this machine's loopback (and must not see local credentials), so
+  // loopback targets always bypass it. A proxy on loopback (tests) still follows NO_PROXY alone.
+  const remoteProxy = [proxies.http, proxies.https].some((p) => p !== undefined && !p.loopback);
+  const noProxy = [pick(env, 'NO_PROXY')?.[1], remoteProxy ? 'localhost,127.0.0.1,[::1]' : undefined]
+    .filter((v) => v !== undefined && v !== '')
+    .join(',');
   const extraCaCertsPath = env['NODE_EXTRA_CA_CERTS'];
   const ca = trustedCaCertificates({
     ...(options.caBundlePath === undefined ? {} : { caBundlePath: options.caBundlePath }),
@@ -182,8 +192,12 @@ export function createNetworkTransport(options: NetworkTransportOptions): Networ
     proxyTls: tlsOptions,
   });
   const redact = (text: string) => secrets.reduce((t, s) => t.split(s).join('***'), text);
-  const proxyFor = (url: URL) =>
-    (url.protocol === 'https:' ? (proxies.https ?? proxies.http) : proxies.http)?.display ?? null;
+  /** The proxy a request may have used, for fix hints (NO_PROXY is not evaluated here). */
+  const proxyFor = (url: URL) => {
+    const proxy = url.protocol === 'https:' ? (proxies.https ?? proxies.http) : proxies.http;
+    if (!proxy || (!proxy.loopback && isLoopbackHostname(url.hostname))) return null;
+    return proxy.display;
+  };
 
   const transport: Transport = async (url, init) => {
     try {

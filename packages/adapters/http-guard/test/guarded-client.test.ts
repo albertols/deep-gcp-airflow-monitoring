@@ -234,6 +234,23 @@ describe('NFR-SEC-04 read-only guarantee (spec §18.2)', () => {
     );
   });
 
+  it('NFR-SEC-04: security events and guard errors never echo query strings or credentials', async () => {
+    const onRejected = vi.fn();
+    const client = createGuardedClient({ network: 'any', transport: vi.fn(), onRejected });
+    const errors: unknown[] = [];
+    for (const url of [
+      'https://acme-user:acme-pw-secret@abc.composer.googleusercontent.com/api/v1/pools',
+      `${AIRFLOW}/api/v1/config?acme_query_secret=1`,
+      'not a url acme-pw-secret',
+    ]) {
+      errors.push(await client.request({ method: 'GET', url }).catch((e: unknown) => e));
+    }
+    const text = JSON.stringify(onRejected.mock.calls) + errors.map((e) => (e as Error).message).join('\n');
+    for (const secret of ['acme-pw-secret', 'acme-user', 'acme_query_secret'])
+      expect(text).not.toContain(secret);
+    expect(onRejected.mock.calls[1]?.[0]).toMatchObject({ url: `${AIRFLOW}/api/v1/config` });
+  });
+
   it('validates the Cloud Logging list body strictly', async () => {
     const url = 'https://logging.googleapis.com/v2/entries:list';
     for (const body of [

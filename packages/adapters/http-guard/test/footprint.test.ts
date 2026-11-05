@@ -214,7 +214,9 @@ describe('FR-AUTH-07 per-request timeout', () => {
   it('FR-AUTH-07: rejects a timeout that is not a positive number before any I/O', async () => {
     const transport = vi.fn(async () => new Response('{}'));
     const client = createGuardedClient({ network: 'any', transport });
-    for (const timeoutMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    // Node.js timers fire at once above 2^31 − 1 ms, so those values are refused too.
+    expect(() => createGuardedClient({ network: 'any', transport, timeoutMs: 2 ** 31 })).toThrow(RangeError);
+    for (const timeoutMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 31]) {
       await expect(
         client.request({ method: 'GET', url: `${AIRFLOW}/api/v1/health`, timeoutMs }),
       ).rejects.toBeInstanceOf(RangeError);

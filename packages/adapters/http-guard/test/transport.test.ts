@@ -253,6 +253,15 @@ describe('FR-AUTH-07 proxy variables', () => {
     expect(await body(c, httpUrl())).toBe('{"via":"direct"}');
   });
 
+  it('FR-AUTH-07: loopback targets never go through a remote proxy, even without NO_PROXY', async () => {
+    // A remote proxy cannot reach this machine's loopback, and must not see local credentials.
+    const c = client({
+      network: 'any',
+      proxyEnv: { HTTP_PROXY: 'http://192.0.2.1:3128', NO_PROXY: 'acme.internal' },
+    });
+    expect(await body(c, httpUrl())).toBe('{"via":"direct"}');
+  });
+
   it('FR-AUTH-07: loopback-only mode still rejects non-loopback targets when a proxy is set', async () => {
     const c = client({ proxyEnv: { HTTPS_PROXY: `http://127.0.0.1:${proxyPort}` } });
     await expect(

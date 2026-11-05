@@ -30,10 +30,30 @@ export class GuardError extends Error {
   constructor(
     readonly code: GuardErrorCode,
     message: string,
+    /** The HTTP status of a refused redirect; absent for requests refused before sending. */
+    readonly status?: number,
   ) {
     super(message);
   }
 }
+
+/** For security events and messages: never the query string or embedded credentials. */
+function describeUrl(raw: string): string {
+  try {
+    const url = new URL(raw);
+    return `${url.protocol}//${url.host}${url.pathname}`;
+  } catch {
+    return '(not a valid URL)';
+  }
+}
+
+/** A 3xx answer (status 0 for an opaque redirect), refused after the footprint event. */
+interface Redirect {
+  readonly redirect: number;
+}
+
+/** Largest delay Node.js timers accept; longer ones fire at once. */
+const MAX_TIMEOUT_MS = 2_147_483_647;
 
 export interface GuardedRequest {
   readonly method: string;
@@ -131,8 +151,10 @@ export function networkModeFromEnv(env: Readonly<Record<string, string | undefin
 }
 
 function assertTimeout(timeoutMs: number): void {
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    throw new RangeError(`timeoutMs must be a positive number of milliseconds, not ${timeoutMs}`);
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_TIMEOUT_MS) {
+    throw new RangeError(
+      `timeoutMs must be a positive number of milliseconds up to ${MAX_TIMEOUT_MS}, not ${timeoutMs}`,
+    );
   }
 }
 
@@ -171,7 +193,7 @@ export function createGuardedClient(options: GuardedClientOptions): GuardedClien
     try {
       url = new URL(req.url);
     } catch {
-      throw new GuardError('invalid-url', `not a valid URL: ${req.url}`);
+      throw new GuardError('invalid-url', 'not a valid URL');
     }
     if (url.username || url.password) {
       throw new GuardError('credentials-in-url', 'credentials must not be embedded in URLs');
@@ -215,7 +237,7 @@ export function createGuardedClient(options: GuardedClientOptions): GuardedClien
     entry: AllowEntry,
     req: GuardedRequest,
     timeoutMs: number,
-  ): Promise<Response | 'redirect'> {
+  ): Promise<Response | Redirect> {
     const what = `${entry.method} ${url.host}${url.pathname}`;
     const controller = new AbortController();
     // Redirects are never followed: a 3xx could point at a forbidden route or another host,
@@ -244,12 +266,12 @@ export function createGuardedClient(options: GuardedClientOptions): GuardedClien
       }, timeoutMs);
     });
 
-    const exchange = async (): Promise<Response | 'redirect'> => {
+    const exchange = async (): Promise<Response | Redirect> => {
       const response = await send(url.toString(), init);
       status = response.status;
       if (response.type === 'opaqueredirect' || (status >= 300 && status < 400)) {
         await response.body?.cancel().catch(() => undefined);
-        return 'redirect';
+        return { redirect: status };
       }
       if (status < 200 || status > 599) {
         throw new TransportError('network', `${what} answered with an invalid status ${status}`);
@@ -294,7 +316,7 @@ export function createGuardedClient(options: GuardedClientOptions): GuardedClien
     async request(req) {
       const reject = (error: unknown): never => {
         if (error instanceof GuardError)
-          options.onRejected?.({ code: error.code, method: req.method, url: req.url });
+          options.onRejected?.({ code: error.code, method: req.method, url: describeUrl(req.url) });
         throw error;
       };
       let checked: { url: URL; entry: AllowEntry } | undefined;
@@ -307,11 +329,12 @@ export function createGuardedClient(options: GuardedClientOptions): GuardedClien
       const timeoutMs = req.timeoutMs ?? defaultTimeoutMs;
       assertTimeout(timeoutMs);
       const result = await perform(transport, checked.url, checked.entry, req, timeoutMs);
-      if (result === 'redirect') {
+      if (!(result instanceof Response)) {
         return reject(
           new GuardError(
             'redirect',
-            `${checked.url.host} answered with a redirect; DCAM does not follow redirects`,
+            `${checked.url.host} answered ${result.redirect}; DCAM does not follow redirects`,
+            result.redirect,
           ),
         );
       }

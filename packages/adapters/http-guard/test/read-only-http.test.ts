@@ -86,13 +86,16 @@ describe('FR-AUTH-07 toReadOnlyHttp maps transport and guard failures to SourceE
     expect(transport).not.toHaveBeenCalled();
   });
 
-  it('FR-AUTH-07: a redirect becomes SourceError guard', async () => {
+  it('FR-AUTH-07: a redirect (a proxy or sign-in page, not a DCAM bug) becomes SourceError network', async () => {
     const error: unknown = await http(
       async () => new Response(null, { status: 302, headers: { location: '/x' } }),
     )
       .request({ method: 'GET', url: `${AIRFLOW}/api/v1/pools` })
       .catch((e: unknown) => e);
-    expect(error).toMatchObject({ kind: 'guard' });
+    expect(error).toBeInstanceOf(SourceError);
+    expect(error).toMatchObject({ kind: 'network', details: { status: 302 } });
+    expect((error as Error).message).toMatch(/302/);
+    expect((error as SourceError).details.fixHint).toMatch(/HTTPS_PROXY/);
   });
 
   it('FR-AUTH-07: programming errors such as an invalid timeout are not disguised', async () => {
