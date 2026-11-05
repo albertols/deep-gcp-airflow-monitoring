@@ -63,7 +63,9 @@ describe('FR-STORE-01 embedded store with migrations', () => {
 
   it('FR-STORE-01: ingests a large batch quickly through the staging table', async () => {
     const store = await openStore({ path: ':memory:' });
-    const rows = Array.from({ length: 100_000 }, (_, i) => row({ taskId: `t${i}`, startAt: T0 + i, endAt: T0 + i + 1_000 }));
+    const rows = Array.from({ length: 100_000 }, (_, i) =>
+      row({ taskId: `t${i}`, startAt: T0 + i, endAt: T0 + i + 1_000 }),
+    );
     const started = performance.now();
     await store.upsertTaskTries(rows);
     expect(performance.now() - started).toBeLessThan(5_000);

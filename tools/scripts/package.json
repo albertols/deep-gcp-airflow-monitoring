@@ -1,0 +1,10 @@
+{
+  "name": "@dcam/tools",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Repository tooling: hygiene scan, Claude Code hook tests, diagram export.",
+  "scripts": {
+    "test": "vitest run"
+  }
+}

@@ -43,7 +43,12 @@ export function App({ api }: { api: DcamApi }) {
         <Toolbar sx={{ gap: 4, minHeight: { xs: 64 }, py: 2 }}>
           <Typography component="div" sx={{ fontWeight: 500, fontSize: '1.125rem' }}>
             DCAM
-            <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 2, display: { xs: 'none', md: 'inline' } }}>
+            <Typography
+              component="span"
+              variant="body2"
+              color="text.secondary"
+              sx={{ ml: 2, display: { xs: 'none', md: 'inline' } }}
+            >
               deep-gcp-airflow-monitoring
             </Typography>
           </Typography>
@@ -64,7 +69,9 @@ export function App({ api }: { api: DcamApi }) {
             </TextField>
           )}
           <Box sx={{ flex: 1 }} />
-          {meta.data?.mode === 'demo' && <Chip size="small" color="warning" variant="outlined" label="Demo data" />}
+          {meta.data?.mode === 'demo' && (
+            <Chip size="small" color="warning" variant="outlined" label="Demo data" />
+          )}
           {meta.data && (
             <Typography variant="caption" color="text.secondary">
               v{meta.data.version}
@@ -74,8 +81,13 @@ export function App({ api }: { api: DcamApi }) {
       </AppBar>
 
       {meta.data?.mode === 'demo' && (
-        <Alert severity="info" variant="outlined" sx={{ borderRadius: 0, borderLeft: 0, borderRight: 0, borderTop: 0 }}>
-          You're viewing demo data for the fictitious "acme" organisation. Nothing here comes from Google Cloud.
+        <Alert
+          severity="info"
+          variant="outlined"
+          sx={{ borderRadius: 0, borderLeft: 0, borderRight: 0, borderTop: 0 }}
+        >
+          You're viewing demo data for the fictitious "acme" organisation. Nothing here comes from Google
+          Cloud.
         </Alert>
       )}
 
@@ -83,18 +95,31 @@ export function App({ api }: { api: DcamApi }) {
         <Box
           component="nav"
           aria-label="Main"
-          sx={{ width: { md: NAV_WIDTH }, flexShrink: 0, borderRight: { md: 1 }, borderBottom: { xs: 1, md: 0 }, borderColor: 'divider' }}
+          sx={{
+            width: { md: NAV_WIDTH },
+            flexShrink: 0,
+            borderRight: { md: 1 },
+            borderBottom: { xs: 1, md: 0 },
+            borderColor: 'divider',
+          }}
         >
           <List dense>
             {NAV.map((item) => (
               <ListItemButton key={item.label} selected={!item.milestone} disabled={Boolean(item.milestone)}>
-                <ListItemText primary={item.label} secondary={item.milestone ? `Coming in ${item.milestone}` : undefined} />
+                <ListItemText
+                  primary={item.label}
+                  secondary={item.milestone ? `Coming in ${item.milestone}` : undefined}
+                />
               </ListItemButton>
             ))}
           </List>
         </Box>
         <Box component="main" sx={{ flex: 1, p: { xs: 4, md: 6 }, minWidth: 0 }}>
-          {meta.isError && <Alert severity="error">Couldn't reach the DCAM server. Check that it is still running, then reload the page.</Alert>}
+          {meta.isError && (
+            <Alert severity="error">
+              Couldn't reach the DCAM server. Check that it is still running, then reload the page.
+            </Alert>
+          )}
           {selected && <OverviewPage api={api} envId={selected} />}
         </Box>
       </Box>

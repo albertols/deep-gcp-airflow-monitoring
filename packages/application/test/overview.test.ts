@@ -5,9 +5,19 @@ import { getEnvironmentOverview, paretoCount } from '../src/index';
 const T0 = Date.UTC(2026, 10, 5, 0, 0, 0);
 const H = 3_600_000;
 const tryOf = (dagId: string, startAt: number, endAt: number | null): StoredTaskTry => ({
-  envId: 'acme-prod', dagId, runId: 'r', taskId: `t-${startAt}`, mapIndex: -1, tryNumber: 1,
-  pool: 'default_pool', poolSlots: 1, state: endAt === null ? 'running' : 'success',
-  queuedAt: startAt, startAt, endAt, sourceUpdatedAt: endAt ?? startAt,
+  envId: 'acme-prod',
+  dagId,
+  runId: 'r',
+  taskId: `t-${startAt}`,
+  mapIndex: -1,
+  tryNumber: 1,
+  pool: 'default_pool',
+  poolSlots: 1,
+  state: endAt === null ? 'running' : 'success',
+  queuedAt: startAt,
+  startAt,
+  endAt,
+  sourceUpdatedAt: endAt ?? startAt,
 });
 
 const store = (rows: StoredTaskTry[]) => ({
@@ -33,7 +43,10 @@ describe('HM-003 / HM-011 environment overview', () => {
       tryOf('light', T0 + 3 * H, T0 + 3 * H + 30 * 60_000),
       tryOf('live', now - 60_000, null),
     ];
-    const o = await getEnvironmentOverview({ store: store(rows), clock: { now: () => now } }, { envId: 'acme-prod', range: '24h', sources: ['DEMO'] });
+    const o = await getEnvironmentOverview(
+      { store: store(rows), clock: { now: () => now } },
+      { envId: 'acme-prod', range: '24h', sources: ['DEMO'] },
+    );
     expect(o.env_id).toBe('acme-prod');
     expect(o.range).toEqual({ from: new Date(T0).toISOString(), to: new Date(now).toISOString() });
     expect(o.total_executor_slot_seconds).toBe(4 * 3600 + 1800 + 60);

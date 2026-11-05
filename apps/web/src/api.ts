@@ -20,7 +20,8 @@ export function createDcamApi(baseUrl = ''): DcamApi {
       const { data, error } = await client.GET('/api/v1/environments/{env_id}/overview', {
         params: { path: { env_id: envId }, query: { range } },
       });
-      if (!data) throw new Error((error as { detail?: string } | undefined)?.detail ?? 'Could not load the overview');
+      if (!data)
+        throw new Error((error as { detail?: string } | undefined)?.detail ?? 'Could not load the overview');
       return data;
     },
   };

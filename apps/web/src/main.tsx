@@ -7,7 +7,9 @@ import { createDcamTheme } from '@dcam/ui-kit';
 import { createDcamApi } from './api';
 import { App } from './App';
 
-const queryClient = new QueryClient({ defaultOptions: { queries: { refetchInterval: 30_000, staleTime: 15_000 } } });
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { refetchInterval: 30_000, staleTime: 15_000 } },
+});
 const root = document.getElementById('root');
 if (!root) throw new Error('Missing #root element');
 

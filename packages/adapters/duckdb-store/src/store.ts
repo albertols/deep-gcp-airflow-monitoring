@@ -30,6 +30,12 @@ export interface Store extends TaskInstanceStore {
 
 const ts = (ms: number | null): DuckDBValue => (ms === null ? null : ms / 1000);
 
+/** DuckDB VARCHAR values arrive as strings; anything else means the schema and the code disagree. */
+function str(value: unknown): string {
+  if (typeof value !== 'string') throw new TypeError(`expected a string from DuckDB, got ${typeof value}`);
+  return value;
+}
+
 export async function openStore(options: OpenStoreOptions): Promise<Store> {
   const now = options.now ?? Date.now;
   const instance = await DuckDBInstance.create(options.path);
@@ -37,7 +43,9 @@ export async function openStore(options: OpenStoreOptions): Promise<Store> {
   try {
     await con.run(`SET TimeZone = 'UTC'`);
     await con.run(`CREATE SCHEMA IF NOT EXISTS meta`);
-    await con.run(`CREATE TABLE IF NOT EXISTS meta.store_info (key VARCHAR PRIMARY KEY, value VARCHAR NOT NULL)`);
+    await con.run(
+      `CREATE TABLE IF NOT EXISTS meta.store_info (key VARCHAR PRIMARY KEY, value VARCHAR NOT NULL)`,
+    );
     await con.run(
       `CREATE TABLE IF NOT EXISTS meta.schema_migrations (id VARCHAR PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL)`,
     );
@@ -54,7 +62,7 @@ export async function openStore(options: OpenStoreOptions): Promise<Store> {
 
   return {
     async appliedMigrations() {
-      return (await all(`SELECT id FROM meta.schema_migrations ORDER BY id`)).map((r) => String(r['id']));
+      return (await all(`SELECT id FROM meta.schema_migrations ORDER BY id`)).map((r) => str(r['id']));
     },
     async setInfo(key, value) {
       await con.run(`INSERT OR REPLACE INTO meta.store_info VALUES ($1, $2)`, [key, value]);
@@ -65,7 +73,8 @@ export async function openStore(options: OpenStoreOptions): Promise<Store> {
       try {
         await con.run('DELETE FROM meta.staging_task_instance');
         const appender = await con.createAppender('staging_task_instance', 'meta');
-        const dbl = (v: number | null) => (v === null ? appender.appendNull() : appender.appendDouble(v / 1000));
+        const dbl = (v: number | null) =>
+          v === null ? appender.appendNull() : appender.appendDouble(v / 1000);
         for (const r of rows) {
           appender.appendVarchar(r.envId);
           appender.appendVarchar(r.dagId);
@@ -116,7 +125,9 @@ export async function openStore(options: OpenStoreOptions): Promise<Store> {
       return rows.map(toTry);
     },
     async countTaskTries(envId) {
-      const [row] = await all(`SELECT count(*)::INTEGER AS n FROM fact.task_instance WHERE env_id = $1`, [envId]);
+      const [row] = await all(`SELECT count(*)::INTEGER AS n FROM fact.task_instance WHERE env_id = $1`, [
+        envId,
+      ]);
       return Number(row?.['n'] ?? 0);
     },
     close() {
@@ -127,7 +138,9 @@ export async function openStore(options: OpenStoreOptions): Promise<Store> {
 }
 
 async function checkVersion(con: DuckDBConnection): Promise<void> {
-  const rows = (await con.runAndReadAll(`SELECT value FROM meta.store_info WHERE key = 'store_major'`)).getRowObjectsJS();
+  const rows = (
+    await con.runAndReadAll(`SELECT value FROM meta.store_info WHERE key = 'store_major'`)
+  ).getRowObjectsJS();
   const stored = rows[0] ? Number(rows[0]['value']) : undefined;
   if (stored === undefined) {
     await con.run(`INSERT INTO meta.store_info VALUES ('store_major', $1)`, [String(STORE_MAJOR)]);
@@ -141,7 +154,9 @@ async function checkVersion(con: DuckDBConnection): Promise<void> {
 
 async function migrate(con: DuckDBConnection, now: () => number): Promise<void> {
   const applied = new Set(
-    (await con.runAndReadAll(`SELECT id FROM meta.schema_migrations`)).getRowObjectsJS().map((r) => String(r['id'])),
+    (await con.runAndReadAll(`SELECT id FROM meta.schema_migrations`))
+      .getRowObjectsJS()
+      .map((r) => str(r['id'])),
   );
   for (const m of MIGRATIONS) {
     if (applied.has(m.id)) continue;
@@ -161,14 +176,14 @@ const num = (v: unknown): number | null => (v === null || v === undefined ? null
 
 function toTry(r: Record<string, unknown>): StoredTaskTry {
   return {
-    envId: String(r['env_id']),
-    dagId: String(r['dag_id']),
-    runId: String(r['run_id']),
-    taskId: String(r['task_id']),
+    envId: str(r['env_id']),
+    dagId: str(r['dag_id']),
+    runId: str(r['run_id']),
+    taskId: str(r['task_id']),
     mapIndex: Number(r['map_index']),
     tryNumber: Number(r['try_number']),
-    state: r['state'] === null ? null : String(r['state']),
-    pool: String(r['pool']),
+    state: r['state'] === null ? null : str(r['state']),
+    pool: str(r['pool']),
     poolSlots: Number(r['pool_slots']),
     queuedAt: num(r['queued_at']),
     startAt: num(r['start_at']),

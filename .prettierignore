@@ -6,3 +6,4 @@ docs/diagrams/**
 .claude/hooks/**
 **/*.drawio
 **/*.drawio.svg
+.remember/**

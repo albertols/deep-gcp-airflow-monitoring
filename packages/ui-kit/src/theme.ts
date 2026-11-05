@@ -27,10 +27,23 @@ export function createDcamTheme(mode: ThemeMode = 'dark'): Theme {
       button: { textTransform: 'none' },
     },
     components: {
-      MuiPaper: { styleOverrides: { root: { backgroundImage: 'none', border: `1px solid ${t.borderSubtle}` } } },
-      MuiAppBar: { styleOverrides: { root: { backgroundColor: t.bgSurface, color: t.textPrimary, border: 0, borderBottom: `1px solid ${t.borderSubtle}` } } },
+      MuiPaper: {
+        styleOverrides: { root: { backgroundImage: 'none', border: `1px solid ${t.borderSubtle}` } },
+      },
+      MuiAppBar: {
+        styleOverrides: {
+          root: {
+            backgroundColor: t.bgSurface,
+            color: t.textPrimary,
+            border: 0,
+            borderBottom: `1px solid ${t.borderSubtle}`,
+          },
+        },
+      },
       MuiPopover: { styleOverrides: { paper: { backgroundColor: t.bgRaised } } },
-      MuiTableCell: { styleOverrides: { root: { borderColor: t.borderSubtle, fontVariantNumeric: 'tabular-nums' } } },
+      MuiTableCell: {
+        styleOverrides: { root: { borderColor: t.borderSubtle, fontVariantNumeric: 'tabular-nums' } },
+      },
     },
   });
 }

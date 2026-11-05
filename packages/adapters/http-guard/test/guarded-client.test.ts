@@ -12,7 +12,11 @@ function setup(network: 'any' | 'loopback-only' = 'any') {
   return { client, transport, onRejected };
 }
 
-async function expectRejected(req: GuardedRequest, code: GuardError['code'], network: 'any' | 'loopback-only' = 'any') {
+async function expectRejected(
+  req: GuardedRequest,
+  code: GuardError['code'],
+  network: 'any' | 'loopback-only' = 'any',
+) {
   const { client, transport, onRejected } = setup(network);
   await expect(client.request(req)).rejects.toMatchObject({ name: 'GuardError', code });
   expect(transport).not.toHaveBeenCalled();
@@ -42,13 +46,24 @@ describe('NFR-SEC-04 read-only guarantee (spec §18.2)', () => {
 
   it('rejects Airflow writes: pause, trigger, clear, set state, delete', async () => {
     await expectRejected({ method: 'PATCH', url: `${AIRFLOW}/api/v1/dags/orders_daily` }, 'not-allowlisted');
-    await expectRejected({ method: 'POST', url: `${AIRFLOW}/api/v1/dags/orders_daily/dagRuns`, body: {} }, 'not-allowlisted');
-    await expectRejected({ method: 'POST', url: `${AIRFLOW}/api/v1/dags/orders_daily/clearTaskInstances`, body: {} }, 'not-allowlisted');
+    await expectRejected(
+      { method: 'POST', url: `${AIRFLOW}/api/v1/dags/orders_daily/dagRuns`, body: {} },
+      'not-allowlisted',
+    );
+    await expectRejected(
+      { method: 'POST', url: `${AIRFLOW}/api/v1/dags/orders_daily/clearTaskInstances`, body: {} },
+      'not-allowlisted',
+    );
     await expectRejected({ method: 'DELETE', url: `${AIRFLOW}/api/v1/dags/orders_daily` }, 'not-allowlisted');
   });
 
   it('rejects Airflow reads DCAM must never make: configuration, connections, variables, XCom', async () => {
-    for (const path of ['/api/v1/config', '/api/v1/connections', '/api/v1/variables/secret', '/api/v1/dags/d/dagRuns/r/taskInstances/t/xcomEntries']) {
+    for (const path of [
+      '/api/v1/config',
+      '/api/v1/connections',
+      '/api/v1/variables/secret',
+      '/api/v1/dags/d/dagRuns/r/taskInstances/t/xcomEntries',
+    ]) {
       await expectRejected({ method: 'GET', url: `${AIRFLOW}${path}` }, 'not-allowlisted');
     }
   });
@@ -81,31 +96,71 @@ describe('NFR-SEC-04 read-only guarantee (spec §18.2)', () => {
     }
     const { client, transport } = setup();
     await fc.assert(
-      fc.asyncProperty(fc.constantFrom('%2F', '%2f', '%5C', '%5c'), fc.constantFrom('config', 'xcomEntries', 'variables', 'connections'), async (sep, target) => {
-        await expect(client.request({ method: 'GET', url: `${AIRFLOW}/api/v1/dags/d${sep}${target}` })).rejects.toBeInstanceOf(GuardError);
-      }),
+      fc.asyncProperty(
+        fc.constantFrom('%2F', '%2f', '%5C', '%5c'),
+        fc.constantFrom('config', 'xcomEntries', 'variables', 'connections'),
+        async (sep, target) => {
+          await expect(
+            client.request({ method: 'GET', url: `${AIRFLOW}/api/v1/dags/d${sep}${target}` }),
+          ).rejects.toBeInstanceOf(GuardError);
+        },
+      ),
     );
     expect(transport).not.toHaveBeenCalled();
   });
 
   it('still accepts encoded characters that are legitimate inside IDs', async () => {
     const { client, transport } = setup();
-    await client.request({ method: 'GET', url: `${AIRFLOW}/api/v1/dags/orders_daily/dagRuns/scheduled__2026-11-01T00%3A00%3A00%2B00%3A00/taskInstances` });
-    await client.request({ method: 'GET', url: 'https://storage.googleapis.com/storage/v1/b/bucket/o/dags%2Forders.py' });
+    await client.request({
+      method: 'GET',
+      url: `${AIRFLOW}/api/v1/dags/orders_daily/dagRuns/scheduled__2026-11-01T00%3A00%3A00%2B00%3A00/taskInstances`,
+    });
+    await client.request({
+      method: 'GET',
+      url: 'https://storage.googleapis.com/storage/v1/b/bucket/o/dags%2Forders.py',
+    });
     expect(transport).toHaveBeenCalledTimes(2);
   });
 
   it('allows Google read endpoints and rejects their write counterparts', async () => {
     const { client, transport } = setup();
-    await client.request({ method: 'GET', url: 'https://monitoring.googleapis.com/v3/projects/acme-data-prod/timeSeries?filter=x' });
-    await client.request({ method: 'GET', url: 'https://monitoring.googleapis.com/v3/projects/acme-data-prod/metricDescriptors' });
-    await client.request({ method: 'GET', url: 'https://composer.googleapis.com/v1/projects/acme-data-prod/locations/europe-west1/environments/acme-prod' });
-    await client.request({ method: 'GET', url: 'https://composer.googleapis.com/v1/projects/acme-data-prod/locations/europe-west1/environments/acme-prod/workloads' });
-    await client.request({ method: 'GET', url: 'https://storage.googleapis.com/storage/v1/b/europe-west1-acme-prod-bucket/o?prefix=dags%2F' });
+    await client.request({
+      method: 'GET',
+      url: 'https://monitoring.googleapis.com/v3/projects/acme-data-prod/timeSeries?filter=x',
+    });
+    await client.request({
+      method: 'GET',
+      url: 'https://monitoring.googleapis.com/v3/projects/acme-data-prod/metricDescriptors',
+    });
+    await client.request({
+      method: 'GET',
+      url: 'https://composer.googleapis.com/v1/projects/acme-data-prod/locations/europe-west1/environments/acme-prod',
+    });
+    await client.request({
+      method: 'GET',
+      url: 'https://composer.googleapis.com/v1/projects/acme-data-prod/locations/europe-west1/environments/acme-prod/workloads',
+    });
+    await client.request({
+      method: 'GET',
+      url: 'https://storage.googleapis.com/storage/v1/b/europe-west1-acme-prod-bucket/o?prefix=dags%2F',
+    });
     expect(transport).toHaveBeenCalledTimes(5);
-    await expectRejected({ method: 'PATCH', url: 'https://composer.googleapis.com/v1/projects/p/locations/l/environments/e', body: {} }, 'not-allowlisted');
-    await expectRejected({ method: 'POST', url: 'https://monitoring.googleapis.com/v3/projects/p/alertPolicies', body: {} }, 'not-allowlisted');
-    await expectRejected({ method: 'POST', url: 'https://storage.googleapis.com/upload/storage/v1/b/bucket/o', body: {} }, 'not-allowlisted');
+    await expectRejected(
+      {
+        method: 'PATCH',
+        url: 'https://composer.googleapis.com/v1/projects/p/locations/l/environments/e',
+        body: {},
+      },
+      'not-allowlisted',
+    );
+    await expectRejected(
+      { method: 'POST', url: 'https://monitoring.googleapis.com/v3/projects/p/alertPolicies', body: {} },
+      'not-allowlisted',
+    );
+    await expectRejected(
+      { method: 'POST', url: 'https://storage.googleapis.com/upload/storage/v1/b/bucket/o', body: {} },
+      'not-allowlisted',
+    );
   });
 
   it('allows Cloud Logging entries:list only with a valid read body', async () => {
@@ -113,25 +168,48 @@ describe('NFR-SEC-04 read-only guarantee (spec §18.2)', () => {
     await client.request({
       method: 'POST',
       url: 'https://logging.googleapis.com/v2/entries:list',
-      body: { resourceNames: ['projects/acme-data-prod'], filter: 'resource.type="cloud_composer_environment"', pageSize: 100 },
+      body: {
+        resourceNames: ['projects/acme-data-prod'],
+        filter: 'resource.type="cloud_composer_environment"',
+        pageSize: 100,
+      },
     });
     expect(transport).toHaveBeenCalledOnce();
-    await expectRejected({ method: 'POST', url: 'https://logging.googleapis.com/v2/entries:list', body: { entries: [{}] } }, 'invalid-body');
-    await expectRejected({ method: 'POST', url: 'https://logging.googleapis.com/v2/entries:write', body: { entries: [] } }, 'not-allowlisted');
+    await expectRejected(
+      { method: 'POST', url: 'https://logging.googleapis.com/v2/entries:list', body: { entries: [{}] } },
+      'invalid-body',
+    );
+    await expectRejected(
+      { method: 'POST', url: 'https://logging.googleapis.com/v2/entries:write', body: { entries: [] } },
+      'not-allowlisted',
+    );
   });
 
   it('rejects GET requests with a body and method-override headers', async () => {
-    await expectRejected({ method: 'GET', url: `${AIRFLOW}/api/v1/pools`, body: { slots: 0 } }, 'invalid-body');
-    await expectRejected({ method: 'GET', url: `${AIRFLOW}/api/v1/pools`, headers: { 'X-HTTP-Method-Override': 'PATCH' } }, 'forbidden-header');
+    await expectRejected(
+      { method: 'GET', url: `${AIRFLOW}/api/v1/pools`, body: { slots: 0 } },
+      'invalid-body',
+    );
+    await expectRejected(
+      { method: 'GET', url: `${AIRFLOW}/api/v1/pools`, headers: { 'X-HTTP-Method-Override': 'PATCH' } },
+      'forbidden-header',
+    );
   });
 
   it('rejects unknown hosts and non-HTTPS Google calls', async () => {
     await expectRejected({ method: 'GET', url: 'https://example.com/api/v1/pools' }, 'unknown-host');
-    await expectRejected({ method: 'GET', url: 'http://monitoring.googleapis.com/v3/projects/p/timeSeries' }, 'insecure-scheme');
+    await expectRejected(
+      { method: 'GET', url: 'http://monitoring.googleapis.com/v3/projects/p/timeSeries' },
+      'insecure-scheme',
+    );
   });
 
   it('DCAM_NETWORK=loopback-only rejects every non-loopback host', async () => {
-    await expectRejected({ method: 'GET', url: 'https://monitoring.googleapis.com/v3/projects/p/timeSeries' }, 'non-loopback', 'loopback-only');
+    await expectRejected(
+      { method: 'GET', url: 'https://monitoring.googleapis.com/v3/projects/p/timeSeries' },
+      'non-loopback',
+      'loopback-only',
+    );
   });
 
   it('routes emulator endpoints on loopback through the same allowlist', async () => {
@@ -143,23 +221,35 @@ describe('NFR-SEC-04 read-only guarantee (spec §18.2)', () => {
     });
     await client.request({ method: 'GET', url: 'http://127.0.0.1:8080/api/v1/pools' });
     await client.request({ method: 'GET', url: 'http://127.0.0.1:9090/v3/projects/emu/timeSeries' });
-    await expect(client.request({ method: 'PATCH', url: 'http://127.0.0.1:8080/api/v1/dags/d' })).rejects.toBeInstanceOf(GuardError);
+    await expect(
+      client.request({ method: 'PATCH', url: 'http://127.0.0.1:8080/api/v1/dags/d' }),
+    ).rejects.toBeInstanceOf(GuardError);
     expect(transport).toHaveBeenCalledTimes(2);
   });
 
   it('rejects credentials embedded in the URL', async () => {
-    await expectRejected({ method: 'GET', url: 'https://user:pw@abc.composer.googleusercontent.com/api/v1/pools' }, 'credentials-in-url');
+    await expectRejected(
+      { method: 'GET', url: 'https://user:pw@abc.composer.googleusercontent.com/api/v1/pools' },
+      'credentials-in-url',
+    );
   });
 
   it('validates the Cloud Logging list body strictly', async () => {
     const url = 'https://logging.googleapis.com/v2/entries:list';
-    for (const body of [{ resourceNames: [] }, { resourceNames: [1] }, [{ resourceNames: ['projects/p'] }], { resourceNames: ['projects/p'], extra: 1 }]) {
+    for (const body of [
+      { resourceNames: [] },
+      { resourceNames: [1] },
+      [{ resourceNames: ['projects/p'] }],
+      { resourceNames: ['projects/p'], extra: 1 },
+    ]) {
       await expectRejected({ method: 'POST', url, body }, 'invalid-body');
     }
   });
 
   it('can only narrow the allowlist, never widen it', () => {
-    expect(() => createGuardedClient({ network: 'any', allowlistIds: ['airflow.v1.pools', 'airflow.v1.nope'] })).toThrow(/Unknown allowlist entry/);
+    expect(() =>
+      createGuardedClient({ network: 'any', allowlistIds: ['airflow.v1.pools', 'airflow.v1.nope'] }),
+    ).toThrow(/Unknown allowlist entry/);
   });
 
   it('DCAM_NETWORK fails closed on unrecognised values', () => {
@@ -190,13 +280,29 @@ describe('NFR-SEC-04 redirects never bypass the guard', () => {
     await start();
     try {
       const onRejected = vi.fn();
-      const airflow = createGuardedClient({ network: 'loopback-only', hosts: { airflow: [`127.0.0.1:${port}`] }, onRejected });
-      const logging = createGuardedClient({ network: 'loopback-only', hosts: { logging: [`127.0.0.1:${port}`] }, onRejected });
+      const airflow = createGuardedClient({
+        network: 'loopback-only',
+        hosts: { airflow: [`127.0.0.1:${port}`] },
+        onRejected,
+      });
+      const logging = createGuardedClient({
+        network: 'loopback-only',
+        hosts: { logging: [`127.0.0.1:${port}`] },
+        onRejected,
+      });
       await expect(
-        airflow.request({ method: 'GET', url: `http://127.0.0.1:${port}/api/v1/pools`, headers: { authorization: 'Bearer t' } }),
+        airflow.request({
+          method: 'GET',
+          url: `http://127.0.0.1:${port}/api/v1/pools`,
+          headers: { authorization: 'Bearer t' },
+        }),
       ).rejects.toMatchObject({ code: 'redirect' });
       await expect(
-        logging.request({ method: 'POST', url: `http://127.0.0.1:${port}/v2/entries:list`, body: { resourceNames: ['projects/p'] } }),
+        logging.request({
+          method: 'POST',
+          url: `http://127.0.0.1:${port}/v2/entries:list`,
+          body: { resourceNames: ['projects/p'] },
+        }),
       ).rejects.toMatchObject({ code: 'redirect' });
       expect(seen).toEqual(['GET /api/v1/pools', 'POST /v2/entries:list']);
       expect(onRejected).toHaveBeenCalledTimes(2);

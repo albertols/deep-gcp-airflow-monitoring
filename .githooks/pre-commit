@@ -1,0 +1,3 @@
+#!/bin/sh
+# Refuse commits that contain real identifiers or secrets (spec §18.12).
+exec node tools/scripts/hygiene-scan.mjs

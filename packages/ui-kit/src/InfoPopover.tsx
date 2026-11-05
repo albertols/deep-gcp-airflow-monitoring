@@ -29,7 +29,11 @@ export function InfoPopover({ explanation }: { explanation: Explanation }) {
   const headingId = useId();
   return (
     <>
-      <IconButton size="small" aria-label={`About ${explanation.title}`} onClick={(e) => setAnchor(e.currentTarget)}>
+      <IconButton
+        size="small"
+        aria-label={`About ${explanation.title}`}
+        onClick={(e) => setAnchor(e.currentTarget)}
+      >
         <InfoOutlined fontSize="inherit" />
       </IconButton>
       <Popover

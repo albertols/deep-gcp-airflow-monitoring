@@ -27,8 +27,14 @@ describe('FR-EMU-01 demo fact synthesiser', () => {
 
   it('FR-EMU-01: concentrates load on a few DAGs, like real environments (Pareto)', () => {
     const tries = synthesizeTaskTries(base);
-    const { byDag, totalExecutorSlotSeconds } = slotSeconds(tries, { from: NOW - 24 * 3_600_000, to: NOW, now: NOW });
-    const shares = [...byDag.values()].map((d) => d.executorSlotSeconds / totalExecutorSlotSeconds).sort((a, b) => b - a);
+    const { byDag, totalExecutorSlotSeconds } = slotSeconds(tries, {
+      from: NOW - 24 * 3_600_000,
+      to: NOW,
+      now: NOW,
+    });
+    const shares = [...byDag.values()]
+      .map((d) => d.executorSlotSeconds / totalExecutorSlotSeconds)
+      .sort((a, b) => b - a);
     const top20pct = shares.slice(0, Math.ceil(shares.length * 0.2)).reduce((s, x) => s + x, 0);
     expect(byDag.size).toBe(120);
     expect(top20pct).toBeGreaterThan(0.5);

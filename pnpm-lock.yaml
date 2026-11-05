@@ -229,6 +229,8 @@ importers:
         specifier: 19.3.1
         version: 19.3.1
 
+  tools/scripts: {}
+
 packages:
 
   '@adobe/css-tools@4.5.0':

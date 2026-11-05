@@ -103,7 +103,18 @@ components:
       type: object
       additionalProperties: false
       required:
-        [env_id, range, data_as_of, sources, approximate, total_executor_slot_seconds, peak_concurrency, dag_count, pareto_80_dag_count, top_dags]
+        [
+          env_id,
+          range,
+          data_as_of,
+          sources,
+          approximate,
+          total_executor_slot_seconds,
+          peak_concurrency,
+          dag_count,
+          pareto_80_dag_count,
+          top_dags,
+        ]
       properties:
         env_id: { type: string }
         range: { $ref: '#/components/schemas/TimeRange' }
@@ -113,9 +124,19 @@ components:
           items: { type: string, enum: [SRC-AF-API, SRC-MON, SRC-COMPOSER, DEMO] }
         approximate: { type: boolean }
         total_executor_slot_seconds: { type: number, minimum: 0 }
-        peak_concurrency: { type: integer, minimum: 0, description: 'Highest number of running tries in any minute (HM-011).' }
+        peak_concurrency:
+          {
+            type: integer,
+            minimum: 0,
+            description: 'Highest number of running tries in any minute (HM-011).',
+          }
         dag_count: { type: integer, minimum: 0 }
-        pareto_80_dag_count: { type: integer, minimum: 0, description: 'How many DAGs account for 80 % of slot-seconds (FR-DAGX-03).' }
+        pareto_80_dag_count:
+          {
+            type: integer,
+            minimum: 0,
+            description: 'How many DAGs account for 80 % of slot-seconds (FR-DAGX-03).',
+          }
         top_dags:
           type: array
           maxItems: 10

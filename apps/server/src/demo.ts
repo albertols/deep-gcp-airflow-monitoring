@@ -14,15 +14,21 @@ export interface Workspace {
   readonly clock: Clock;
 }
 
-export async function createDemoWorkspace(options: { now?: () => number; seed?: number } = {}): Promise<Workspace> {
-  const clock: Clock = { now: options.now ?? Date.now };
-  const store = await openStore({ path: ':memory:', now: clock.now });
+export async function createDemoWorkspace(
+  options: { now?: () => number; seed?: number } = {},
+): Promise<Workspace> {
+  const clock: Clock = { now: options.now ?? (() => Date.now()) };
+  const store = await openStore({ path: ':memory:', now: () => clock.now() });
   const environments: Meta['environments'] = [
     { env_id: 'acme-prod', display_name: 'acme-prod', tier: 'prod' },
     { env_id: 'acme-dev', display_name: 'acme-dev', tier: 'dev' },
   ];
   const now = clock.now();
-  await store.upsertTaskTries(synthesizeTaskTries({ seed: options.seed ?? 42, now, hours: 24, envId: 'acme-prod', dagCount: 200 }));
-  await store.upsertTaskTries(synthesizeTaskTries({ seed: (options.seed ?? 42) + 1, now, hours: 24, envId: 'acme-dev', dagCount: 40 }));
+  await store.upsertTaskTries(
+    synthesizeTaskTries({ seed: options.seed ?? 42, now, hours: 24, envId: 'acme-prod', dagCount: 200 }),
+  );
+  await store.upsertTaskTries(
+    synthesizeTaskTries({ seed: (options.seed ?? 42) + 1, now, hours: 24, envId: 'acme-dev', dagCount: 40 }),
+  );
   return { mode: 'demo', environments, store, clock };
 }

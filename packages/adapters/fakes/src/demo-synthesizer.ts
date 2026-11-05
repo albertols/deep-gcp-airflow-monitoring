@@ -17,8 +17,21 @@ export interface DemoOptions {
 }
 
 const DOMAINS = [
-  'orders', 'customer_360', 'billing', 'inventory', 'marketing', 'finance', 'ml_features', 'clickstream',
-  'payments', 'logistics', 'pricing', 'crm_sync', 'fraud', 'search_index', 'reporting',
+  'orders',
+  'customer_360',
+  'billing',
+  'inventory',
+  'marketing',
+  'finance',
+  'ml_features',
+  'clickstream',
+  'payments',
+  'logistics',
+  'pricing',
+  'crm_sync',
+  'fraud',
+  'search_index',
+  'reporting',
 ];
 const SUFFIXES = ['daily', 'hourly', 'ingest', 'export', 'refresh', 'backfill', 'dq_checks', 'aggregate'];
 const POOLS = ['default_pool', 'default_pool', 'etl', 'ml', 'external_api'];

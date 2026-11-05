@@ -8,7 +8,9 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp, createDemoWorkspace } from '../src/index';
 
 const NOW = Date.UTC(2026, 10, 5, 12, 0, 0);
-const spec = parse(readFileSync(fileURLToPath(import.meta.resolve('@dcam/contracts/openapi.yaml')), 'utf8')) as Record<string, unknown>;
+const spec = parse(
+  readFileSync(fileURLToPath(import.meta.resolve('@dcam/contracts/openapi.yaml')), 'utf8'),
+) as Record<string, unknown>;
 const ajv = new Ajv2020({ strict: false });
 addFormats.default(ajv);
 ajv.addSchema({ ...spec, $id: 'dcam' });
@@ -22,7 +24,11 @@ const conforms = (schema: string, body: unknown) => {
 let app: FastifyInstance;
 beforeAll(async () => {
   const workspace = await createDemoWorkspace({ now: () => NOW });
-  app = await buildApp({ ...workspace, version: '0.0.0-test', allowedHosts: ['127.0.0.1:8787', 'localhost:8787'] });
+  app = await buildApp({
+    ...workspace,
+    version: '0.0.0-test',
+    allowedHosts: ['127.0.0.1:8787', 'localhost:8787'],
+  });
 });
 afterAll(async () => {
   await app.close();
@@ -89,17 +95,34 @@ describe('static UI hosting', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dcam-web-'));
     writeFileSync(join(dir, 'index.html'), '<!doctype html><title>DCAM</title>');
     const workspace = await createDemoWorkspace({ now: () => NOW });
-    const web = await buildApp({ ...workspace, version: 't', allowedHosts: ['127.0.0.1:8787'], staticDir: dir });
+    const web = await buildApp({
+      ...workspace,
+      version: 't',
+      allowedHosts: ['127.0.0.1:8787'],
+      staticDir: dir,
+    });
     try {
       mkdirSync(join(dir, 'assets'));
       writeFileSync(join(dir, 'assets', 'index-new.js'), 'console.log(1)');
-      const asset = await web.inject({ method: 'GET', url: '/assets/index-new.js', headers: { host: '127.0.0.1:8787' } });
+      const asset = await web.inject({
+        method: 'GET',
+        url: '/assets/index-new.js',
+        headers: { host: '127.0.0.1:8787' },
+      });
       expect(asset.statusCode).toBe(200);
       expect(asset.headers['content-type']).toContain('javascript');
-      const route = await web.inject({ method: 'GET', url: '/league-table', headers: { host: '127.0.0.1:8787' } });
+      const route = await web.inject({
+        method: 'GET',
+        url: '/league-table',
+        headers: { host: '127.0.0.1:8787' },
+      });
       expect(route.statusCode).toBe(200);
       expect(route.headers['content-type']).toContain('text/html');
-      const missing = await web.inject({ method: 'GET', url: '/assets/gone.js', headers: { host: '127.0.0.1:8787' } });
+      const missing = await web.inject({
+        method: 'GET',
+        url: '/assets/gone.js',
+        headers: { host: '127.0.0.1:8787' },
+      });
       expect(missing.statusCode).toBe(404);
     } finally {
       await web.close();

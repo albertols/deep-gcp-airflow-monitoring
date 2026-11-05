@@ -10,7 +10,11 @@ import type { Clock, TaskInstanceStore } from '@dcam/ports';
 export type OverviewRange = '1h' | '6h' | '24h';
 export type SourceId = EnvironmentOverview['sources'][number];
 
-const RANGE_MS: Record<OverviewRange, number> = { '1h': 3_600_000, '6h': 6 * 3_600_000, '24h': 24 * 3_600_000 };
+const RANGE_MS: Record<OverviewRange, number> = {
+  '1h': 3_600_000,
+  '6h': 6 * 3_600_000,
+  '24h': 24 * 3_600_000,
+};
 
 export interface OverviewDeps {
   readonly store: TaskInstanceStore;
@@ -36,7 +40,10 @@ export function paretoCount(values: readonly number[]): number {
   return sorted.length;
 }
 
-export async function getEnvironmentOverview(deps: OverviewDeps, q: OverviewQuery): Promise<EnvironmentOverview> {
+export async function getEnvironmentOverview(
+  deps: OverviewDeps,
+  q: OverviewQuery,
+): Promise<EnvironmentOverview> {
   const now = deps.clock.now();
   const window = { from: now - RANGE_MS[q.range], to: now, now };
   const tries = await deps.store.taskTries(q.envId, window.from, window.to);
@@ -57,6 +64,8 @@ export async function getEnvironmentOverview(deps: OverviewDeps, q: OverviewQuer
     peak_concurrency: occupancy.reduce((m, b) => Math.max(m, b.max), 0),
     dag_count: ranked.length,
     pareto_80_dag_count: paretoCount(ranked.map((d) => d.executor_slot_seconds)),
-    top_dags: ranked.slice(0, 10).map((d) => ({ ...d, share: total > 0 ? d.executor_slot_seconds / total : 0 })),
+    top_dags: ranked
+      .slice(0, 10)
+      .map((d) => ({ ...d, share: total > 0 ? d.executor_slot_seconds / total : 0 })),
   };
 }

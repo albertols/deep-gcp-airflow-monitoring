@@ -63,12 +63,17 @@ describe('M0 app shell', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'About Executor slot-hours' }));
     const dialog = await screen.findByRole('dialog', { name: 'Executor slot-hours' });
     expect(within(dialog).getByText(/Deferred time is excluded/)).toBeInTheDocument();
-    expect(within(dialog).getByRole('link', { name: /Airflow documentation: pools/ })).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(within(dialog).getByRole('link', { name: /Airflow documentation: pools/ })).toHaveAttribute(
+      'rel',
+      'noopener noreferrer',
+    );
   });
 
   it('FR-UI-08: shows the data source and freshness', async () => {
     renderApp();
-    const footer = await screen.findByText((_text, el) => el?.tagName === 'FOOTER' && /Data as of .* Source: demo data/.test(el.textContent ?? ''));
+    const footer = await screen.findByText(
+      (_text, el) => el?.tagName === 'FOOTER' && /Data as of .* Source: demo data/.test(el.textContent ?? ''),
+    );
     expect(footer).toBeInTheDocument();
   });
 });

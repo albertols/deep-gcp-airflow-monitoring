@@ -121,7 +121,9 @@ export function createGuardedClient(options: GuardedClientOptions): GuardedClien
       }
     }
     const method = req.method.toUpperCase();
-    const entry = allowlist.find((e) => e.service === service && e.method === method && e.path.test(url.pathname));
+    const entry = allowlist.find(
+      (e) => e.service === service && e.method === method && e.path.test(url.pathname),
+    );
     if (!entry) throw new GuardError('not-allowlisted', `${method} ${url.pathname} is not an allowed read`);
     if (entry.body ? !entry.body(req.body) : req.body !== undefined) {
       throw new GuardError('invalid-body', `${method} ${url.pathname} has a body that is not a pure read`);
@@ -132,7 +134,8 @@ export function createGuardedClient(options: GuardedClientOptions): GuardedClien
   return {
     async request(req) {
       const reject = (error: unknown): never => {
-        if (error instanceof GuardError) options.onRejected?.({ code: error.code, method: req.method, url: req.url });
+        if (error instanceof GuardError)
+          options.onRejected?.({ code: error.code, method: req.method, url: req.url });
         throw error;
       };
       let checked: { url: URL; entry: AllowEntry } | undefined;
@@ -144,14 +147,23 @@ export function createGuardedClient(options: GuardedClientOptions): GuardedClien
       if (!checked) throw new GuardError('not-allowlisted', 'unreachable');
       // Redirects are never followed: a 3xx could point at a forbidden route or another host,
       // and fetch would replay the method, body and (same-origin) credentials there.
-      const init: RequestInit = { method: checked.entry.method, headers: { ...req.headers }, redirect: 'manual' };
+      const init: RequestInit = {
+        method: checked.entry.method,
+        headers: { ...req.headers },
+        redirect: 'manual',
+      };
       if (checked.entry.body) {
         init.body = JSON.stringify(req.body);
         init.headers = { 'content-type': 'application/json', ...req.headers };
       }
       const response = await transport(checked.url.toString(), init);
       if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
-        return reject(new GuardError('redirect', `${checked.url.host} answered ${response.status}; DCAM does not follow redirects`));
+        return reject(
+          new GuardError(
+            'redirect',
+            `${checked.url.host} answered ${response.status}; DCAM does not follow redirects`,
+          ),
+        );
       }
       return response;
     },

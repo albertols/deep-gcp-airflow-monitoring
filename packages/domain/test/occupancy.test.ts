@@ -64,7 +64,10 @@ describe('HM-011 occupancy sweep', () => {
 
   it('HM-011: overlapping tries add up', () => {
     const series = occupancySeries(
-      [tryOf({ startAt: T0, endAt: T0 + MIN }), tryOf({ taskId: 't2', startAt: T0 + 30_000, endAt: T0 + MIN })],
+      [
+        tryOf({ startAt: T0, endAt: T0 + MIN }),
+        tryOf({ taskId: 't2', startAt: T0 + 30_000, endAt: T0 + MIN }),
+      ],
       window,
     );
     expect(series.get('*')?.[0]).toEqual({ start: T0, avg: 1.5, max: 2 });
@@ -109,7 +112,9 @@ describe('HM-011 occupancy sweep', () => {
   });
 
   it('HM-011: a group key equal to the total key does not double-count the total', () => {
-    const series = occupancySeries([tryOf({ pool: '*', startAt: T0, endAt: T0 + MIN })], window, { groupBy: (t) => t.pool });
+    const series = occupancySeries([tryOf({ pool: '*', startAt: T0, endAt: T0 + MIN })], window, {
+      groupBy: (t) => t.pool,
+    });
     expect(series.get('*')?.[0]).toEqual({ start: T0, avg: 1, max: 1 });
   });
 
@@ -122,7 +127,10 @@ describe('HM-011 occupancy sweep', () => {
   });
 
   it('HM-003: counts tries with non-finite timestamps as rejected', () => {
-    const result = slotSeconds([tryOf({ startAt: Number.NaN, endAt: T0 }), tryOf({ startAt: T0, endAt: Number.NaN })], window);
+    const result = slotSeconds(
+      [tryOf({ startAt: Number.NaN, endAt: T0 }), tryOf({ startAt: T0, endAt: Number.NaN })],
+      window,
+    );
     expect(result.rejected).toBe(2);
   });
 
@@ -133,12 +141,18 @@ describe('HM-011 occupancy sweep', () => {
 
   it('HM-011: per-group series add up to the total in every bucket (property)', () => {
     const arb = fc.array(
-      fc.record({ start: fc.integer({ min: 0, max: 9 * MIN }), length: fc.integer({ min: 0, max: 3 * MIN }), dag: fc.constantFrom('a', 'b', 'c') }),
+      fc.record({
+        start: fc.integer({ min: 0, max: 9 * MIN }),
+        length: fc.integer({ min: 0, max: 3 * MIN }),
+        dag: fc.constantFrom('a', 'b', 'c'),
+      }),
       { maxLength: 30 },
     );
     fc.assert(
       fc.property(arb, (specs) => {
-        const tries = specs.map((x) => tryOf({ dagId: x.dag, startAt: T0 + x.start, endAt: T0 + x.start + x.length }));
+        const tries = specs.map((x) =>
+          tryOf({ dagId: x.dag, startAt: T0 + x.start, endAt: T0 + x.start + x.length }),
+        );
         const series = occupancySeries(tries, window, { groupBy: (t) => t.dagId });
         const total = series.get('*') ?? [];
         total.forEach((bucket, i) => {

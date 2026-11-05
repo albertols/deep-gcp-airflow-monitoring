@@ -120,7 +120,8 @@ export function occupancySeries(
   options: OccupancyOptions = {},
 ): Map<string, OccupancyBucket[]> {
   const bucketMs = options.bucketMs ?? 60_000;
-  if (!Number.isInteger(bucketMs) || bucketMs <= 0) throw new RangeError(`bucketMs must be a positive integer, not ${bucketMs}`);
+  if (!Number.isInteger(bucketMs) || bucketMs <= 0)
+    throw new RangeError(`bucketMs must be a positive integer, not ${bucketMs}`);
   const total: Interval[] = [];
   // Group keys are free-form (pool and DAG names), so the total is kept apart from them.
   const groups = new Map<string, Interval[]>();

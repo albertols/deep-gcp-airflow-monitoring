@@ -24,7 +24,12 @@ import type { DcamApi, OverviewRange } from './api';
 import { EXPLANATIONS, type ExplanationId } from './explanations';
 
 /** Every panel on this page; a test checks each has an explanation (FR-UI-05). */
-export const PANELS: readonly ExplanationId[] = ['hm-003-slot-seconds', 'hm-011-peak-concurrency', 'fr-dagx-03-pareto', 'top-dags'];
+export const PANELS: readonly ExplanationId[] = [
+  'hm-003-slot-seconds',
+  'hm-011-peak-concurrency',
+  'fr-dagx-03-pareto',
+  'top-dags',
+];
 
 const hours = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1, minimumFractionDigits: 1 });
 const pct = new Intl.NumberFormat('en-US', { style: 'percent', maximumFractionDigits: 1 });
@@ -60,11 +65,17 @@ function Kpi({ id, value, unit }: { id: ExplanationId; value: string; unit?: str
 
 export function OverviewPage({ api, envId }: { api: DcamApi; envId: string }) {
   const [range, setRange] = useState<OverviewRange>('24h');
-  const overview = useQuery({ queryKey: ['overview', envId, range], queryFn: () => api.getOverview(envId, range) });
+  const overview = useQuery({
+    queryKey: ['overview', envId, range],
+    queryFn: () => api.getOverview(envId, range),
+  });
 
   return (
     <Stack spacing={4}>
-      <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+      <Stack
+        direction="row"
+        sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}
+      >
         <Typography variant="h1">Capacity overview</Typography>
         <ToggleButtonGroup
           size="small"
@@ -81,7 +92,8 @@ export function OverviewPage({ api, envId }: { api: DcamApi; envId: string }) {
 
       {overview.isError && (
         <Alert severity="error">
-          Couldn't load the overview: {(overview.error as Error).message}. Check that DCAM is still running, then reload the page.
+          Couldn't load the overview: {overview.error.message}. Check that DCAM is still running, then reload
+          the page.
         </Alert>
       )}
 
@@ -90,8 +102,16 @@ export function OverviewPage({ api, envId }: { api: DcamApi; envId: string }) {
       {overview.data && (
         <>
           <Stack direction="row" sx={{ gap: 4, flexWrap: 'wrap' }}>
-            <Kpi id="hm-003-slot-seconds" value={hours.format(overview.data.total_executor_slot_seconds / 3600)} unit="slot-hours" />
-            <Kpi id="hm-011-peak-concurrency" value={int.format(overview.data.peak_concurrency)} unit="running tries" />
+            <Kpi
+              id="hm-003-slot-seconds"
+              value={hours.format(overview.data.total_executor_slot_seconds / 3600)}
+              unit="slot-hours"
+            />
+            <Kpi
+              id="hm-011-peak-concurrency"
+              value={int.format(overview.data.peak_concurrency)}
+              unit="running tries"
+            />
             <Kpi
               id="fr-dagx-03-pareto"
               value={`${int.format(overview.data.pareto_80_dag_count)} of ${int.format(overview.data.dag_count)}`}
@@ -114,12 +134,18 @@ export function OverviewPage({ api, envId }: { api: DcamApi; envId: string }) {
                 {overview.data.top_dags.map((d, i) => (
                   <TableRow key={d.dag_id} hover>
                     <TableCell>{i + 1}</TableCell>
-                    <TableCell sx={{ fontFamily: '"Roboto Mono", ui-monospace, monospace' }}>{d.dag_id}</TableCell>
+                    <TableCell sx={{ fontFamily: '"Roboto Mono", ui-monospace, monospace' }}>
+                      {d.dag_id}
+                    </TableCell>
                     <TableCell align="right">{hours.format(d.executor_slot_seconds / 3600)}</TableCell>
                     <TableCell>
                       <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
                         <Box sx={{ flex: 1 }}>
-                          <LinearProgress variant="determinate" value={Math.min(100, d.share * 100)} aria-label={`${d.dag_id} share`} />
+                          <LinearProgress
+                            variant="determinate"
+                            value={Math.min(100, d.share * 100)}
+                            aria-label={`${d.dag_id} share`}
+                          />
                         </Box>
                         <Typography variant="body2" sx={{ minWidth: 48, textAlign: 'right' }}>
                           {pct.format(d.share)}

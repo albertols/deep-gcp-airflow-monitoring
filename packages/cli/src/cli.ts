@@ -41,7 +41,8 @@ export function parseCli(argv: readonly string[]): CliOptions {
     else if (a === '--no-open') open = false;
     else if (a === '--port') {
       port = Number(args[++i]);
-      if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error('--port must be a number from 1 to 65535.');
+      if (!Number.isInteger(port) || port < 1 || port > 65_535)
+        throw new Error('--port must be a number from 1 to 65535.');
     } else throw new Error(`Unknown option "${a}".\n\n${USAGE}`);
   }
   return { command: 'start', demo, port, open };
@@ -65,7 +66,8 @@ export async function findFreePort(start: number, attempts = 20): Promise<number
 
 /** Opens the URL in the default browser with fixed arguments and no shell. */
 function openBrowser(url: string): void {
-  const opener = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer.exe' : 'xdg-open';
+  const opener =
+    process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer.exe' : 'xdg-open';
   const child = spawn(opener, [url], { stdio: 'ignore', detached: true, shell: false });
   child.on('error', () => undefined);
   child.unref();
@@ -109,9 +111,14 @@ export async function doctor(): Promise<boolean> {
     instance.closeSync();
     checks.push(['DuckDB native binary loads', true, '']);
   } catch (error) {
-    checks.push(['DuckDB native binary loads', false, `${(error as Error).message}; see ADR-0005 for supported platforms`]);
+    checks.push([
+      'DuckDB native binary loads',
+      false,
+      `${(error as Error).message}; see ADR-0005 for supported platforms`,
+    ]);
   }
-  for (const [name, ok, fix] of checks) console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : ` (${fix})`}`);
+  for (const [name, ok, fix] of checks)
+    console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : ` (${fix})`}`);
   console.log('INFO  Google Cloud checks (credentials, IAM, Airflow access, proxy) arrive in milestone M1.');
   return checks.every(([, ok]) => ok);
 }

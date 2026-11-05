@@ -85,9 +85,17 @@ export const ALLOWLIST: readonly AllowEntry[] = [
     id: 'monitoring.promql',
     service: 'monitoring',
     method: 'GET',
-    path: new RegExp(`^/v1${PROJECT}/location/global/prometheus/api/v1/(query|query_range|series|labels|label/${SEG}/values)$`),
+    path: new RegExp(
+      `^/v1${PROJECT}/location/global/prometheus/api/v1/(query|query_range|series|labels|label/${SEG}/values)$`,
+    ),
   },
-  { id: 'logging.entries-list', service: 'logging', method: 'POST', path: /^\/v2\/entries:list$/, body: isLoggingListBody },
+  {
+    id: 'logging.entries-list',
+    service: 'logging',
+    method: 'POST',
+    path: /^\/v2\/entries:list$/,
+    body: isLoggingListBody,
+  },
   { id: 'logging.logs-list', service: 'logging', method: 'GET', path: new RegExp(`^/v2${PROJECT}/logs$`) },
   {
     id: 'composer.read',
@@ -97,5 +105,10 @@ export const ALLOWLIST: readonly AllowEntry[] = [
       `^/v1${LOCATION}/(environments(/${NAME}(/workloads|:fetchDatabaseProperties)?)?|operations(/${NAME})?|imageVersions)$`,
     ),
   },
-  { id: 'storage.objects-read', service: 'storage', method: 'GET', path: new RegExp(`^/storage/v1/b/${NAME}/o(/${GCS_OBJECT})?$`) },
+  {
+    id: 'storage.objects-read',
+    service: 'storage',
+    method: 'GET',
+    path: new RegExp(`^/storage/v1/b/${NAME}/o(/${GCS_OBJECT})?$`),
+  },
 ];
