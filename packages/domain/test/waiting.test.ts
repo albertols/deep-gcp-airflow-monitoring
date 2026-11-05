@@ -4,6 +4,7 @@ import {
   type EnvironmentConfig,
   type LiveSnapshot,
   type SnapshotTaskInstance,
+  UNKNOWN_LIMIT,
 } from '../src/index';
 
 const AT = Date.UTC(2026, 10, 5, 12, 0, 0);
@@ -127,5 +128,44 @@ describe('HM-006 waiting classifier (first match wins, spec L1036–1084)', () =
     expect(c?.reason).toBe('parallelism');
     expect(c?.secondary).toEqual(['pool-exhausted', 'dag-max-active-tasks']);
     expect(c?.phase).toBe('pre-queue');
+  });
+});
+
+describe('HM-006 with limits DCAM does not know (Composer without an override, HM-032 later)', () => {
+  const unknown = (keys: ReadonlyArray<'parallelism' | 'workerConcurrency'>) => ({
+    config: {
+      ...config,
+      parallelism: UNKNOWN_LIMIT,
+      workerConcurrency: UNKNOWN_LIMIT,
+      limitSources: Object.fromEntries(keys.map((k) => [k, 'unknown' as const])),
+    },
+    dagMaxActiveTasks: limits,
+  });
+
+  it('HM-006 #4: an unknown parallelism is never binding, even with a large executor backlog', () => {
+    const s = snapshot({ scheduled: [ti()], executor: { running: 2_000, queued: 50_000 } });
+    const [c] = classifySnapshot(s, unknown(['parallelism']));
+    expect(c?.reason).toBe('scheduler-throughput');
+    expect(c?.secondary).toEqual([]);
+  });
+
+  it('HM-006 #9–#11: with an unknown worker_concurrency a long post-queue wait is "unknown", not a slot guess', () => {
+    const s = snapshot({
+      queued: [ti({ since: AT - 61_000 }), ti({ taskId: 'fresh', since: AT - 5_000 })],
+      executor: { running: 40, queued: 2 },
+      workers: { current: 3, target: 3 },
+    });
+    expect(classifySnapshot(s, unknown(['workerConcurrency'])).map((c) => c.reason)).toEqual([
+      'unknown',
+      'normal-latency',
+    ]);
+  });
+
+  it('HM-006: the placeholder alone never binds when the provenance is lost', () => {
+    const s = snapshot({ scheduled: [ti()], executor: { running: 2_000, queued: 50_000 } });
+    const withoutSources: EnvironmentConfig = { ...config, parallelism: UNKNOWN_LIMIT };
+    expect(classifySnapshot(s, { config: withoutSources, dagMaxActiveTasks: limits })[0]?.reason).toBe(
+      'scheduler-throughput',
+    );
   });
 });

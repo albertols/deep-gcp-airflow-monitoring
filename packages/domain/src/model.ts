@@ -35,6 +35,21 @@ export interface PoolConfig {
   readonly slots: number;
 }
 
+/**
+ * Where a limit's value comes from (spec §14.1 provenance labels): the configuration file of a
+ * self-managed Airflow, a Composer override, a documented Composer or Airflow default, or `unknown`.
+ */
+export type LimitSource = 'configured' | 'override' | 'composer-default' | 'airflow-default' | 'unknown';
+export type LimitKey = 'parallelism' | 'workerConcurrency' | 'maxActiveTasksPerDag' | 'maxActiveRunsPerDag';
+
+/**
+ * Placeholder for a limit DCAM does not know, for example `[core] parallelism` on Composer without an
+ * override (Composer documents no default; HM-032 infers it later). It is far above any real limit
+ * (Composer 3 allows at most 100 workers × 24 slots), so it never binds even where the provenance is
+ * lost, and it survives JSON and integer columns, unlike `Infinity`.
+ */
+export const UNKNOWN_LIMIT = 1_000_000;
+
 /** Limits that can make work wait (HM-006 inputs). */
 export interface EnvironmentConfig {
   readonly envId: string;
@@ -53,7 +68,16 @@ export interface EnvironmentConfig {
   readonly minWorkers: number;
   readonly maxWorkers: number;
   readonly pools: readonly PoolConfig[];
+  /**
+   * Provenance of the limits. Absent entries are exact (demo mode, or `configured`). A limit marked
+   * `unknown` holds {@link UNKNOWN_LIMIT}; signals do not evaluate reasons that depend on it.
+   */
+  readonly limitSources?: Readonly<Partial<Record<LimitKey, LimitSource>>>;
 }
+
+/** True unless the configuration marks the limit as unknown. */
+export const limitKnown = (config: Pick<EnvironmentConfig, 'limitSources'>, key: LimitKey): boolean =>
+  config.limitSources?.[key] !== 'unknown';
 
 export interface DagMeta {
   readonly dagId: string;

@@ -6,7 +6,13 @@
  *
  * @implements HM-006
  */
-import type { EnvironmentConfig, LiveSnapshot, SnapshotTaskInstance, WaitReasonId } from './model';
+import {
+  limitKnown,
+  type EnvironmentConfig,
+  type LiveSnapshot,
+  type SnapshotTaskInstance,
+  type WaitReasonId,
+} from './model';
 
 /** Pre-queue waits shorter than this are normal scheduling latency (reason 8 threshold). */
 export const PRE_QUEUE_GRACE_MS = 30_000;
@@ -55,8 +61,12 @@ export interface ClassifiedWait {
 export function classifySnapshot(s: LiveSnapshot, ctx: ClassifierContext): ClassifiedWait[] {
   const { config } = ctx;
   const pools = new Map(s.pools.map((p) => [p.name, p]));
-  const parallelismFull = s.executor.running + s.executor.queued >= config.parallelism * config.schedulers;
-  const slotsFull = s.executor.running >= s.workers.current * config.workerConcurrency;
+  // A limit DCAM does not know is never treated as binding (spec L1082: unevaluated, not guessed).
+  const parallelismFull =
+    limitKnown(config, 'parallelism') &&
+    s.executor.running + s.executor.queued >= config.parallelism * config.schedulers;
+  const slotsKnown = limitKnown(config, 'workerConcurrency');
+  const slotsFull = slotsKnown && s.executor.running >= s.workers.current * config.workerConcurrency;
   const out: ClassifiedWait[] = [];
 
   for (const ti of s.scheduled) {
@@ -79,7 +89,9 @@ export function classifySnapshot(s: LiveSnapshot, ctx: ClassifierContext): Class
       if (s.workers.current >= config.maxWorkers) reason = 'executor-slots-exhausted';
       else if (s.workers.target > s.workers.current) reason = 'autoscaling-lag';
       else reason = 'unknown';
-    } else reason = s.at - ti.since >= POST_QUEUE_GRACE_MS ? 'worker-pickup' : 'normal-latency';
+    } else if (s.at - ti.since < POST_QUEUE_GRACE_MS) reason = 'normal-latency';
+    // Without worker_concurrency, free slots cannot be told from full ones.
+    else reason = slotsKnown ? 'worker-pickup' : 'unknown';
     out.push({ ti, phase: 'post-queue', reason, secondary: [] });
   }
   return out;
