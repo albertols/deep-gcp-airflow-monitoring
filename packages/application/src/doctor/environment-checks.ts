@@ -31,7 +31,12 @@ export const ENV_TITLES = {
 } as const;
 
 const COMPOSER_API = 'https://composer.googleapis.com/v1';
-/** `environment/healthy` is sampled every 300 s and visible after up to 120 s (Appendix A.2). */
+/**
+ * `environment/healthy` (GAUGE, BOOL) is sampled every 300 s and visible after up to 120 s (Appendix A.2).
+ * `ALIGN_FRACTION_TRUE` "is valid for GAUGE metrics with Boolean values", and the alignment period "must
+ * be at least 60 seconds" (Monitoring API v3 `Aggregation`,
+ * https://docs.cloud.google.com/monitoring/api/ref_v3/rest/v3/projects.alertPolicies, read 2026-11-05).
+ */
 const MONITORING_WINDOW_MS = 20 * 60_000;
 const CLOCK_WARN_MS = 60_000;
 const CLOCK_FAIL_MS = 5 * 60_000;
