@@ -294,6 +294,15 @@ describe('FR-DAGD-01..04 DAG detail use case', () => {
     expect((await getDagDetail(deps(), { ...query, runId: 'nope' })).kind).toBe('unknown-run');
   });
 
+  it('FR-DAGD-03: while the newest run is still running, the Gantt defaults to the latest finished run', async () => {
+    const r3 = runAt(NOW - 10 * M);
+    const withRunning = [...rows, tryOf('etl_daily', r3, 'extract', NOW - 5 * M, null)];
+    const result = await getDagDetail({ ...deps(), store: storeOf(withRunning).store }, query);
+    if (result.kind !== 'ok') throw new Error(result.kind);
+    expect(result.detail.runs.at(-1)).toMatchObject({ run_id: r3, state: 'running' });
+    expect(result.detail.gantt.run_id).toBe(r2);
+  });
+
   it('FR-DAGD-04: per-task statistics sorted by contribution to run duration', async () => {
     const result = await getDagDetail(deps(), query);
     if (result.kind !== 'ok') throw new Error(result.kind);

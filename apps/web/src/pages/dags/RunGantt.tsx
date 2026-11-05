@@ -214,17 +214,15 @@ export function RunGantt({ gantt, dataAsOf }: { gantt: DagDetail['gantt']; dataA
           viewBox={`0 0 ${W} ${height}`}
           style={{ width: '100%', height: 'auto', display: 'block', fontFamily: theme.typography.fontFamily }}
         >
-          {ticks.map((v) => (
+          {ticks.map((v, i) => (
             <g key={v}>
               <line x1={x(v)} x2={x(v)} y1={0} y2={height - AXIS_H} stroke={t.borderSubtle} />
               <text x={x(v)} y={height - 8} fontSize={11} textAnchor="middle" fill={t.textSecondary}>
-                {formatClock(v)}
+                {/* The time zone sits on the first tick: a label at the end collided with the last one. */}
+                {i === 0 ? `${formatClock(v)} UTC` : formatClock(v)}
               </text>
             </g>
           ))}
-          <text x={W - 12} y={height - 8} fontSize={11} textAnchor="end" fill={t.textSecondary}>
-            UTC
-          </text>
           {rows.map((r, i) => {
             const top = i * ROW_H;
             const failed = r.state === 'failed';

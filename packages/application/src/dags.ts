@@ -141,7 +141,7 @@ export interface DagDetailQuery {
   readonly envId: string;
   readonly dagId: string;
   readonly range: Range;
-  /** Run shown in the Gantt chart; the latest run by default. */
+  /** Run shown in the Gantt chart; the latest finished run by default. */
   readonly runId?: string;
   readonly sources: readonly SourceId[];
   /** Findings for this DAG, from the advisor. */
@@ -200,7 +200,9 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
   const stats = dagWindowStats(dagTries, current, options).get(q.dagId) ?? emptyDagStats(q.dagId);
   const environmentSeconds = slotSeconds(tries, current).totalExecutorSlotSeconds;
   const runs = dagRuns(dagTries, current, options);
-  const ganttRunId = q.runId ?? runs.at(-1)?.runId ?? null;
+  // Default to the latest finished run: the newest one is often still starting and shows little.
+  const ganttRunId =
+    q.runId ?? [...runs].reverse().find((r) => r.state !== 'running')?.runId ?? runs.at(-1)?.runId ?? null;
   const gantt = ganttRunId === null ? [] : runGantt(dagTries, q.dagId, ganttRunId, latest);
   const isoOrNull = (ms: number | null) => (ms === null ? null : iso(ms));
 

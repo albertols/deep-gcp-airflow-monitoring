@@ -211,7 +211,7 @@ export function RunsTimeline({
               </text>
             </g>
           ))}
-          {timeTicks.map((ms) => (
+          {timeTicks.map((ms, i) => (
             <text
               key={ms}
               aria-hidden="true"
@@ -221,19 +221,10 @@ export function RunsTimeline({
               textAnchor="middle"
               fill={t.textSecondary}
             >
-              {formatClock(ms)}
+              {/* The time zone sits on the first tick: a label at the end collided with the last one. */}
+              {i === 0 ? `${formatClock(ms)} UTC` : formatClock(ms)}
             </text>
           ))}
-          <text
-            aria-hidden="true"
-            x={W - M.right}
-            y={H - 10}
-            fontSize={11}
-            textAnchor="end"
-            fill={t.textSecondary}
-          >
-            UTC
-          </text>
           <g role="radiogroup" aria-label="Runs">
             {runs.map((r, i) => {
               const s = seconds(r);
