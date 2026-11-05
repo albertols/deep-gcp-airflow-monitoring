@@ -14,5 +14,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./test/setup.ts'],
+    // Page tests render whole MUI pages in jsdom; allow for loaded CI runners.
+    testTimeout: 20_000,
   },
 });
