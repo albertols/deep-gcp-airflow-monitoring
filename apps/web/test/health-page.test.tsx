@@ -141,16 +141,16 @@ function fakeApi(getCollection: DcamApi['getCollection']): DcamApi {
   };
 }
 
-function renderPage(api: DcamApi) {
+function renderPage(api: DcamApi, envId = 'acme-prod') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <ThemeProvider theme={createDcamTheme('dark')}>
       <QueryClientProvider client={client}>
         <HealthPage
           api={api}
-          envId="acme-prod"
+          envId={envId}
           route={{ page: 'health' }}
-          linkTo={(r) => linkTo(r, 'acme-prod')}
+          linkTo={(r) => linkTo(r, envId)}
           navigate={() => {}}
         />
       </QueryClientProvider>
@@ -175,6 +175,19 @@ describe('DCAM health page (FR-SELF-01, FR-COLL-11, HM-030)', () => {
     expect(within(prod).getByText('Standard profile')).toBeInTheDocument();
     const dev = screen.getByRole('region', { name: 'acme-dev' });
     expect(within(dev).getByText('Eco profile')).toBeInTheDocument();
+  });
+
+  it('FR-COLL-11: the selected environment comes first, where its header badge leads', async () => {
+    renderPage(
+      fakeApi(async () => LIVE),
+      'acme-dev',
+    );
+    await screen.findByRole('region', { name: 'acme-dev' });
+    const names = screen
+      .getAllByRole('region')
+      .map((r) => r.getAttribute('aria-labelledby'))
+      .filter((id) => id?.startsWith('health-acme'));
+    expect(names).toEqual(['health-acme-dev', 'health-acme-prod']);
   });
 
   it('FR-COLL-11: each collector shows its state as an icon and a label, never colour alone', async () => {

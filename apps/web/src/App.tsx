@@ -1,8 +1,9 @@
 /**
- * Application shell (spec §12.2): top context bar, left navigation, demo banner, routed content.
- * Pages are separate chunks loaded on first visit (NFR-PERF-05).
+ * Application shell (spec §12.2): top context bar with the live or demo indicator and the selected
+ * environment's collection badges, left navigation, demo banner, routed content. Pages are separate
+ * chunks loaded on first visit (NFR-PERF-05).
  *
- * @implements FR-UI-06, FR-EMU-01, FR-SELF-01, FR-SETUP-02
+ * @implements FR-UI-06, FR-EMU-01, FR-SELF-01, FR-SETUP-02, FR-COLL-11, FR-COLL-06
  */
 import { useQuery } from '@tanstack/react-query';
 import { Suspense, lazy, useCallback, type ComponentType } from 'react';
@@ -15,10 +16,12 @@ import ListItemButton from '@mui/material/ListItemButton';
 import ListItemText from '@mui/material/ListItemText';
 import MenuItem from '@mui/material/MenuItem';
 import Skeleton from '@mui/material/Skeleton';
+import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import type { DcamApi } from './api';
+import { CollectionBadges, LiveChip, useCollection } from './components/collection';
 import { PageErrorBoundary } from './components/PageErrorBoundary';
 import { OverviewPage } from './OverviewPage';
 import type { PageProps } from './pages/types';
@@ -67,6 +70,10 @@ export function App({ api }: { api: DcamApi }) {
   const { route } = location;
   // Setup mode (FR-SETUP-02): no environment is configured, so only the setup page applies.
   const setup = meta.data?.setup;
+  // Only live mode has collectors; the badges poll their status (FR-COLL-11).
+  const live = meta.data?.mode === 'live' && !setup;
+  const collection = useCollection(api, { enabled: live });
+  const envCollection = live ? collection.data?.environments.find((e) => e.env_id === envId) : undefined;
   const PageComponent = route.page === 'overview' ? null : PAGES[route.page];
 
   return (
@@ -85,25 +92,29 @@ export function App({ api }: { api: DcamApi }) {
             </Typography>
           </Typography>
           {envId && (
-            <TextField
-              select
-              size="small"
-              label="Environment"
-              value={envId}
-              onChange={(e) => go(linkTo(route, e.target.value))}
-              sx={{ minWidth: 200 }}
-            >
-              {environments.map((e) => (
-                <MenuItem key={e.env_id} value={e.env_id}>
-                  {e.display_name} · {e.tier}
-                </MenuItem>
-              ))}
-            </TextField>
+            <Stack direction="row" sx={{ alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+              <TextField
+                select
+                size="small"
+                label="Environment"
+                value={envId}
+                onChange={(e) => go(linkTo(route, e.target.value))}
+                sx={{ minWidth: 200 }}
+              >
+                {environments.map((e) => (
+                  <MenuItem key={e.env_id} value={e.env_id}>
+                    {e.display_name} · {e.tier}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <CollectionBadges env={envCollection} href={link({ page: 'health' })} />
+            </Stack>
           )}
           <Box sx={{ flex: 1 }} />
           {meta.data?.mode === 'demo' && (
             <Chip size="small" color="warning" variant="outlined" label="Demo data" />
           )}
+          {live && <LiveChip />}
           {setup && <Chip size="small" color="warning" variant="outlined" label="Setup needed" />}
           {meta.data && (
             <Typography variant="caption" color="text.secondary">

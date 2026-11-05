@@ -351,7 +351,13 @@ function DemoNote() {
   );
 }
 
-export function HealthPage({ api }: PageProps) {
+/** The selected environment first (header badges link here for it), the others in server order. */
+const selectedFirst = (environments: readonly CollectionEnvironment[], envId: string) => [
+  ...environments.filter((e) => e.env_id === envId),
+  ...environments.filter((e) => e.env_id !== envId),
+];
+
+export function HealthPage({ api, envId }: PageProps) {
   const meta = useQuery({ queryKey: ['meta'], queryFn: () => api.getMeta() });
   const q = useCollection(api);
   const names = new Map(meta.data?.environments.map((e) => [e.env_id, e.display_name]));
@@ -372,7 +378,7 @@ export function HealthPage({ api }: PageProps) {
               No environments are configured. Add one to dcam.config.yaml, then restart DCAM.
             </Typography>
           ) : (
-            c.environments.map((env) => (
+            selectedFirst(c.environments, envId).map((env) => (
               <EnvironmentHealth
                 key={env.env_id}
                 env={env}
