@@ -1,0 +1,203 @@
+import type { DagDetail, DagLeague, DagLeagueRow, Quantile } from '@dcam/contracts';
+
+export const q = (value_seconds: number | null, samples = 40, low_sample = false): Quantile => ({
+  value_seconds,
+  samples,
+  low_sample,
+});
+
+export function row(dag_id: string, p: Partial<DagLeagueRow> = {}): DagLeagueRow {
+  return {
+    dag_id,
+    team: 'finance-data',
+    owners: ['finance-data-oncall'],
+    tags: ['orders', 'daily'],
+    schedule: '0 2 * * *',
+    paused: false,
+    runs: 24,
+    failed_runs: 0,
+    success_rate: 1,
+    tries: 96,
+    retries: 0,
+    flaky_rate: 0,
+    run_duration_p50: q(600),
+    run_duration_p95: q(900),
+    executor_slot_seconds: 3_600,
+    share: 0.1,
+    cumulative_share: 0.1,
+    previous_share: 0.1,
+    peak_concurrency: 4,
+    queue_wait_p95: q(30),
+    open_findings: 0,
+    ...p,
+  };
+}
+
+/** Three DAGs: a capacity hog, a flaky one and a late starter. */
+export const ROWS: DagLeagueRow[] = [
+  row('orders_daily', {
+    executor_slot_seconds: 72_000,
+    share: 0.6,
+    cumulative_share: 0.6,
+    previous_share: 0.5,
+    open_findings: 2,
+  }),
+  row('fraud_scoring_hourly', {
+    team: 'ml-platform',
+    tags: ['fraud', 'hourly'],
+    executor_slot_seconds: 36_000,
+    share: 0.3,
+    cumulative_share: 0.9,
+    previous_share: 0.3,
+    success_rate: 0.75,
+    failed_runs: 6,
+    flaky_rate: 0.12,
+    retries: 14,
+  }),
+  row('partner_crm_sync', {
+    team: 'customer',
+    tags: ['partner_api', 'hourly'],
+    executor_slot_seconds: 12_000,
+    share: 0.1,
+    cumulative_share: 1,
+    previous_share: null,
+    queue_wait_p95: q(540),
+    run_duration_p95: q(1_500, 12, true),
+  }),
+  row('idle_export', {
+    team: 'analytics',
+    paused: true,
+    runs: 0,
+    tries: 0,
+    success_rate: null,
+    flaky_rate: null,
+    executor_slot_seconds: 0,
+    share: 0,
+    cumulative_share: 1,
+    previous_share: null,
+    peak_concurrency: 0,
+    run_duration_p50: q(null, 0, true),
+    run_duration_p95: q(null, 0, true),
+    queue_wait_p95: q(null, 0, true),
+  }),
+];
+
+export const LEAGUE: DagLeague = {
+  env_id: 'acme-prod',
+  range: { from: '2026-11-04T12:00:00.000Z', to: '2026-11-05T12:00:00.000Z' },
+  previous_range: { from: '2026-11-03T12:00:00.000Z', to: '2026-11-04T12:00:00.000Z' },
+  data_as_of: '2026-11-05T12:00:00.000Z',
+  sources: ['DEMO'],
+  total_executor_slot_seconds: 120_000,
+  dag_count: 4,
+  active_dag_count: 3,
+  pareto_80_dag_count: 2,
+  gini: 0.41,
+  rows: ROWS,
+};
+
+const RUN_1 = 'scheduled__2026-11-05T10:00:00+00:00';
+const RUN_2 = 'scheduled__2026-11-05T11:00:00+00:00';
+
+export const DETAIL: DagDetail = {
+  env_id: 'acme-prod',
+  dag_id: 'orders_daily',
+  range: LEAGUE.range,
+  data_as_of: LEAGUE.data_as_of,
+  sources: ['DEMO'],
+  meta: {
+    fileloc: '/home/airflow/gcs/dags/finance-data/orders_daily.py',
+    owners: ['finance-data-oncall'],
+    tags: ['orders', 'daily'],
+    team: 'finance-data',
+    schedule: '0 * * * *',
+    paused: false,
+    catchup: false,
+    limits: {
+      max_active_tasks: 4,
+      max_active_runs: 2,
+      pools: [{ name: 'etl', slots: 24, pool_slots: 2 }],
+      parallelism: 192,
+      worker_slots: 72,
+    },
+  },
+  stats: {
+    runs: 2,
+    success_rate: 0.5,
+    executor_slot_seconds: 72_000,
+    share: 0.6,
+    run_duration_p95: q(2_400, 2, true),
+    queue_wait_p95: q(45),
+    self_throttled_ratio: 0.42,
+  },
+  runs: [
+    {
+      run_id: RUN_1,
+      state: 'success',
+      logical_date: '2026-11-05T10:00:00.000Z',
+      start: '2026-11-05T10:00:05.000Z',
+      end: '2026-11-05T10:40:05.000Z',
+      duration_seconds: 2_400,
+      start_delay_seconds: 5,
+      tries: 3,
+    },
+    {
+      run_id: RUN_2,
+      state: 'failed',
+      logical_date: '2026-11-05T11:00:00.000Z',
+      start: '2026-11-05T11:02:00.000Z',
+      end: '2026-11-05T11:20:00.000Z',
+      duration_seconds: 1_080,
+      start_delay_seconds: 120,
+      tries: 2,
+    },
+  ],
+  gantt: {
+    run_id: RUN_2,
+    rows: [
+      {
+        task_id: 'extract',
+        try_number: 1,
+        state: 'success',
+        ready_at: '2026-11-05T11:00:00.000Z',
+        queued_at: '2026-11-05T11:01:00.000Z',
+        start: '2026-11-05T11:02:00.000Z',
+        end: '2026-11-05T11:10:00.000Z',
+      },
+      {
+        task_id: 'load',
+        try_number: 1,
+        state: 'failed',
+        ready_at: '2026-11-05T11:10:00.000Z',
+        queued_at: '2026-11-05T11:12:00.000Z',
+        start: '2026-11-05T11:13:00.000Z',
+        end: '2026-11-05T11:20:00.000Z',
+      },
+    ],
+  },
+  tasks: [
+    {
+      task_id: 'load',
+      tries: 2,
+      duration_p50: q(1_200, 2),
+      duration_p95: q(1_800, 2, true),
+      queue_wait_p95: q(60, 2, true),
+      retries: 0,
+      failure_rate: null,
+      slot_seconds_share: 0.7,
+      contribution_seconds: 1_500,
+    },
+    {
+      task_id: 'extract',
+      tries: 3,
+      duration_p50: q(480, 3),
+      duration_p95: q(600, 3, true),
+      queue_wait_p95: q(60, 3, true),
+      retries: 1,
+      failure_rate: null,
+      slot_seconds_share: 0.3,
+      contribution_seconds: 540,
+    },
+  ],
+  findings: [],
+};
