@@ -1,0 +1,13 @@
+packages:
+  - apps/*
+  - packages/*
+  - packages/adapters/*
+  - tools/scripts
+
+allowBuilds:
+  esbuild: true
+
+# openapi-typescript declares a TypeScript ^5 peer range; TypeScript 6 works (ADR-0002).
+peerDependencyRules:
+  allowedVersions:
+    typescript: '6'

@@ -1,0 +1,8 @@
+pnpm-lock.yaml
+**/dist/**
+**/src/generated/**
+docs/spec/**
+docs/diagrams/**
+.claude/hooks/**
+**/*.drawio
+**/*.drawio.svg

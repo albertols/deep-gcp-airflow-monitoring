@@ -1,0 +1,42 @@
+{
+  "name": "deep-gcp-airflow-monitoring",
+  "version": "0.0.0",
+  "private": true,
+  "description": "DCAM: local-first, read-only observability and advisory cockpit for Google Cloud's Managed Service for Apache Airflow (Cloud Composer).",
+  "license": "Apache-2.0",
+  "type": "module",
+  "packageManager": "pnpm@11.28.0",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "depcruise": "depcruise apps packages --config .dependency-cruiser.cjs",
+    "hygiene": "node tools/scripts/hygiene-scan.mjs",
+    "diagrams": "node .claude/skills/drawio-diagrams/scripts/export-all.mjs",
+    "gen": "turbo run gen",
+    "dcam": "turbo run build --filter=@dcam/web --output-logs=errors-only && tsx packages/cli/src/main.ts",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm depcruise && pnpm test && pnpm hygiene"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "22.20.5",
+    "dependency-cruiser": "18.7.2",
+    "eslint": "10.14.0",
+    "eslint-plugin-jsx-a11y": "6.10.2",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.14.0",
+    "prettier": "3.9.10",
+    "tsx": "4.23.15",
+    "turbo": "2.11.10",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1",
+    "vitest": "5.1.0"
+  }
+}
