@@ -130,10 +130,16 @@ export interface CapacityStats {
   readonly scaleUpLagsSeconds: readonly number[];
 }
 
-/** Capacity from one-minute worker samples, oldest first. */
+/** Worker samples arrive once a minute (spec §7.7). */
+const WORKER_SAMPLE_INTERVAL_MS = 60_000;
+
+/**
+ * Capacity from one-minute worker samples, oldest first. A sample stands for at most one sample
+ * interval: across a collection gap nothing is known, so the gap is never filled with the last value.
+ */
 export function capacityStats(samples: readonly WorkerSample[], config: EnvironmentConfig): CapacityStats {
   const minutes = (s: WorkerSample, next: WorkerSample | undefined) =>
-    ((next?.at ?? s.at + 60_000) - s.at) / 60_000;
+    Math.min((next?.at ?? s.at + WORKER_SAMPLE_INTERVAL_MS) - s.at, WORKER_SAMPLE_INTERVAL_MS) / 60_000;
   const utilisation: number[] = [];
   let minutesAtMax = 0;
   let capacityBoundMinutes = 0;

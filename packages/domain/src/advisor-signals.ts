@@ -222,7 +222,9 @@ function workerSignals(input: AdvisorInput, samples: readonly WorkerSample[]) {
   let open: { start: number; end: number; minutes: number } | null = null;
 
   samples.forEach((s, i) => {
-    const span = ((samples[i + 1]?.at ?? s.at + SAMPLE_INTERVAL_MS) - s.at) / MINUTE;
+    // A sample stands for at most one interval: a collection gap is unknown, never the last value.
+    const span =
+      Math.min((samples[i + 1]?.at ?? s.at + SAMPLE_INTERVAL_MS) - s.at, SAMPLE_INTERVAL_MS) / MINUTE;
     const slots = s.workers * config.workerConcurrency;
     const atMax = s.workers >= config.maxWorkers;
     const isBound = atMax && s.queued >= Math.max(BOUND_MIN_QUEUED, BOUND_QUEUED_RATIO * slots);

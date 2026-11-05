@@ -130,4 +130,11 @@ describe('HM-011 / HM-012 worker capacity', () => {
   it('HM-012: scale-up lag from the target rising to the workers reaching it', () => {
     expect(capacityStats(samples, config).scaleUpLagsSeconds).toEqual([120]);
   });
+
+  it('HM-011: a sample before a collection gap counts for one sample interval, not the whole gap', () => {
+    const gap = [sample(0, 2, 2, 8, 12), sample(120, 1, 1, 2, 0)];
+    const c = capacityStats(gap, config);
+    expect(c.minutesAtMax).toBe(1);
+    expect(c.capacityBoundMinutes).toBe(1);
+  });
 });

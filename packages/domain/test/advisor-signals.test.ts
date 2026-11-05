@@ -145,6 +145,14 @@ describe('advisor signals over the window', () => {
     expect(capacity.bound.demandP95).toBe(20);
   });
 
+  it('HM-011 / REC-CAP-01: a bound sample before a collection gap counts for one minute, not the gap', () => {
+    const gap = [samples[0] as WorkerSample, { ...(samples[9] as WorkerSample), at: T0 + 120 * MIN }];
+    const { capacity } = environmentSignals({ ...input, workerSamples: gap, to: T0 + 121 * MIN });
+    expect(capacity.bound.minutes).toBe(1);
+    expect(capacity.bound.queuedTaskMinutes).toBe(12);
+    expect(capacity.bound.episodes).toEqual([{ start: T0, end: T0 + MIN, minutes: 1 }]);
+  });
+
   it('HM-027 / REC-CAP-05: worker CPU and memory while executor slots were exhausted at max_count', () => {
     const { capacity } = environmentSignals(input);
     expect(capacity.slotsFullAtMax).toMatchObject({ minutes: 5, cpuP95: 0.2, memoryP95: 0.3 });
