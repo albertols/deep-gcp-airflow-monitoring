@@ -25,6 +25,8 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/dist/**',
       '**/src/generated/**',
+      // Claude Code agent worktrees: full copies of the repository, linted in their own checkout.
+      '.claude/worktrees/**',
       'docs/**',
       '.turbo/**',
       'coverage/**',
