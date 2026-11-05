@@ -276,6 +276,22 @@ describe('S-24 alerts page (FR-ALRT-01/02/06)', () => {
     expect(await screen.findByRole('img', { name: /Firing periods over the last 24 h/ })).toBeInTheDocument();
   });
 
+  it('§12.8: the timeline axis names its time zone and keeps the last time label inside the chart', async () => {
+    renderPage();
+    const chart = await screen.findByRole('img', { name: /Firing periods over the last 24 h/ });
+    const labels = [...chart.querySelectorAll('text')].filter((t) => /\d\d:\d\d/.test(t.textContent ?? ''));
+    expect(labels[0]).toHaveTextContent(/UTC$/);
+    expect(labels.at(-1)).toHaveAttribute('text-anchor', 'end');
+  });
+
+  it('§12.12: a value of one takes the singular unit', async () => {
+    renderPage();
+    const row = within(await rulesTable()).getByRole('row', { name: /AL-19/ });
+    expect(row).toHaveTextContent('3 restarts');
+    expect(row).toHaveTextContent('threshold 1 restart');
+    expect(row).not.toHaveTextContent('threshold 1 restarts');
+  });
+
   it('§16.7: shows fires in 24 h and the mean time to resolve', async () => {
     renderPage();
     await rulesTable();

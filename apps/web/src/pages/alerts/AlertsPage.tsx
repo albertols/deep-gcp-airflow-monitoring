@@ -87,12 +87,22 @@ function Labelled({
 }
 
 /** A value in the rule's unit: durations humanised, percentages and counts with their unit. */
+/** Count units of the alert pack in the singular, for a value of exactly one. */
+const SINGULAR_UNIT: Readonly<Record<string, string>> = {
+  restarts: 'restart',
+  'import errors': 'import error',
+  'queued tasks': 'queued task',
+  'tasks per hour': 'task per hour',
+  days: 'day',
+};
+
 function formatValue(value: number | null, unit: string): string {
   if (value === null) return '—';
   if (unit === 's') return formatDuration(value);
   const n = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(value);
   if (unit === '') return n;
-  return unit === '%' ? `${n} %` : `${n} ${unit}`;
+  if (unit === '%') return `${n} %`;
+  return `${n} ${(value === 1 && SINGULAR_UNIT[unit]) || unit}`;
 }
 
 export function AlertsPage({ api, envId, linkTo }: PageProps) {

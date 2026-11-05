@@ -56,7 +56,7 @@ export function FiringTimeline({
   return (
     <Box ref={ref}>
       <svg width={width} height={height} role="img" aria-label={label}>
-        {ticks.map((t) => (
+        {ticks.map((t, i) => (
           <g key={t}>
             <line
               x1={x(t)}
@@ -71,9 +71,10 @@ export function FiringTimeline({
               y={rows.length * ROW_H + 14}
               fill={theme.palette.text.secondary}
               fontSize={11}
-              textAnchor="middle"
+              // The last label ends at the axis end, so it is never clipped by the chart edge.
+              textAnchor={i === ticks.length - 1 ? 'end' : 'middle'}
             >
-              {hhmm(t)}
+              {i === 0 ? `${hhmm(t)} UTC` : hhmm(t)}
             </text>
           </g>
         ))}
