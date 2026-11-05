@@ -1,0 +1,192 @@
+/**
+ * One DAG in detail (spec §12.4 S-12): its runs, the tries of one run for a Gantt chart, per-task
+ * statistics and how often the DAG's own `max_active_tasks` holds back its ready work. Pure; times are
+ * epoch ms, durations in the results are seconds.
+ *
+ * @implements FR-DAGD-02, FR-DAGD-03, FR-DAGD-04, HM-005
+ */
+import {
+  groupBy,
+  isFailedTry,
+  logicalDateFromRunId,
+  runKey,
+  startedIn,
+  type DagTaskTry,
+  type RunOptions,
+  type RunSummary,
+} from './dag-runs';
+import { MIN_SAMPLES_FOR_RATE, queueWaitsSeconds, runsInWindow } from './dag-league';
+import type { LiveSnapshot, SnapshotTaskInstance } from './model';
+import { slotSeconds, type SweepWindow } from './occupancy';
+import { quantile, type Quantile } from './stats';
+
+const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+export interface DagRunRow extends RunSummary {
+  /** Logical date from the run ID; `null` for custom run IDs. */
+  readonly logicalDate: number | null;
+  /**
+   * First task start − logical date, seconds; `null` without a logical date. ⚠️ VERIFY in M1: for
+   * interval schedules Airflow's logical date is the start of the data interval, so this includes the
+   * interval; HM-002 measures the delay from the end of the data interval instead.
+   */
+  readonly startDelaySeconds: number | null;
+}
+
+/** FR-DAGD-02: runs of one DAG with a try starting in the window, oldest first. */
+export function dagRuns(tries: readonly DagTaskTry[], w: SweepWindow, options: RunOptions = {}): DagRunRow[] {
+  return runsInWindow(tries, w, options)
+    .map((r): DagRunRow => {
+      const logicalDate = logicalDateFromRunId(r.runId);
+      const delay = logicalDate === null ? null : (r.startAt - logicalDate) / 1000;
+      return { ...r, logicalDate, startDelaySeconds: delay !== null && delay >= 0 ? delay : null };
+    })
+    .sort((a, b) => a.startAt - b.startAt || byId(a.runId, b.runId));
+}
+
+export interface GanttRow {
+  readonly taskId: string;
+  readonly mapIndex: number;
+  readonly tryNumber: number;
+  /** Try state, or `scheduled` / `queued` for work still waiting in the latest snapshot. */
+  readonly state: string | null;
+  readonly readyAt: number | null;
+  readonly queuedAt: number | null;
+  readonly startAt: number | null;
+  readonly endAt: number | null;
+}
+
+/** Work of the run still waiting in the latest live snapshot. */
+export interface WaitingWork {
+  readonly scheduled: readonly SnapshotTaskInstance[];
+  readonly queued: readonly SnapshotTaskInstance[];
+}
+
+const firstSeen = (r: GanttRow) => r.readyAt ?? r.queuedAt ?? r.startAt ?? Infinity;
+
+/** FR-DAGD-03: every try of one run, plus its waiting task instances, in the order they became ready. */
+export function runGantt(
+  tries: readonly DagTaskTry[],
+  dagId: string,
+  runId: string,
+  waiting: WaitingWork | null = null,
+): GanttRow[] {
+  const rows: GanttRow[] = tries
+    .filter((t) => t.dagId === dagId && t.runId === runId)
+    .map((t) => ({
+      taskId: t.taskId,
+      mapIndex: t.mapIndex,
+      tryNumber: t.tryNumber,
+      state: t.state,
+      readyAt: t.readyAt,
+      queuedAt: t.queuedAt,
+      startAt: t.startAt,
+      endAt: t.startAt === null ? null : t.endAt,
+    }));
+  const seen = new Set(rows.map((r) => `${r.taskId}|${r.mapIndex}|${r.tryNumber}`));
+  const add = (ti: SnapshotTaskInstance, state: 'scheduled' | 'queued') => {
+    if (ti.dagId !== dagId || ti.runId !== runId) return;
+    const key = `${ti.taskId}|${ti.mapIndex}|${ti.tryNumber}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push({
+      taskId: ti.taskId,
+      mapIndex: ti.mapIndex,
+      tryNumber: ti.tryNumber,
+      state,
+      readyAt: state === 'scheduled' ? ti.since : null,
+      queuedAt: state === 'queued' ? ti.since : null,
+      startAt: null,
+      endAt: null,
+    });
+  };
+  for (const ti of waiting?.scheduled ?? []) add(ti, 'scheduled');
+  for (const ti of waiting?.queued ?? []) add(ti, 'queued');
+  return rows.sort(
+    (a, b) =>
+      firstSeen(a) - firstSeen(b) ||
+      byId(a.taskId, b.taskId) ||
+      a.mapIndex - b.mapIndex ||
+      a.tryNumber - b.tryNumber,
+  );
+}
+
+export interface TaskStats {
+  readonly taskId: string;
+  /** Tries starting in the window (all map indexes). */
+  readonly tries: number;
+  /** Finished tries: end − start. */
+  readonly durationP50: Quantile;
+  readonly durationP95: Quantile;
+  readonly queueWaitP95: Quantile;
+  readonly retries: number;
+  /** Failed tries ÷ tries; `null` below 20 tries (HM-015). */
+  readonly failureRate: number | null;
+  /** Share of the DAG's executor slot-seconds in the window (HM-003). */
+  readonly slotSecondsShare: number;
+  /** Mean running time per run of the DAG in the window: the default sort (FR-DAGD-04). */
+  readonly contributionSeconds: number;
+}
+
+/** FR-DAGD-04: statistics per task of one DAG, by contribution to run duration (largest first). */
+export function taskStats(tries: readonly DagTaskTry[], w: SweepWindow): TaskStats[] {
+  const runs = runsInWindow(tries, w);
+  const runKeys = new Set(runs.map((r) => runKey(r.dagId, r.runId)));
+  // HM-003 per task: the same clipping as per DAG, keyed by task.
+  const perTask = slotSeconds(
+    tries.map((t) => ({ ...t, dagId: t.taskId })),
+    w,
+  ).byDag;
+  let dagSeconds = 0;
+  for (const s of perTask.values()) dagSeconds += s.executorSlotSeconds;
+
+  const stats: TaskStats[] = [];
+  for (const [taskId, taskTries] of groupBy(tries, (t) => t.taskId)) {
+    const started = taskTries.filter((t) => startedIn(t, w));
+    let runningMs = 0;
+    for (const t of taskTries)
+      if (t.startAt !== null && runKeys.has(runKey(t.dagId, t.runId)))
+        runningMs += Math.max(0, (t.endAt ?? w.now) - t.startAt);
+    if (started.length === 0 && runningMs === 0 && !perTask.has(taskId)) continue;
+    const durations = started
+      .filter((t) => t.startAt !== null && t.endAt !== null && t.endAt >= t.startAt)
+      .map((t) => ((t.endAt as number) - (t.startAt as number)) / 1000);
+    const seconds = perTask.get(taskId)?.executorSlotSeconds ?? 0;
+    stats.push({
+      taskId,
+      tries: started.length,
+      durationP50: quantile(durations, 0.5),
+      durationP95: quantile(durations, 0.95),
+      queueWaitP95: quantile(queueWaitsSeconds(started), 0.95),
+      retries: started.filter((t) => t.tryNumber > 1).length,
+      failureRate:
+        started.length >= MIN_SAMPLES_FOR_RATE ? started.filter(isFailedTry).length / started.length : null,
+      slotSecondsShare: dagSeconds > 0 ? Math.min(1, seconds / dagSeconds) : 0,
+      contributionSeconds: runs.length > 0 ? runningMs / 1000 / runs.length : 0,
+    });
+  }
+  return stats.sort((a, b) => b.contributionSeconds - a.contributionSeconds || byId(a.taskId, b.taskId));
+}
+
+/**
+ * HM-005 (`max_active_tasks` saturation, Airflow 2 scope: across all active runs of the DAG): minutes in
+ * which a snapshot shows the DAG's running and queued task instances at `maxActiveTasks` while it has
+ * ready, unqueued work, ÷ minutes in which it had work in flight or waiting. `null` without snapshots or
+ * without active minutes.
+ */
+export function selfThrottledRatio(
+  snapshots: readonly LiveSnapshot[],
+  dagId: string,
+  maxActiveTasks: number,
+): number | null {
+  const active = new Set<number>();
+  const throttled = new Set<number>();
+  for (const s of snapshots) {
+    const minute = Math.floor(s.at / 60_000);
+    const inFlight = s.dagActive[dagId] ?? 0;
+    const ready = s.scheduled.some((ti) => ti.dagId === dagId);
+    if (inFlight > 0 || ready) active.add(minute);
+    if (ready && maxActiveTasks > 0 && inFlight >= maxActiveTasks) throttled.add(minute);
+  }
+  return active.size > 0 ? throttled.size / active.size : null;
+}
