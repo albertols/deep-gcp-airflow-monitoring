@@ -2,6 +2,7 @@
  * (i) explanations for the bottlenecks page (FR-UI-05, spec §12.9).
  */
 import type { Explanation } from '@dcam/ui-kit';
+import { WIKI_SLUGS, wikiHref } from '../wiki/content/slugs';
 
 const POOLS_DOC = {
   title: 'Airflow documentation: pools',
@@ -21,6 +22,7 @@ const SNAPSHOT_CAVEAT =
 export const BOTTLENECK_EXPLANATIONS = {
   'botl-answer': {
     id: 'botl-answer',
+    wiki: { href: wikiHref(WIKI_SLUGS.whyWorkWaits) },
     title: 'Main cause of waiting',
     summary: 'The limit that caused the largest share of waiting task-time in the range.',
     whyItMatters: 'Change the setting behind this limit first; other changes will not shorten the wait.',
@@ -32,6 +34,7 @@ export const BOTTLENECK_EXPLANATIONS = {
   },
   'botl-waiting-total': {
     id: 'botl-waiting-total',
+    wiki: { href: wikiHref(WIKI_SLUGS.whyWorkWaits) },
     title: 'Waiting task-hours',
     summary:
       'Time ready task instances spent not running because a platform limit bound, summed over all of them.',
@@ -45,6 +48,7 @@ export const BOTTLENECK_EXPLANATIONS = {
   },
   'botl-current': {
     id: 'botl-current',
+    wiki: { href: wikiHref(WIKI_SLUGS.whyWorkWaits) },
     title: 'Binding now',
     summary: 'The reason most waiting task instances are held by in the latest snapshot.',
     sources: ['SRC-AF-API', 'SRC-MON'],
@@ -52,6 +56,7 @@ export const BOTTLENECK_EXPLANATIONS = {
   },
   'botl-at-max': {
     id: 'botl-at-max',
+    wiki: { href: wikiHref(WIKI_SLUGS.workerCapacity) },
     title: 'Minutes at max workers',
     summary: 'Minutes the environment ran at its maximum number of workers (max_count).',
     whyItMatters: 'At max_count the autoscaler cannot add capacity; queued work waits for a free slot.',
@@ -60,6 +65,7 @@ export const BOTTLENECK_EXPLANATIONS = {
   },
   'botl-capacity-bound': {
     id: 'botl-capacity-bound',
+    wiki: { href: wikiHref(WIKI_SLUGS.workerCapacity) },
     title: 'Capacity-bound minutes',
     summary: 'Minutes at max workers with a long queue: the environment was out of worker capacity (HM-011).',
     formula: 'workers = max_count and queued task instances ≥ max(10, 20 % of worker slots)',
@@ -68,6 +74,7 @@ export const BOTTLENECK_EXPLANATIONS = {
   },
   'botl-scale-lag': {
     id: 'botl-scale-lag',
+    wiki: { href: wikiHref(WIKI_SLUGS.rb14) },
     title: 'Scale-up lag (p95)',
     summary: 'How long new workers took to arrive after the autoscaler asked for them (HM-012).',
     formula: 'time from the autoscaler target rising above the current workers to the workers reaching it',
@@ -77,6 +84,7 @@ export const BOTTLENECK_EXPLANATIONS = {
   },
   'botl-waiting-chart': {
     id: 'botl-waiting-chart',
+    wiki: { href: wikiHref(WIKI_SLUGS.whyWorkWaits) },
     title: 'Waiting by reason over time',
     summary: 'Waiting task-minutes per time bucket, stacked by the limit that held the work.',
     howToRead:
@@ -86,6 +94,7 @@ export const BOTTLENECK_EXPLANATIONS = {
   },
   'botl-utilisation-chart': {
     id: 'botl-utilisation-chart',
+    wiki: { href: wikiHref(WIKI_SLUGS.workerCapacity) },
     title: 'Worker slots in use',
     summary: 'Running task instances ÷ worker slots (workers × worker_concurrency), averaged per bucket.',
     howToRead: 'Near 100 % with waiting above means worker capacity is the bottleneck.',
@@ -94,6 +103,7 @@ export const BOTTLENECK_EXPLANATIONS = {
   },
   'botl-reasons': {
     id: 'botl-reasons',
+    wiki: { href: wikiHref(WIKI_SLUGS.whyWorkWaits) },
     title: 'Waiting by reason',
     summary:
       'Every HM-006 reason in the order Airflow’s scheduler checks it, with the DAGs that waited most.',
@@ -106,6 +116,7 @@ export const BOTTLENECK_EXPLANATIONS = {
   },
   'botl-pools': {
     id: 'botl-pools',
+    wiki: { href: wikiHref(WIKI_SLUGS.pools) },
     title: 'Pools',
     summary: 'Waiting caused by each pool, minutes it was starved, and how full it ran.',
     formula: 'starved minutes = time with zero open slots while work waited for the pool',
@@ -114,6 +125,7 @@ export const BOTTLENECK_EXPLANATIONS = {
   },
   'botl-sensors': {
     id: 'botl-sensors',
+    wiki: { href: wikiHref(WIKI_SLUGS.sensorSlotWaste) },
     title: 'Sensors holding worker slots',
     summary: 'Worker slot time used by sensors in poke mode, which occupy a slot while they wait (HM-008).',
     whyItMatters: 'Reschedule mode or deferrable operators free the slot between checks (REC-DAG-05).',

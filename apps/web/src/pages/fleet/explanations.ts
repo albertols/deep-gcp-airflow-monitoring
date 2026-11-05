@@ -2,10 +2,12 @@
  * (i) explanations for the fleet page (FR-UI-05, spec §12.9).
  */
 import type { Explanation } from '@dcam/ui-kit';
+import { WIKI_SLUGS, wikiHref } from '../wiki/content/slugs';
 
 export const FLEET_EXPLANATIONS = {
   'fleet-health': {
     id: 'fleet-health',
+    wiki: { href: wikiHref(WIKI_SLUGS.healthScore) },
     title: 'Health score',
     summary: 'An explainable score out of 100 from nine platform checks (HM-028).',
     formula: '100 − Σ weights of failing checks; capped at 40 when a critical check fails',
@@ -25,6 +27,7 @@ export const FLEET_EXPLANATIONS = {
   },
   'fleet-workers': {
     id: 'fleet-workers',
+    wiki: { href: wikiHref(WIKI_SLUGS.workerCapacity) },
     title: 'Workers',
     summary: 'Current Celery workers against the environment’s autoscaling maximum.',
     whyItMatters: 'At the maximum, the autoscaler cannot add capacity for queued work.',
@@ -38,12 +41,14 @@ export const FLEET_EXPLANATIONS = {
   },
   'fleet-bottleneck': {
     id: 'fleet-bottleneck',
+    wiki: { href: wikiHref(WIKI_SLUGS.whyWorkWaits) },
     title: 'Main bottleneck',
     summary: 'The limit that caused most waiting task-time in the last 24 hours (HM-006).',
     sources: ['SRC-AF-API', 'SRC-MON', 'SRC-COMPOSER'],
   },
   'fleet-findings': {
     id: 'fleet-findings',
+    wiki: { href: wikiHref(WIKI_SLUGS.advisorRules) },
     title: 'Top findings',
     summary: 'The highest-priority advisor findings for the environment.',
     formula: 'priority = tier weight × impact × confidence ÷ effort',

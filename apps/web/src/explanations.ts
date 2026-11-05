@@ -5,6 +5,7 @@
  * @implements FR-UI-05
  */
 import type { Explanation } from '@dcam/ui-kit';
+import { WIKI_SLUGS, wikiHref } from './pages/wiki/content/slugs';
 
 const POOLS_DOC = {
   title: 'Airflow documentation: pools',
@@ -18,6 +19,7 @@ const OPTIMIZE_DOC = {
 export const EXPLANATIONS = {
   'hm-003-slot-seconds': {
     id: 'hm-003-slot-seconds',
+    wiki: { href: wikiHref(WIKI_SLUGS.executorSlotSeconds) },
     title: 'Executor slot-hours',
     summary: 'Total time task instance tries held a worker slot in the selected range, in hours.',
     whyItMatters:
@@ -33,6 +35,7 @@ export const EXPLANATIONS = {
   },
   'hm-011-peak-concurrency': {
     id: 'hm-011-peak-concurrency',
+    wiki: { href: wikiHref(WIKI_SLUGS.workerCapacity) },
     title: 'Peak concurrency',
     summary:
       'The highest number of task instance tries running at the same time, in any minute of the range.',
@@ -44,6 +47,7 @@ export const EXPLANATIONS = {
   },
   'fr-dagx-03-pareto': {
     id: 'fr-dagx-03-pareto',
+    wiki: { href: wikiHref(WIKI_SLUGS.executorSlotSeconds) },
     title: 'DAGs using 80 % of capacity',
     summary: 'The smallest number of DAGs whose combined slot-hours reach 80 % of the environment total.',
     whyItMatters: 'A small number means a few DAGs drive most of the load: tuning them pays off first.',
@@ -52,6 +56,7 @@ export const EXPLANATIONS = {
   },
   'top-dags': {
     id: 'top-dags',
+    wiki: { href: wikiHref(WIKI_SLUGS.executorSlotSeconds) },
     title: 'Top DAGs by slot-hours',
     summary:
       'The ten DAGs that consumed the most executor slot-hours in the range, with their share of the total.',
