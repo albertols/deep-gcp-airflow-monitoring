@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { FindingRef } from '@dcam/contracts';
 import { getFleet } from '@dcam/application';
 import type { Memo } from '../cache';
-import type { Workspace } from '../demo';
+import type { Workspace } from '../workspace';
 import { sourcesFor } from '../http';
 import { bottlenecksFor } from './bottlenecks';
 

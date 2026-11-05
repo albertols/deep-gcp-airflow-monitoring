@@ -53,6 +53,7 @@ describe('ADR-0003 contract: responses conform to openapi.yaml', () => {
       mode: 'demo',
       environments: expect.arrayContaining([expect.objectContaining({ env_id: 'acme-prod', tier: 'prod' })]),
     });
+    expect(res.json()).not.toHaveProperty('setup');
   });
 
   it('HM-003: GET /api/v1/environments/acme-prod/overview', async () => {

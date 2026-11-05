@@ -7,7 +7,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Alerts } from '@dcam/contracts';
 import { getAlerts } from '@dcam/application';
 import type { Memo } from '../cache';
-import type { Workspace } from '../demo';
+import type { Workspace } from '../workspace';
 import { findEnvironment, sourcesFor } from '../http';
 
 /** The (memoised) alert evaluation for a set of environments, shared with the fleet view. */

@@ -2,17 +2,20 @@
  * HTTP API and static UI (spec §11.3, §11.9). Binds to loopback only; validates the Host header
  * against DNS rebinding; sends a strict CSP (NFR-SEC-01, NFR-SEC-02). Handlers stay thin: logic
  * lives in @dcam/application (ARCH-EMB-01).
+ *
+ * @implements NFR-SEC-01, NFR-SEC-02, FR-SETUP-02
  */
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import type { Meta } from '@dcam/contracts';
-import type { Workspace } from './demo';
+import type { SetupState, Workspace } from './workspace';
 import { createMemo } from './cache';
 import { problem } from './http';
 import { alertsFiringFor, registerAlertRoutes } from './routes/alerts';
 import { registerBottleneckRoutes } from './routes/bottlenecks';
+import { registerCollectionRoutes } from './routes/collection';
 import { registerDagRoutes } from './routes/dags';
 import { findingCountsFor, registerFindingRoutes, topFindingsFor } from './routes/findings';
 import { registerFleetRoutes } from './routes/fleet';
@@ -38,6 +41,14 @@ const CSP = [
   "base-uri 'none'",
   "form-action 'self'",
 ].join('; ');
+
+/** Setup mode in the contract's shape (FR-SETUP-02). */
+function setupMeta(setup: SetupState): NonNullable<Meta['setup']> {
+  return {
+    config_path: setup.configPath,
+    issues: setup.issues.map((i) => ({ path: i.path, message: i.message, fix_hint: i.fixHint })),
+  };
+}
 
 export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
@@ -67,6 +78,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     version: options.version,
     mode: options.mode,
     environments: options.environments,
+    ...(options.setup ? { setup: setupMeta(options.setup) } : {}),
   }));
 
   // Aggregated views change once per collection cycle; 15 s matches the UI's stale time. Demo data
@@ -81,6 +93,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     topFindings: topFindingsFor(options, memo),
     alertsFiring: alertsFiringFor(options, memo),
   });
+  registerCollectionRoutes(app, options);
 
   if (options.staticDir && existsSync(join(options.staticDir, 'index.html'))) {
     // Files are looked up per request, so a rebuilt UI is served without a restart.

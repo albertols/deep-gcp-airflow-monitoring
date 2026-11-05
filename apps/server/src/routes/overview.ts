@@ -2,7 +2,7 @@
 import type { FastifyInstance } from 'fastify';
 import { getEnvironmentOverview } from '@dcam/application';
 import type { Memo } from '../cache';
-import type { Workspace } from '../demo';
+import type { Workspace } from '../workspace';
 import { findEnvironment, parseRange, sourcesFor } from '../http';
 
 export function registerOverviewRoutes(app: FastifyInstance, ws: Workspace, memo: Memo) {

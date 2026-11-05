@@ -5,22 +5,17 @@
  * network access.
  */
 import type { Meta } from '@dcam/contracts';
-import { openStore, type Store } from '@dcam/duckdb-store';
+import { openStore } from '@dcam/duckdb-store';
 import {
   InMemoryEnvironmentModel,
   acmeScenario,
   simulateEnvironment,
   type AcmeEnvironment,
 } from '@dcam/fakes';
-import type { Clock, EnvironmentModelSource } from '@dcam/ports';
+import type { Clock } from '@dcam/ports';
+import type { Workspace } from './workspace';
 
-export interface Workspace {
-  readonly mode: Meta['mode'];
-  readonly environments: Meta['environments'];
-  readonly store: Store;
-  readonly model: EnvironmentModelSource;
-  readonly clock: Clock;
-}
+export type { Workspace } from './workspace';
 
 /** Hours of simulated history: the selected range plus an equal previous period for comparisons. */
 export const DEMO_HOURS = 48;

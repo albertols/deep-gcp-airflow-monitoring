@@ -3,7 +3,7 @@
  */
 import type { FastifyReply } from 'fastify';
 import type { Meta, Problem, Range, SourceId } from '@dcam/contracts';
-import type { Workspace } from './demo';
+import type { Workspace } from './workspace';
 
 const ERRORS = 'https://github.com/albertols/deep-gcp-airflow-monitoring/blob/main/docs/errors.md';
 const RANGES: ReadonlySet<string> = new Set<Range>(['1h', '6h', '24h']);

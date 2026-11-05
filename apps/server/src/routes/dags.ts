@@ -6,7 +6,7 @@
 import type { FastifyInstance } from 'fastify';
 import { getDagDetail, getDagLeague } from '@dcam/application';
 import type { Memo } from '../cache';
-import type { Workspace } from '../demo';
+import type { Workspace } from '../workspace';
 import { findEnvironment, notFound, parseRange, problem, sourcesFor } from '../http';
 
 const MAX_ID_LENGTH = 250;

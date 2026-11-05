@@ -6,7 +6,7 @@ import type { FastifyInstance } from 'fastify';
 import type { FindingRef, Findings } from '@dcam/contracts';
 import { countFindingsByDag, getFindings } from '@dcam/application';
 import type { Memo } from '../cache';
-import type { Workspace } from '../demo';
+import type { Workspace } from '../workspace';
 import { findEnvironment, sourcesFor } from '../http';
 
 /** The (memoised) advisor findings of one environment, shared with the fleet and league views. */
