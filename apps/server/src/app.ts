@@ -69,8 +69,9 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     environments: options.environments,
   }));
 
-  // Aggregated views change once per collection cycle; 15 s matches the UI's stale time.
-  const memo = createMemo({ ttlMs: 15_000 });
+  // Aggregated views change once per collection cycle; 15 s matches the UI's stale time. Demo data
+  // never changes (its clock is frozen), so results stay cached longer.
+  const memo = createMemo({ ttlMs: options.mode === 'demo' ? 10 * 60_000 : 15_000 });
   registerOverviewRoutes(app, options, memo);
   registerDagRoutes(app, options, memo);
   registerBottleneckRoutes(app, options, memo);

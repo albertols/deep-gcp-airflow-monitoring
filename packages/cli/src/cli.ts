@@ -93,6 +93,13 @@ export async function start(options: Extract<CliOptions, { command: 'start' }>):
   });
   await app.listen({ host: HOST, port });
   const url = `http://${HOST}:${port}`;
+  // Warm the cached aggregated views so the first page load is fast; best effort, in the background.
+  const host = `${HOST}:${port}`;
+  void Promise.all(
+    ['/api/v1/fleet', ...workspace.environments.map((e) => `/api/v1/environments/${e.env_id}/dags`)].map(
+      (path) => app.inject({ method: 'GET', url: path, headers: { host } }),
+    ),
+  ).catch(() => undefined);
   console.log(`DCAM ${VERSION} (demo data) is running at ${url}\nPress Ctrl+C to stop.`);
   if (options.open) openBrowser(url);
 }

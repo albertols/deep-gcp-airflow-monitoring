@@ -34,10 +34,12 @@ const ENVIRONMENTS: ReadonlyArray<{ id: AcmeEnvironment; tier: Meta['environment
 export async function createDemoWorkspace(
   options: { now?: () => number; seed?: number; hours?: number } = {},
 ): Promise<Workspace> {
-  const clock: Clock = { now: options.now ?? (() => Date.now()) };
-  const store = await openStore({ path: ':memory:', now: () => clock.now() });
   // Whole minutes keep snapshot and sample times aligned with the collector cadences.
-  const now = Math.floor(clock.now() / 60_000) * 60_000;
+  const now = Math.floor((options.now ?? Date.now)() / 60_000) * 60_000;
+  // The simulated data ends at `now`, so the demo clock stays there: a demo left open for hours must
+  // not drift into empty windows. Tests may inject their own clock.
+  const clock: Clock = { now: options.now ?? (() => now) };
+  const store = await openStore({ path: ':memory:', now: () => clock.now() });
   const seed = options.seed ?? 42;
   const results = ENVIRONMENTS.map((e, i) =>
     simulateEnvironment({

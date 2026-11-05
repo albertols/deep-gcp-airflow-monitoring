@@ -90,6 +90,17 @@ describe('NFR-SEC-02 local web security', () => {
   });
 });
 
+describe('FR-EMU-01 demo clock', { timeout: WORKSPACE_TIMEOUT_MS }, () => {
+  it('FR-EMU-01: freezes "now" at the end of the simulated data, so views never drift past it', async () => {
+    const workspace = await createDemoWorkspace({ hours: 1 });
+    const first = workspace.clock.now();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(workspace.clock.now()).toBe(first);
+    expect(first % 60_000).toBe(0);
+    workspace.store.close();
+  });
+});
+
 describe('static UI hosting', { timeout: WORKSPACE_TIMEOUT_MS }, () => {
   it('serves files added after start-up, falls back to index.html for routes, and 404s missing assets', async () => {
     const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
