@@ -93,12 +93,29 @@ function blueprint(b: Blueprint, config: EnvironmentConfig): DagBlueprint {
 }
 
 /** Background DAGs: mostly light, a few heavy, schedules clustered on round minutes. */
+/** Mean of the simulator's log-normal task duration (σ = 0.5) relative to its median. */
+const LOG_NORMAL_MEAN = Math.exp(0.5 ** 2 / 2);
+
+/** Expected executor slot-hours per day of a blueprint. */
+function expectedSlotHoursPerDay(b: DagBlueprint): number {
+  if (b.meta.paused) return 0;
+  const runsPerDay = 1_440 / b.periodMinutes;
+  const tasks = b.layers.reduce((s, n) => s + n, 0);
+  return (runsPerDay * tasks * b.medianTaskMs * LOG_NORMAL_MEAN) / 3_600_000;
+}
+
+/**
+ * Background DAGs: mostly light, a few heavy fan-out DAGs (mostly daily), schedules clustered on
+ * round minutes. Task durations are scaled so the set's expected load is `targetSlotHoursPerDay`,
+ * which keeps every seed's environment busy but sustainable; bursts still come from collisions.
+ */
 function generated(
   random: () => number,
   count: number,
   config: EnvironmentConfig,
   pools: readonly string[],
   heavyShare: number,
+  targetSlotHoursPerDay: number,
 ): DagBlueprint[] {
   const out: DagBlueprint[] = [];
   for (let i = 0; i < count; i++) {
@@ -106,7 +123,7 @@ function generated(
     const name = `${domain}_${SUFFIXES[Math.floor(i / DOMAINS.length) % SUFFIXES.length]}`;
     const dagId = i < DOMAINS.length * SUFFIXES.length ? name : `${name}_${i}`;
     const heavy = random() < heavyShare;
-    const hourly = random() < 0.45;
+    const hourly = random() < (heavy ? 0.2 : 0.5);
     const roundMinute = random() < 0.6;
     const minute = roundMinute ? 0 : Math.floor(random() * 12) * 5;
     const hour = random() < 0.4 ? Math.floor(random() * 3) : Math.floor(random() * 24);
@@ -123,7 +140,8 @@ function generated(
           offsetMinutes: hourly ? minute : hour * 60 + minute,
           layers,
           medianTaskMs: heavy ? (6 + random() * 18) * MIN : (0.5 + random() * 4) * MIN,
-          pool: pools[Math.floor(random() * pools.length)] as string,
+          // Heavy fan-out DAGs stay in the default pool so small pools are not overrun by chance.
+          pool: heavy ? 'default_pool' : (pools[Math.floor(random() * pools.length)] as string),
           poolSlots: random() < 0.08 ? 2 : 1,
           operator: OPERATORS[Math.floor(random() * OPERATORS.length)] as string,
           cpu: heavy ? 0.06 + random() * 0.06 : 0.02 + random() * 0.03,
@@ -133,7 +151,9 @@ function generated(
       ),
     );
   }
-  return out;
+  const expected = out.reduce((s, b) => s + expectedSlotHoursPerDay(b), 0);
+  const scale = expected > 0 ? targetSlotHoursPerDay / expected : 1;
+  return out.map((b) => ({ ...b, medianTaskMs: b.medianTaskMs * scale }));
 }
 
 const PROD: EnvironmentConfig = {
@@ -213,6 +233,7 @@ export function acmeScenario(env: AcmeEnvironment): Scenario {
             PROD,
             ['default_pool', 'default_pool', 'default_pool', 'default_pool', 'etl'],
             0.12,
+            780,
           ),
           blueprint(
             {
@@ -294,7 +315,7 @@ export function acmeScenario(env: AcmeEnvironment): Scenario {
           parseLoopP95Seconds: 140,
         },
         dags: (random) =>
-          generated(random, 80, TEST, ['default_pool', 'default_pool', 'default_pool', 'etl'], 0.18),
+          generated(random, 80, TEST, ['default_pool', 'default_pool', 'default_pool', 'etl'], 0.15, 300),
       };
     case 'acme-dev':
       return {
@@ -311,7 +332,7 @@ export function acmeScenario(env: AcmeEnvironment): Scenario {
           importErrors: 0,
           parseLoopP95Seconds: 31,
         },
-        dags: (random) => generated(random, 40, DEV, ['default_pool'], 0.05),
+        dags: (random) => generated(random, 40, DEV, ['default_pool'], 0.05, 100),
       };
   }
 }

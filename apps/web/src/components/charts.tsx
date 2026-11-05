@@ -10,7 +10,7 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { useTheme } from '@mui/material/styles';
 
-const M = { top: 8, right: 8, bottom: 22, left: 52 };
+const M = { top: 8, right: 8, bottom: 22, left: 68 };
 
 /** Width of an element, following resizes (falls back to 720 px where ResizeObserver is missing). */
 export function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {

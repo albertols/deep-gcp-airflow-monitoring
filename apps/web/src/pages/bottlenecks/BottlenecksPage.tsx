@@ -78,8 +78,10 @@ export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
               <Typography component="p">
                 <strong>{formatShare(b.answer.share)}</strong> of waiting task-time was caused by "
                 {REASONS[b.answer.reason].label}"
-                {b.answer.workers_at_max_share > 0.5 ? ' while workers were at max' : ''}.{' '}
-                {REASONS[b.answer.reason].action}
+                {b.answer.reason === 'executor-slots-exhausted' && b.answer.workers_at_max_share > 0.5
+                  ? ' while workers were at max'
+                  : ''}
+                . {REASONS[b.answer.reason].action}
               </Typography>
             </Alert>
           ) : (
@@ -221,7 +223,7 @@ export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
                           </Box>
                         </Stack>
                       </TableCell>
-                      <TableCell>{r.phase}</TableCell>
+                      <TableCell sx={{ whiteSpace: 'nowrap' }}>{r.phase}</TableCell>
                       <TableCell align="right">
                         {r.evaluated ? taskHours(r.waiting_task_seconds) : '—'}
                       </TableCell>
