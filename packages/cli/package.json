@@ -1,0 +1,21 @@
+{
+  "name": "@dcam/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "dcam command line: start, doctor (spec \u00a717.4).",
+  "bin": {
+    "dcam": "./src/main.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dcam/server": "workspace:*",
+    "@duckdb/node-api": "2.0.0-r.1"
+  }
+}

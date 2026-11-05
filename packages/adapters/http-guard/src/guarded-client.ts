@@ -16,7 +16,9 @@ export type GuardErrorCode =
   | 'non-loopback'
   | 'forbidden-header'
   | 'not-allowlisted'
-  | 'invalid-body';
+  | 'invalid-body'
+  | 'credentials-in-url'
+  | 'redirect';
 
 export class GuardError extends Error {
   override readonly name = 'GuardError';
@@ -44,7 +46,11 @@ export interface GuardedClientOptions {
   /** Extra exact `host[:port]` values per service, for example emulator endpoints on loopback. */
   readonly hosts?: Partial<Record<Service, readonly string[]>>;
   readonly onRejected?: (event: { code: GuardErrorCode; method: string; url: string }) => void;
-  readonly allowlist?: readonly AllowEntry[];
+  /**
+   * Restrict the client to these ALLOWLIST entry IDs. The allowlist can only be narrowed here, never
+   * widened: new entries go into allowlist.ts, which needs security review (spec §18.2 rule 6).
+   */
+  readonly allowlistIds?: readonly string[];
 }
 
 export interface GuardedClient {
@@ -64,12 +70,23 @@ const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 /** `DCAM_NETWORK=loopback-only` (set in Claude Code sessions and tests) keeps every call on this machine. */
 export function networkModeFromEnv(env: Readonly<Record<string, string | undefined>>): NetworkMode {
-  return env['DCAM_NETWORK'] === 'loopback-only' ? 'loopback-only' : 'any';
+  const value = env['DCAM_NETWORK'];
+  if (value === undefined || value === '' || value === 'any') return 'any';
+  if (value === 'loopback-only') return 'loopback-only';
+  // A mistyped safety switch must not silently open the network.
+  throw new Error(`DCAM_NETWORK must be "loopback-only" or "any", not "${value}".`);
 }
 
 export function createGuardedClient(options: GuardedClientOptions): GuardedClient {
   const transport: Transport = options.transport ?? ((url, init) => fetch(url, init));
-  const allowlist = options.allowlist ?? ALLOWLIST;
+  let allowlist: readonly AllowEntry[] = ALLOWLIST;
+  if (options.allowlistIds) {
+    const known = new Set(ALLOWLIST.map((e) => e.id));
+    const unknown = options.allowlistIds.filter((id) => !known.has(id));
+    if (unknown.length > 0) throw new Error(`Unknown allowlist entry: ${unknown.join(', ')}`);
+    const wanted = new Set(options.allowlistIds);
+    allowlist = ALLOWLIST.filter((e) => wanted.has(e.id));
+  }
 
   function serviceFor(url: URL): Service | undefined {
     for (const service of Object.keys(DEFAULT_HOSTS) as Service[]) {
@@ -85,6 +102,9 @@ export function createGuardedClient(options: GuardedClientOptions): GuardedClien
       url = new URL(req.url);
     } catch {
       throw new GuardError('invalid-url', `not a valid URL: ${req.url}`);
+    }
+    if (url.username || url.password) {
+      throw new GuardError('credentials-in-url', 'credentials must not be embedded in URLs');
     }
     const loopback = LOOPBACK.has(url.hostname);
     if (options.network === 'loopback-only' && !loopback) {
@@ -111,19 +131,29 @@ export function createGuardedClient(options: GuardedClientOptions): GuardedClien
 
   return {
     async request(req) {
-      let checked: { url: URL; entry: AllowEntry };
+      const reject = (error: unknown): never => {
+        if (error instanceof GuardError) options.onRejected?.({ code: error.code, method: req.method, url: req.url });
+        throw error;
+      };
+      let checked: { url: URL; entry: AllowEntry } | undefined;
       try {
         checked = check(req);
       } catch (error) {
-        if (error instanceof GuardError) options.onRejected?.({ code: error.code, method: req.method, url: req.url });
-        throw error;
+        reject(error);
       }
-      const init: RequestInit = { method: checked.entry.method, headers: { ...req.headers } };
+      if (!checked) throw new GuardError('not-allowlisted', 'unreachable');
+      // Redirects are never followed: a 3xx could point at a forbidden route or another host,
+      // and fetch would replay the method, body and (same-origin) credentials there.
+      const init: RequestInit = { method: checked.entry.method, headers: { ...req.headers }, redirect: 'manual' };
       if (checked.entry.body) {
         init.body = JSON.stringify(req.body);
         init.headers = { 'content-type': 'application/json', ...req.headers };
       }
-      return transport(checked.url.toString(), init);
+      const response = await transport(checked.url.toString(), init);
+      if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+        return reject(new GuardError('redirect', `${checked.url.host} answered ${response.status}; DCAM does not follow redirects`));
+      }
+      return response;
     },
   };
 }

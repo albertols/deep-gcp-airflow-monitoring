@@ -18,7 +18,16 @@ export interface AllowEntry {
   readonly body?: (body: unknown) => boolean;
 }
 
-const SEG = '[^/]+';
+/**
+ * One path segment. Encoded separators (%2F, %5C) are refused: servers decode them before routing,
+ * so `t%2FxcomEntries` would reach a route this allowlist forbids. Other escapes, such as %3A in run
+ * IDs, stay valid.
+ */
+const SEG = '(?:[^/%]|%(?!2[fF]|5[cC])[0-9A-Fa-f]{2})+';
+/** Composer resource names never contain ':' (which introduces custom methods such as `:restartWebServer`). */
+const NAME = '(?:[^/%:]|%(?!2[fF]|5[cC]|3[aA])[0-9A-Fa-f]{2})+';
+/** Cloud Storage object names are a single segment in which %2F legitimately encodes '/'. */
+const GCS_OBJECT = '[^/]+';
 
 /** Airflow REST API reads, identical for v1 (Airflow 2) and v2 (Airflow 3) where the paths match. */
 function airflowEntries(version: 'v1' | 'v2'): AllowEntry[] {
@@ -60,8 +69,8 @@ export function isLoggingListBody(body: unknown): boolean {
   return Array.isArray(names) && names.length > 0 && names.every((n) => typeof n === 'string');
 }
 
-const PROJECT = `/projects/${SEG}`;
-const LOCATION = `${PROJECT}/locations/${SEG}`;
+const PROJECT = `/projects/${NAME}`;
+const LOCATION = `${PROJECT}/locations/${NAME}`;
 
 export const ALLOWLIST: readonly AllowEntry[] = [
   ...airflowEntries('v1'),
@@ -85,8 +94,8 @@ export const ALLOWLIST: readonly AllowEntry[] = [
     service: 'composer',
     method: 'GET',
     path: new RegExp(
-      `^/v1${LOCATION}/(environments(/${SEG}(/workloads|:fetchDatabaseProperties)?)?|operations(/${SEG})?|imageVersions)$`,
+      `^/v1${LOCATION}/(environments(/${NAME}(/workloads|:fetchDatabaseProperties)?)?|operations(/${NAME})?|imageVersions)$`,
     ),
   },
-  { id: 'storage.objects-read', service: 'storage', method: 'GET', path: new RegExp(`^/storage/v1/b/${SEG}/o(/${SEG})?$`) },
+  { id: 'storage.objects-read', service: 'storage', method: 'GET', path: new RegExp(`^/storage/v1/b/${NAME}/o(/${GCS_OBJECT})?$`) },
 ];

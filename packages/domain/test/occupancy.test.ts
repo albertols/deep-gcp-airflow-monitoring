@@ -86,7 +86,7 @@ describe('HM-011 occupancy sweep', () => {
       tryOf({ startAt: T0, endAt: T0 + 2 * MIN }),
       tryOf({ dagId: 'dag_b', startAt: T0 + MIN, endAt: T0 + 3 * MIN }),
     ];
-    const series = occupancySeries(tries, window, (t) => t.dagId);
+    const series = occupancySeries(tries, window, { groupBy: (t) => t.dagId });
     expect([...series.keys()].sort()).toEqual(['*', 'dag_a', 'dag_b']);
     expect(series.get('dag_b')?.[1]).toEqual({ start: T0 + MIN, avg: 1, max: 1 });
     expect(series.get('*')?.[1]).toEqual({ start: T0 + MIN, avg: 2, max: 2 });
@@ -99,6 +99,54 @@ describe('HM-011 occupancy sweep', () => {
       { start: T0, avg: 0, max: 0 },
       { start: T0 + MIN, avg: 1, max: 1 },
     ]);
+  });
+
+  it('HM-011: ends the series at "now" when now falls inside the window (live views)', () => {
+    const live = { from: T0, to: T0 + 2 * MIN, now: T0 + 30_000 };
+    const series = occupancySeries([tryOf({ startAt: T0, endAt: null })], live);
+    expect(series.get('*')).toEqual([{ start: T0, avg: 1, max: 1 }]);
+    expect(slotSeconds([tryOf({ startAt: T0, endAt: null })], live).totalExecutorSlotSeconds).toBe(30);
+  });
+
+  it('HM-011: a group key equal to the total key does not double-count the total', () => {
+    const series = occupancySeries([tryOf({ pool: '*', startAt: T0, endAt: T0 + MIN })], window, { groupBy: (t) => t.pool });
+    expect(series.get('*')?.[0]).toEqual({ start: T0, avg: 1, max: 1 });
+  });
+
+  it('HM-011: weights pool series by pool_slots (spec §11.8)', () => {
+    const series = occupancySeries([tryOf({ poolSlots: 3, startAt: T0, endAt: T0 + MIN })], window, {
+      groupBy: (t) => t.pool,
+      weight: (t) => t.poolSlots,
+    });
+    expect(series.get('default_pool')?.[0]).toEqual({ start: T0, avg: 3, max: 3 });
+  });
+
+  it('HM-003: counts tries with non-finite timestamps as rejected', () => {
+    const result = slotSeconds([tryOf({ startAt: Number.NaN, endAt: T0 }), tryOf({ startAt: T0, endAt: Number.NaN })], window);
+    expect(result.rejected).toBe(2);
+  });
+
+  it('HM-011: refuses a bucket size that is not a positive integer', () => {
+    expect(() => occupancySeries([], window, { bucketMs: 0 })).toThrow(RangeError);
+    expect(() => occupancySeries([], window, { bucketMs: -5 })).toThrow(RangeError);
+  });
+
+  it('HM-011: per-group series add up to the total in every bucket (property)', () => {
+    const arb = fc.array(
+      fc.record({ start: fc.integer({ min: 0, max: 9 * MIN }), length: fc.integer({ min: 0, max: 3 * MIN }), dag: fc.constantFrom('a', 'b', 'c') }),
+      { maxLength: 30 },
+    );
+    fc.assert(
+      fc.property(arb, (specs) => {
+        const tries = specs.map((x) => tryOf({ dagId: x.dag, startAt: T0 + x.start, endAt: T0 + x.start + x.length }));
+        const series = occupancySeries(tries, window, { groupBy: (t) => t.dagId });
+        const total = series.get('*') ?? [];
+        total.forEach((bucket, i) => {
+          const sum = ['a', 'b', 'c'].reduce((acc, k) => acc + (series.get(k)?.[i]?.avg ?? 0), 0);
+          expect(sum).toBeCloseTo(bucket.avg, 9);
+        });
+      }),
+    );
   });
 
   it('HM-011: the area under the occupancy curve equals the executor slot-seconds (property)', () => {

@@ -49,7 +49,7 @@ export interface OccupancyBucket {
   readonly start: number;
   /** Time-weighted average number of running tries over the bucket (a partial last bucket uses its real length). */
   readonly avg: number;
-  /** Highest number of running tries held for a positive duration in the bucket. */
+  /** Highest weighted level held for a positive duration in the bucket. */
   readonly max: number;
 }
 
@@ -59,16 +59,31 @@ export const TOTAL_KEY = '*';
 interface Interval {
   readonly from: number;
   readonly to: number;
+  readonly weight: number;
+}
+
+export interface OccupancyOptions {
+  /** Also produce one series per key, for example per DAG or per pool. */
+  readonly groupBy?: (t: TaskTry) => string;
+  /** Slots a try occupies; 1 for executor slots (default), `t.poolSlots` for pool series. */
+  readonly weight?: (t: TaskTry) => number;
+  /** Bucket size in milliseconds (default one minute). */
+  readonly bucketMs?: number;
+}
+
+/** End of the observable window: buckets after "now" have not happened yet. */
+function observedEnd(w: SweepWindow): number {
+  return Math.min(w.to, Math.max(w.from, w.now));
 }
 
 /** The try's running interval clipped to the window, or `null` if it has none inside it. */
-function clippedInterval(t: TaskTry, w: SweepWindow): Interval | null | 'rejected' {
-  if (t.startAt === null) return 'rejected';
+function clippedInterval(t: TaskTry, w: SweepWindow, weight = 1): Interval | null | 'rejected' {
+  if (t.startAt === null || !Number.isFinite(t.startAt)) return 'rejected';
   const end = t.endAt ?? w.now;
-  if (end < t.startAt) return 'rejected';
+  if (!Number.isFinite(end) || end < t.startAt) return 'rejected';
   const from = Math.max(t.startAt, w.from);
-  const to = Math.min(end, w.to);
-  return to > from ? { from, to } : null;
+  const to = Math.min(end, observedEnd(w));
+  return to > from ? { from, to, weight } : null;
 }
 
 /** HM-003: executor and pool slot-seconds per DAG and pool, clipped to the window. */
@@ -102,16 +117,19 @@ export function slotSeconds(tries: readonly TaskTry[], w: SweepWindow): SlotSeco
 export function occupancySeries(
   tries: readonly TaskTry[],
   w: SweepWindow,
-  groupBy?: (t: TaskTry) => string,
-  bucketMs = 60_000,
+  options: OccupancyOptions = {},
 ): Map<string, OccupancyBucket[]> {
-  const groups = new Map<string, Interval[]>([[TOTAL_KEY, []]]);
+  const bucketMs = options.bucketMs ?? 60_000;
+  if (!Number.isInteger(bucketMs) || bucketMs <= 0) throw new RangeError(`bucketMs must be a positive integer, not ${bucketMs}`);
+  const total: Interval[] = [];
+  // Group keys are free-form (pool and DAG names), so the total is kept apart from them.
+  const groups = new Map<string, Interval[]>();
   for (const t of tries) {
-    const iv = clippedInterval(t, w);
+    const iv = clippedInterval(t, w, options.weight?.(t) ?? 1);
     if (iv === null || iv === 'rejected') continue;
-    groups.get(TOTAL_KEY)?.push(iv);
-    if (groupBy) {
-      const key = groupBy(t);
+    total.push(iv);
+    if (options.groupBy) {
+      const key = options.groupBy(t);
       const list = groups.get(key) ?? [];
       list.push(iv);
       groups.set(key, list);
@@ -119,11 +137,14 @@ export function occupancySeries(
   }
   const result = new Map<string, OccupancyBucket[]>();
   for (const [key, intervals] of groups) result.set(key, sweep(intervals, w, bucketMs));
+  // Set last so that a group named like the total key cannot overwrite it.
+  result.set(TOTAL_KEY, sweep(total, w, bucketMs));
   return result;
 }
 
 function sweep(intervals: readonly Interval[], w: SweepWindow, bucketMs: number): OccupancyBucket[] {
-  const bucketCount = Math.max(0, Math.ceil((w.to - w.from) / bucketMs));
+  const end = observedEnd(w);
+  const bucketCount = Math.max(0, Math.ceil((end - w.from) / bucketMs));
   const area = new Array<number>(bucketCount).fill(0);
   const max = new Array<number>(bucketCount).fill(0);
 
@@ -131,8 +152,8 @@ function sweep(intervals: readonly Interval[], w: SweepWindow, bucketMs: number)
   // ends exactly when another starts is never counted twice.
   const deltas = new Map<number, number>();
   for (const iv of intervals) {
-    deltas.set(iv.from, (deltas.get(iv.from) ?? 0) + 1);
-    deltas.set(iv.to, (deltas.get(iv.to) ?? 0) - 1);
+    deltas.set(iv.from, (deltas.get(iv.from) ?? 0) + iv.weight);
+    deltas.set(iv.to, (deltas.get(iv.to) ?? 0) - iv.weight);
   }
   const times = [...deltas.keys()].sort((a, b) => a - b);
 
@@ -146,7 +167,7 @@ function sweep(intervals: readonly Interval[], w: SweepWindow, bucketMs: number)
     let b = Math.floor((segFrom - w.from) / bucketMs);
     for (; b < bucketCount; b++) {
       const bFrom = w.from + b * bucketMs;
-      const bTo = Math.min(bFrom + bucketMs, w.to);
+      const bTo = Math.min(bFrom + bucketMs, end);
       if (bFrom >= segTo) break;
       const overlap = Math.min(segTo, bTo) - Math.max(segFrom, bFrom);
       if (overlap <= 0) continue;
@@ -158,7 +179,7 @@ function sweep(intervals: readonly Interval[], w: SweepWindow, bucketMs: number)
   return area.map((a, b) => {
     const start = w.from + b * bucketMs;
     // A partial last bucket is averaged over its real length.
-    const length = Math.min(start + bucketMs, w.to) - start;
+    const length = Math.min(start + bucketMs, end) - start;
     return { start, avg: a / length, max: max[b] ?? 0 };
   });
 }
