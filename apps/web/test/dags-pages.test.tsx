@@ -35,6 +35,7 @@ function fakeApi(overrides: Partial<DcamApi> = {}): DcamApi {
     getFindings: notYet,
     getAlerts: notYet,
     getFleet: notYet,
+    getCollection: notYet,
     ...overrides,
   };
 }

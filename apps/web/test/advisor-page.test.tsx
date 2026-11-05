@@ -105,6 +105,7 @@ const apiWith = (findings: Finding[], over: Partial<Findings> = {}): DcamApi => 
   getFindings: async () => fixture(findings, over),
   getAlerts: reject,
   getFleet: reject,
+  getCollection: reject,
 });
 
 function renderPage(findings: Finding[] = many, over: Partial<Findings> = {}) {

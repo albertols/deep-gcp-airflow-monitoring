@@ -2,6 +2,7 @@ import {
   createApiClient,
   type Alerts,
   type Bottlenecks,
+  type Collection,
   type DagDetail,
   type DagLeague,
   type EnvironmentOverview,
@@ -24,6 +25,8 @@ export interface DcamApi {
   getFindings(envId: string): Promise<Findings>;
   getAlerts(envId?: string): Promise<Alerts>;
   getFleet(): Promise<Fleet>;
+  /** Collector health and DCAM's own footprint per environment (FR-COLL-11, FR-SELF-01). */
+  getCollection(): Promise<Collection>;
 }
 
 /** Turns an openapi-fetch result into data or an Error carrying the problem's detail. */
@@ -89,6 +92,9 @@ export function createDcamApi(baseUrl = ''): DcamApi {
     },
     async getFleet() {
       return unwrap(await client.GET('/api/v1/fleet'), 'the fleet');
+    },
+    async getCollection() {
+      return unwrap(await client.GET('/api/v1/collection'), 'collection health');
     },
   };
 }

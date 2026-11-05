@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { formatDuration, formatQuantile, formatShare, formatSlotHours } from '../src/components/format';
+import {
+  formatBytes,
+  formatDuration,
+  formatQuantile,
+  formatShare,
+  formatSlotHours,
+} from '../src/components/format';
 
 describe('number formatting (spec §12.7, §8.9)', () => {
   it('§12.7: humanises durations like "1h 12m"', () => {
@@ -23,5 +29,13 @@ describe('number formatting (spec §12.7, §8.9)', () => {
     expect(formatQuantile({ value_seconds: 4_320, samples: 40, low_sample: false })).toBe('1h 12m');
     expect(formatQuantile({ value_seconds: 75, samples: 3, low_sample: true })).toBe('≤ 1m 15s');
     expect(formatQuantile({ value_seconds: null, samples: 0, low_sample: true })).toBe('—');
+  });
+
+  it('HM-030: formats byte counts in decimal units', () => {
+    expect(formatBytes(0)).toBe('0 B');
+    expect(formatBytes(999)).toBe('999 B');
+    expect(formatBytes(3_100)).toBe('3.1 kB');
+    expect(formatBytes(52_400_000)).toBe('52.4 MB');
+    expect(formatBytes(1_500_000_000)).toBe('1.5 GB');
   });
 });

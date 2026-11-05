@@ -2,7 +2,7 @@
  * Application shell (spec §12.2): top context bar, left navigation, demo banner, routed content.
  * Pages are separate chunks loaded on first visit (NFR-PERF-05).
  *
- * @implements FR-UI-06, FR-EMU-01
+ * @implements FR-UI-06, FR-EMU-01, FR-SELF-01
  */
 import { useQuery } from '@tanstack/react-query';
 import { Suspense, lazy, useCallback, type ComponentType } from 'react';
@@ -35,6 +35,7 @@ const PAGES: Record<Exclude<Page, 'overview'>, ComponentType<PageProps>> = {
   advisor: named(() => import('./pages/advisor/AdvisorPage'), 'AdvisorPage'),
   wiki: named(() => import('./pages/wiki/WikiPage'), 'WikiPage'),
   alerts: named(() => import('./pages/alerts/AlertsPage'), 'AlertsPage'),
+  health: named(() => import('./pages/health/HealthPage'), 'HealthPage'),
 };
 
 const NAV: ReadonlyArray<{ label: string; route: Route; hint: string; matches: readonly Page[] }> = [
@@ -44,6 +45,7 @@ const NAV: ReadonlyArray<{ label: string; route: Route; hint: string; matches: r
   { label: 'Bottlenecks', route: { page: 'bottlenecks' }, hint: 'Why work waits', matches: ['bottlenecks'] },
   { label: 'Advisor', route: { page: 'advisor' }, hint: 'What to change', matches: ['advisor'] },
   { label: 'Alerts', route: { page: 'alerts' }, hint: 'Local alert rules', matches: ['alerts'] },
+  { label: 'DCAM health', route: { page: 'health' }, hint: 'What DCAM collects', matches: ['health'] },
   { label: 'Wiki', route: { page: 'wiki' }, hint: 'How it works', matches: ['wiki'] },
 ];
 

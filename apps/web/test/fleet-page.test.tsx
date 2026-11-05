@@ -83,6 +83,7 @@ const api: DcamApi = {
   getFindings: reject,
   getAlerts: reject,
   getFleet: async () => fleet,
+  getCollection: reject,
 };
 
 function renderPage() {

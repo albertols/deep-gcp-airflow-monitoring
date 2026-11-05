@@ -111,7 +111,8 @@ export function QueryState({
   return null;
 }
 
-const SOURCE_NAMES: Record<SourceId, string> = {
+/** Display names of data sources, shared by provenance footers and the DCAM health page. */
+export const SOURCE_NAMES: Readonly<Record<SourceId, string>> = {
   'SRC-AF-API': 'Airflow REST API',
   'SRC-MON': 'Cloud Monitoring',
   'SRC-COMPOSER': 'Cloud Composer API',

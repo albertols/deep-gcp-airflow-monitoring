@@ -6,11 +6,25 @@ import type { Quantile } from '@dcam/contracts';
 
 const intFmt = new Intl.NumberFormat('en-US');
 const oneDecimal = new Intl.NumberFormat('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const upToOneDecimal = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
 const pctFmt = new Intl.NumberFormat('en-US', { style: 'percent', maximumFractionDigits: 1 });
 
 export const formatInt = (n: number) => intFmt.format(n);
 export const formatSlotHours = (seconds: number) => oneDecimal.format(seconds / 3600);
 export const formatShare = (x: number | null) => (x === null ? '—' : pctFmt.format(x));
+
+const BYTE_UNITS = ['B', 'kB', 'MB', 'GB', 'TB'] as const;
+
+/** Byte counts in decimal units (1 kB = 1,000 B) with at most one decimal, like `52.4 MB`. */
+export function formatBytes(bytes: number): string {
+  let value = bytes;
+  let unit = 0;
+  while (unit < BYTE_UNITS.length - 1 && Math.round(value * 10) / 10 >= 1000) {
+    value /= 1000;
+    unit += 1;
+  }
+  return `${unit === 0 ? intFmt.format(value) : upToOneDecimal.format(value)} ${BYTE_UNITS[unit]}`;
+}
 
 /** Durations like `42s`, `1m 15s`, `1h 12m` (exact seconds belong in a tooltip). */
 export function formatDuration(seconds: number | null): string {

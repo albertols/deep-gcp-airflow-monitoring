@@ -27,6 +27,7 @@ const api: DcamApi = {
   getFindings: notYet,
   getAlerts: notYet,
   getFleet: notYet,
+  getCollection: notYet,
 };
 
 function renderWiki(slug?: string) {

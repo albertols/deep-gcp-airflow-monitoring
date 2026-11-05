@@ -1,5 +1,6 @@
 /**
- * A remediation snippet: monospace text with a Copy button (FR-ADV-03). Copy only: DCAM never runs it.
+ * A remediation snippet or fix hint: monospace text with a Copy button (FR-ADV-03, FR-COLL-11).
+ * Copy only: DCAM never runs it.
  */
 import { useState } from 'react';
 import Box from '@mui/material/Box';
@@ -9,11 +10,18 @@ import Typography from '@mui/material/Typography';
 import ContentCopy from '@mui/icons-material/ContentCopy';
 import type { Finding } from '@dcam/contracts';
 
-type Snippet = Finding['remediation'][number];
+type Snippet = Pick<Finding['remediation'][number], 'title' | 'code'>;
 
 const MONO = '"Roboto Mono", ui-monospace, monospace';
 
-export function SnippetBlock({ snippet }: { snippet: Snippet }) {
+export function SnippetBlock({
+  snippet,
+  copyLabel = `Copy ${snippet.title} snippet`,
+}: {
+  snippet: Snippet;
+  /** Accessible name of the Copy button; it must be unique on the page. */
+  copyLabel?: string;
+}) {
   const [status, setStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
 
   async function copy() {
@@ -37,7 +45,7 @@ export function SnippetBlock({ snippet }: { snippet: Snippet }) {
           size="small"
           startIcon={<ContentCopy fontSize="small" />}
           onClick={() => void copy()}
-          aria-label={`Copy ${snippet.title} snippet`}
+          aria-label={copyLabel}
         >
           Copy
         </Button>

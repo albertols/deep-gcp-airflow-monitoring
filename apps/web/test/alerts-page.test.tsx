@@ -163,6 +163,7 @@ function renderPage() {
     getFindings: reject,
     getAlerts,
     getFleet: reject,
+    getCollection: reject,
   };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(

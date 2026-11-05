@@ -12,6 +12,7 @@ describe('FR-UI-06 deep-linkable routes', () => {
     ['/wiki', { page: 'wiki' }],
     ['/wiki/slot-seconds', { page: 'wiki', slug: 'slot-seconds' }],
     ['/alerts', { page: 'alerts' }],
+    ['/health', { page: 'health' }],
   ];
 
   it.each(cases)('parses %s', (path, route) => {

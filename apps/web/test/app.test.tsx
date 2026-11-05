@@ -41,6 +41,7 @@ const api: DcamApi = {
   getFindings: notYet,
   getAlerts: notYet,
   getFleet: notYet,
+  getCollection: notYet,
 };
 afterEach(() => {
   window.location.hash = '';
@@ -102,6 +103,7 @@ describe('FR-UI-06 navigation', () => {
     'Bottlenecks',
     'Advisor',
     'Alerts',
+    'DCAM health',
     'Wiki',
   ];
 
