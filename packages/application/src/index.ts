@@ -5,3 +5,4 @@ export * from './fleet';
 export * from './dags';
 export * from './alert-pack';
 export * from './alerts';
+export * from './findings';
