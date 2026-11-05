@@ -31,9 +31,14 @@
  * - A VPC Service Controls denial (FR-AUTH-06) parks the (environment, API): nothing calls it again until
  *   `recheck(envId)` or a restart.
  *
- * Health (FR-COLL-11, see `status.ts`).
+ * Health and footprint (FR-COLL-11, FR-SELF-01, HM-030, NFR-OBS-06): `status()` maps the runtime state
+ * to the `Collection` contract (`status.ts`). Every finished cycle is counted per minute for the error
+ * rate; `recordRequest` (fed by the http-guard hook) and `countSeries` (fed by collectors) fill bounded
+ * minute buckets (`footprint.ts`). One token is taken per source call, while the footprint counts HTTP
+ * requests, so a paged Monitoring query shows every page there.
  *
- * @implements FR-COLL-01, FR-COLL-02, FR-COLL-06, FR-COLL-11, FR-AUTH-06, NFR-OBS-05
+ * @implements FR-COLL-01, FR-COLL-02, FR-COLL-06, FR-COLL-11, FR-AUTH-06, FR-SELF-01, HM-030, NFR-OBS-05,
+ *   NFR-OBS-06
  */
 import type { Collection } from '@dcam/contracts';
 import {
@@ -47,14 +52,7 @@ import {
   type Sleeper,
   type WorkspaceConfig,
 } from '@dcam/ports';
-import {
-  BudgetGate,
-  HARD_MAXIMA,
-  TokenBucket,
-  effectiveBudgets,
-  type BudgetGateOptions,
-  type EffectiveBudgets,
-} from './budget';
+import { BudgetGate, HARD_MAXIMA, TokenBucket, effectiveBudgets, type BudgetGateOptions } from './budget';
 import { CircuitBreaker } from './breaker';
 import {
   BudgetExhaustedError,
@@ -69,25 +67,20 @@ import {
 import {
   FAILING_AFTER,
   environmentStatus,
+  type CycleCounts,
   type EnvironmentView,
   type LastError,
   type TaskView,
 } from './status';
+import { FootprintCounter, HOUR_MINUTES, MinuteBuckets, RollingSum, type RequestRecord } from './footprint';
+
+export type { RequestRecord } from './footprint';
 
 export interface CollectionLogEntry {
   readonly level: 'info' | 'warn' | 'error';
   readonly envId?: string;
   readonly collectorId?: string;
   readonly message: string;
-}
-
-/** One HTTP request to a monitored system, as the http-guard `onResponse` hook reports it (HM-030). */
-export interface RequestRecord {
-  readonly at: number;
-  /** HTTP status, or `null` when no response arrived (timeout, network). */
-  readonly status: number | null;
-  readonly latencyMs: number;
-  readonly bytes: number;
 }
 
 export interface CollectionEngineDeps {
@@ -140,9 +133,6 @@ interface ParkedApi {
 }
 
 interface EnvRuntime extends EnvironmentView<Task> {
-  readonly budgets: EffectiveBudgets;
-  /** The project's Monitoring budget, `null` without Monitoring. */
-  readonly monitoringBudget: number | null;
   readonly shared: SharedEnvironmentState;
   readonly gates: Readonly<Record<ApiId, BudgetGate>>;
   readonly breakers: Readonly<Record<ApiId, CircuitBreaker>>;
@@ -229,11 +219,19 @@ export function createCollectionEngine(deps: CollectionEngineDeps): CollectionEn
   const envs = new Map<string, EnvRuntime>();
   for (const entry of config.environments) {
     const budgets = effectiveBudgets(config.budgets, entry.profile);
+    const google = entry.source.kind === 'composer';
     const tasks: Task[] = [];
     const runtime: EnvRuntime = {
       entry,
       budgets,
-      monitoringBudget: entry.source.kind === 'composer' ? monitoringPerMinute : null,
+      footprint: google
+        ? {
+            airflow: new FootprintCounter(random),
+            composer: new FootprintCounter(random),
+            monitoring: new FootprintCounter(random),
+          }
+        : { airflow: new FootprintCounter(random) },
+      series: google ? new RollingSum() : null,
       shared: sharedState(entry, () => {
         for (const t of tasks) if (t.manifest.api === 'airflow') wake(t);
       }),
@@ -275,6 +273,7 @@ export function createCollectionEngine(deps: CollectionEngineDeps): CollectionEn
         lastOutcome: null,
         consecutiveFailures: 0,
         lastError: null,
+        cycles: new MinuteBuckets<CycleCounts>(HOUR_MINUTES, () => ({ cycles: 0, failures: 0 })),
         abort: null,
         wake: null,
       });
@@ -448,7 +447,9 @@ export function createCollectionEngine(deps: CollectionEngineDeps): CollectionEn
       reducedFidelity: (reason) => {
         c.reduced = reason;
       },
-      countSeries: () => undefined,
+      countSeries: (n) => {
+        env.series?.add(clock.now(), n);
+      },
     };
   };
 
@@ -469,7 +470,13 @@ export function createCollectionEngine(deps: CollectionEngineDeps): CollectionEn
     const end = clock.now();
     const factor = 1 + JITTER * (2 * random() - 1);
     const interval = task.cadenceMs * factor;
-    if (result !== null || error instanceof BudgetExhaustedError) {
+    const completed = result !== null || error instanceof BudgetExhaustedError;
+    const counts = task.cycles.bucket(end);
+    if (counts) {
+      counts.cycles++;
+      if (!completed) counts.failures++;
+    }
+    if (completed) {
       const reduced = c.reduced ?? (error instanceof BudgetExhaustedError ? error.message : null);
       if (result !== null) {
         task.lastSuccessAt = end;
@@ -550,7 +557,9 @@ export function createCollectionEngine(deps: CollectionEngineDeps): CollectionEn
       };
     },
 
-    recordRequest() {},
+    recordRequest(envId, api, request) {
+      envs.get(envId)?.footprint[api]?.record(request);
+    },
 
     recheck(envId) {
       const env = envs.get(envId);
