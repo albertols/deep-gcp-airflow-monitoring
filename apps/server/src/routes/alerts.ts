@@ -4,11 +4,31 @@
  * Monitoring (spec §18.2).
  */
 import type { FastifyInstance } from 'fastify';
+import type { Alerts } from '@dcam/contracts';
 import { getAlerts } from '@dcam/application';
+import type { Memo } from '../cache';
 import type { Workspace } from '../demo';
 import { findEnvironment, sourcesFor } from '../http';
 
-export function registerAlertRoutes(app: FastifyInstance, ws: Workspace) {
+/** The (memoised) alert evaluation for a set of environments, shared with the fleet view. */
+export function alertsFor(ws: Workspace, memo: Memo) {
+  return (envIds: readonly string[]): Promise<Alerts> =>
+    memo(`alerts:${envIds.join(',')}`, () =>
+      getAlerts(ws, { envIds, sources: sourcesFor(ws, ['SRC-AF-API', 'SRC-MON', 'SRC-COMPOSER']) }),
+    );
+}
+
+/** Alerts firing in one environment, counted from the all-environments evaluation the page shows. */
+export function alertsFiringFor(ws: Workspace, memo: Memo) {
+  const evaluate = alertsFor(ws, memo);
+  return async (envId: string): Promise<number> => {
+    const all = await evaluate(ws.environments.map((e) => e.env_id));
+    return all.rules.filter((r) => r.env_id === envId && r.state === 'firing').length;
+  };
+}
+
+export function registerAlertRoutes(app: FastifyInstance, ws: Workspace, memo: Memo) {
+  const evaluate = alertsFor(ws, memo);
   app.get<{ Querystring: { env_id?: string } }>('/api/v1/alerts', async (req, reply) => {
     const requested = req.query.env_id;
     let envIds = ws.environments.map((e) => e.env_id);
@@ -17,6 +37,6 @@ export function registerAlertRoutes(app: FastifyInstance, ws: Workspace) {
       if (!env) return reply;
       envIds = [env.env_id];
     }
-    return getAlerts(ws, { envIds, sources: sourcesFor(ws, ['SRC-AF-API', 'SRC-MON', 'SRC-COMPOSER']) });
+    return evaluate(envIds);
   });
 }

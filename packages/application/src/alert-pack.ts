@@ -36,7 +36,7 @@ export interface PackRule {
   readonly name: string;
   /** Severity in production, then in every other tier (spec §16.4 "prod / non-prod"). */
   readonly severity: readonly [prod: Severity, other: Severity];
-  /** Wiki slug of the runbook the spec names, for example `rb-01`. */
+  /** The runbook the spec names (spec §15.5), for example `RB-01`. The UI links it to its wiki page. */
   readonly runbook: string | null;
   readonly export: AlertRule['export_cloud_monitoring'];
 }
@@ -47,7 +47,7 @@ const rule = (
   severity: PackRule['severity'],
   runbook: string,
   exportable: PackRule['export'],
-): PackRule => ({ id, name, severity, runbook: runbook.toLowerCase(), export: exportable });
+): PackRule => ({ id, name, severity, runbook, export: exportable });
 
 export const ALERT_PACK: readonly PackRule[] = [
   rule('AL-01', 'Environment unhealthy', ['critical', 'warning'], 'RB-03', 'yes'),

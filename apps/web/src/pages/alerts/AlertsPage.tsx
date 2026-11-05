@@ -33,6 +33,7 @@ import { formatDuration, formatInt } from '../../components/format';
 import { PageHeader } from '../../components/PageHeader';
 import { Kpi, KpiRow, Panel, ProvenanceFooter, QueryState } from '../../components/Panel';
 import type { PageProps } from '../types';
+import { RUNBOOK_WIKI_PAGES } from '../wiki/content/slugs';
 import { ALERT_EXPLANATIONS as X } from './explanations';
 import { FiringTimeline } from './FiringTimeline';
 import {
@@ -365,13 +366,21 @@ function RuleRow({ rule: r, asOf, linkTo }: { rule: AlertRule; asOf: string; lin
         {formatInt(r.fired_count_24h)}
       </TableCell>
       <TableCell>
-        {r.runbook ? (
-          <Link href={linkTo({ page: 'wiki', slug: r.runbook })}>{r.runbook.toUpperCase()}</Link>
-        ) : (
-          '—'
-        )}
+        <RunbookLink id={r.runbook} linkTo={linkTo} />
       </TableCell>
       <TableCell sx={{ whiteSpace: 'nowrap' }}>{EXPORT_LABEL[r.export_cloud_monitoring]}</TableCell>
     </TableRow>
+  );
+}
+
+/** A runbook links to its wiki page once that page is written; until then it is named only. */
+function RunbookLink({ id, linkTo }: { id: string | null; linkTo: PageProps['linkTo'] }) {
+  if (id === null) return <>—</>;
+  const slug = (RUNBOOK_WIKI_PAGES as Partial<Record<string, string>>)[id];
+  if (slug) return <Link href={linkTo({ page: 'wiki', slug })}>{id}</Link>;
+  return (
+    <Typography variant="body2" component="span" title="This runbook is not in the wiki yet.">
+      {id}
+    </Typography>
   );
 }

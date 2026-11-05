@@ -11,7 +11,7 @@ import type { Meta } from '@dcam/contracts';
 import type { Workspace } from './demo';
 import { createMemo } from './cache';
 import { problem } from './http';
-import { registerAlertRoutes } from './routes/alerts';
+import { alertsFiringFor, registerAlertRoutes } from './routes/alerts';
 import { registerBottleneckRoutes } from './routes/bottlenecks';
 import { registerDagRoutes } from './routes/dags';
 import { registerFindingRoutes } from './routes/findings';
@@ -76,8 +76,8 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   registerDagRoutes(app, options, memo);
   registerBottleneckRoutes(app, options, memo);
   registerFindingRoutes(app, options);
-  registerAlertRoutes(app, options);
-  registerFleetRoutes(app, options, memo);
+  registerAlertRoutes(app, options, memo);
+  registerFleetRoutes(app, options, memo, { alertsFiring: alertsFiringFor(options, memo) });
 
   if (options.staticDir && existsSync(join(options.staticDir, 'index.html'))) {
     // Files are looked up per request, so a rebuilt UI is served without a restart.

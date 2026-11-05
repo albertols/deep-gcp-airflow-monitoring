@@ -144,11 +144,11 @@ describe('getAlerts use case (FR-ALRT-01/02/06)', () => {
     expect(new Set(a.rules.map((r) => `${r.id}|${r.env_id}`)).size).toBe(a.rules.length);
     expect(rule(a.rules, 'AL-05')).toMatchObject({
       name: 'Tasks queued while workers are at maximum',
-      runbook: 'rb-01',
+      runbook: 'RB-01',
       export_cloud_monitoring: 'partial',
     });
     expect(rule(a.rules, 'AL-06').export_cloud_monitoring).toBe('no');
-    expect(rule(a.rules, 'AL-19')).toMatchObject({ runbook: 'rb-04', export_cloud_monitoring: 'yes' });
+    expect(rule(a.rules, 'AL-19')).toMatchObject({ runbook: 'RB-04', export_cloud_monitoring: 'yes' });
     expect(a.sources).toEqual(['DEMO']);
   });
 

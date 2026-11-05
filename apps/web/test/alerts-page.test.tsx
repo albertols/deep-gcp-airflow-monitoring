@@ -44,7 +44,7 @@ const rules: AlertRule[] = [
     value: 99,
     unit: '%',
     summary: 'Healthy 99 % of the last 4 h.',
-    runbook: 'rb-03',
+    runbook: 'RB-03',
     export_cloud_monitoring: 'yes',
   },
   {
@@ -59,7 +59,7 @@ const rules: AlertRule[] = [
     unit: 'queued tasks',
     since: T(11, 52),
     summary: '14 tasks queued with 6 of 6 workers (maximum 6).',
-    runbook: 'rb-01',
+    runbook: 'RB-01',
     export_cloud_monitoring: 'partial',
   },
   {
@@ -72,7 +72,7 @@ const rules: AlertRule[] = [
     threshold: 90,
     unit: '%',
     summary: 'Triggerer capacity is not collected in this version.',
-    runbook: 'rb-08',
+    runbook: 'RB-08',
     export_cloud_monitoring: 'partial',
   },
   {
@@ -86,7 +86,7 @@ const rules: AlertRule[] = [
     unit: 'min',
     since: T(11, 40),
     summary: 'Pool external_api has had no open slots while tasks waited for it for 35 min.',
-    runbook: 'rb-01',
+    runbook: 'RB-01',
     fired_count_24h: 2,
   },
   {
@@ -100,7 +100,7 @@ const rules: AlertRule[] = [
     unit: 'restarts',
     since: T(12),
     summary: '3 worker container restarts in the last 24 h.',
-    runbook: 'rb-04',
+    runbook: 'RB-04',
     export_cloud_monitoring: 'yes',
     fired_count_24h: 1,
   },
@@ -117,7 +117,7 @@ const rules: AlertRule[] = [
     unit: 'import errors',
     since: T(12),
     summary: '2 DAG import errors over the last 15 min.',
-    runbook: 'rb-02',
+    runbook: 'RB-02',
     export_cloud_monitoring: 'yes',
     fired_count_24h: 1,
   },
@@ -217,13 +217,20 @@ describe('S-24 alerts page (FR-ALRT-01/02/06)', () => {
     expect(within(row).getByRole('cell', { name: '2' })).toBeInTheDocument();
     expect(within(row).getByRole('link', { name: 'RB-01' })).toHaveAttribute(
       'href',
-      '#/wiki/rb-01?env=acme-prod',
+      '#/wiki/rb-01-tasks-stuck?env=acme-prod',
     );
     expect(row).toHaveTextContent('Not exportable');
     const pending = within(await rulesTable()).getByRole('row', { name: /AL-05/ });
     expect(pending).toHaveTextContent('14 queued tasks');
     expect(pending).toHaveTextContent('for 15 min');
     expect(pending).toHaveTextContent('Partial');
+  });
+
+  it('FR-WIKI-06: a runbook without a wiki page yet is named, not linked', async () => {
+    renderPage();
+    const row = within(await rulesTable()).getByRole('row', { name: /AL-13/ });
+    expect(row).toHaveTextContent('RB-08');
+    expect(within(row).queryByRole('link', { name: /RB-08/ })).toBeNull();
   });
 
   it('defaults to the selected environment and offers all environments', async () => {

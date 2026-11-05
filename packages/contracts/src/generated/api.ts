@@ -541,7 +541,7 @@ export interface components {
             /** Format: date-time */
             since: string | null;
             summary: string;
-            /** @description Wiki page slug. */
+            /** @description Runbook ID (spec §15.5), for example RB-01. The UI links it to its wiki page once that page is written. */
             runbook: string | null;
             /** @enum {string} */
             export_cloud_monitoring: "yes" | "partial" | "no";

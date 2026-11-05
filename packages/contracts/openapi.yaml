@@ -880,7 +880,9 @@ components:
         unit: { type: string }
         since: { type: ['string', 'null'], format: date-time }
         summary: { type: string }
-        runbook: { type: ['string', 'null'], description: 'Wiki page slug.' }
+        runbook:
+          type: ['string', 'null']
+          description: 'Runbook ID (spec §15.5), for example RB-01. The UI links it to its wiki page once that page is written.'
         export_cloud_monitoring: { type: string, enum: ['yes', partial, 'no'] }
         fired_count_24h: { type: integer, minimum: 0 }
     AlertEvent:
