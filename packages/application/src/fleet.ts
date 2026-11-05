@@ -3,7 +3,7 @@
  *
  * @implements FR-FLEET-01, FR-FLEET-02, HM-028
  */
-import type { Fleet, FleetCard, FindingRef, Meta, SourceId } from '@dcam/contracts';
+import type { Bottlenecks, Fleet, FleetCard, FindingRef, Meta, SourceId } from '@dcam/contracts';
 import { healthScore, slotSeconds } from '@dcam/domain';
 import { getBottlenecks, type BottleneckDeps } from './bottlenecks';
 import { RANGE_MS } from './range';
@@ -15,6 +15,8 @@ export interface FleetQuery {
   readonly topFindings?: (envId: string) => Promise<FindingRef[]>;
   /** Alerts currently firing per environment (the alert evaluator supplies them). */
   readonly alertsFiring?: (envId: string) => Promise<number>;
+  /** 24 h bottleneck analysis per environment; lets the caller reuse a cached result. */
+  readonly bottlenecks?: (envId: string) => Promise<Bottlenecks>;
 }
 
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -34,7 +36,8 @@ export async function getFleet(deps: BottleneckDeps, q: FleetQuery): Promise<Fle
       ]);
       const latest = snapshots.at(-1);
       const bottlenecks = config
-        ? await getBottlenecks(deps, { envId: env.env_id, range: '24h', sources: q.sources })
+        ? await (q.bottlenecks?.(env.env_id) ??
+            getBottlenecks(deps, { envId: env.env_id, range: '24h', sources: q.sources }))
         : null;
       const score = healthScore(health);
       return {

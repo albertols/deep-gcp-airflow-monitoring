@@ -2,8 +2,10 @@
 import type { FastifyInstance } from 'fastify';
 import type { FindingRef } from '@dcam/contracts';
 import { getFleet } from '@dcam/application';
+import type { Memo } from '../cache';
 import type { Workspace } from '../demo';
 import { sourcesFor } from '../http';
+import { bottlenecksFor } from './bottlenecks';
 
 /** Cross-slice inputs for the fleet cards, wired by the composition root. */
 export interface FleetProviders {
@@ -11,12 +13,21 @@ export interface FleetProviders {
   readonly alertsFiring?: (envId: string) => Promise<number>;
 }
 
-export function registerFleetRoutes(app: FastifyInstance, ws: Workspace, providers: FleetProviders = {}) {
+export function registerFleetRoutes(
+  app: FastifyInstance,
+  ws: Workspace,
+  memo: Memo,
+  providers: FleetProviders = {},
+) {
+  const analyse = bottlenecksFor(ws, memo);
   app.get('/api/v1/fleet', async () =>
-    getFleet(ws, {
-      environments: ws.environments,
-      sources: sourcesFor(ws, ['SRC-AF-API', 'SRC-MON', 'SRC-COMPOSER']),
-      ...providers,
-    }),
+    memo('fleet', () =>
+      getFleet(ws, {
+        environments: ws.environments,
+        sources: sourcesFor(ws, ['SRC-AF-API', 'SRC-MON', 'SRC-COMPOSER']),
+        bottlenecks: (envId) => analyse(envId, '24h'),
+        ...providers,
+      }),
+    ),
   );
 }

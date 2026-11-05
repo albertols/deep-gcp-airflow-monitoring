@@ -9,6 +9,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import type { Meta } from '@dcam/contracts';
 import type { Workspace } from './demo';
+import { createMemo } from './cache';
 import { problem } from './http';
 import { registerAlertRoutes } from './routes/alerts';
 import { registerBottleneckRoutes } from './routes/bottlenecks';
@@ -68,12 +69,14 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     environments: options.environments,
   }));
 
-  registerOverviewRoutes(app, options);
+  // Aggregated views change once per collection cycle; 15 s matches the UI's stale time.
+  const memo = createMemo({ ttlMs: 15_000 });
+  registerOverviewRoutes(app, options, memo);
   registerDagRoutes(app, options);
-  registerBottleneckRoutes(app, options);
+  registerBottleneckRoutes(app, options, memo);
   registerFindingRoutes(app, options);
   registerAlertRoutes(app, options);
-  registerFleetRoutes(app, options);
+  registerFleetRoutes(app, options, memo);
 
   if (options.staticDir && existsSync(join(options.staticDir, 'index.html'))) {
     // Files are looked up per request, so a rebuilt UI is served without a restart.
