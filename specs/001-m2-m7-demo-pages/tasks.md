@@ -26,4 +26,4 @@ Test tasks come before the code they cover. `[P]` = can run in parallel.
 
 ## Done
 
-- [ ] T-090 Browser validation of every page (UV checklist), code review, `pnpm check`, CI green
+- [x] T-090 Browser validation of every page (UV checklist), code review, `pnpm check`, CI green
