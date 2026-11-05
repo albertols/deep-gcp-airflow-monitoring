@@ -31,6 +31,17 @@ export const ADVISOR_EXPLANATIONS = {
     summary: 'Findings ranked below the top 10.',
     sources: SOURCES,
   },
+  'adv-not-evaluated': {
+    id: 'adv-not-evaluated',
+    title: 'Rules not evaluated',
+    summary:
+      'Rules that could not run in this window because their data was incomplete, and what was missing.',
+    whyItMatters:
+      'A rule that did not run says nothing about its problem: the absence of its finding is not a clean bill of health.',
+    howToRead:
+      'A rule runs only when at least 80 % of the window has the data it reads and it has enough samples. Rules whose source this version does not collect stay here until that collector arrives.',
+    sources: SOURCES,
+  },
   'adv-priority': {
     id: 'adv-priority',
     title: 'Priority score',

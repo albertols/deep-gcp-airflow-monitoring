@@ -837,12 +837,26 @@ components:
     Findings:
       type: object
       additionalProperties: false
-      required: [env_id, data_as_of, sources, findings]
+      required: [env_id, data_as_of, sources, findings, not_evaluated]
       properties:
         env_id: { type: string }
-        data_as_of: { type: string, format: date-time }
+        data_as_of:
+          type: ['string', 'null']
+          format: date-time
+          description: Time of the newest live snapshot or worker sample used; null when none was collected.
         sources: { type: array, items: { $ref: '#/components/schemas/SourceId' } }
         findings: { type: array, items: { $ref: '#/components/schemas/Finding' } }
+        not_evaluated:
+          type: array
+          description: Rules that produced no finding because their data was incomplete (spec §13.2), with the reason.
+          items:
+            type: object
+            additionalProperties: false
+            required: [rule_id, title, reason]
+            properties:
+              rule_id: { type: string }
+              title: { type: string }
+              reason: { type: string }
     AlertState:
       type: string
       enum: [inactive, pending, firing, resolved, unknown]

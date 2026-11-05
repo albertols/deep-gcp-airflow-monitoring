@@ -6,7 +6,7 @@
  * @implements FR-ADV-01, FR-ADV-03, FR-ADV-04, FR-ADV-08, FR-DAGX-02
  */
 import type { Finding, Findings, SourceId } from '@dcam/contracts';
-import { environmentSignals, evaluateAdvisor, type AdvisorFinding } from '@dcam/domain';
+import { ADVISOR_RULES, environmentSignals, evaluateAdvisor, type AdvisorFinding } from '@dcam/domain';
 import type { Clock, EnvironmentModelSource, TaskInstanceStore } from '@dcam/ports';
 import { SNAPSHOT_INTERVAL_MS } from './bottlenecks';
 import { RANGE_MS } from './range';
@@ -61,7 +61,19 @@ export async function getFindings(deps: FindingsDeps, q: FindingsQuery): Promise
   const now = deps.clock.now();
   const from = now - FINDINGS_WINDOW_MS;
   const config = await deps.model.config(q.envId);
-  if (!config) throw new Error(`No configuration collected for environment "${q.envId}".`);
+  // Before the first configuration cycle no rule can run: say so rather than fail (spec §13.2).
+  if (!config)
+    return {
+      env_id: q.envId,
+      data_as_of: null,
+      sources: [...q.sources],
+      findings: [],
+      not_evaluated: ADVISOR_RULES.map((r) => ({
+        rule_id: r.id,
+        title: r.title,
+        reason: 'The environment configuration has not been collected yet.',
+      })),
+    };
   const [dags, snapshots, workerSamples, tries] = await Promise.all([
     deps.model.dags(q.envId),
     deps.model.snapshots(q.envId, from, now),
@@ -85,11 +97,18 @@ export async function getFindings(deps: FindingsDeps, q: FindingsQuery): Promise
   const result = evaluateAdvisor(signals);
   const latest = Math.max(snapshots.at(-1)?.at ?? -Infinity, workerSamples.at(-1)?.at ?? -Infinity);
   const demo = q.sources.includes('DEMO');
+  const titles = new Map(ADVISOR_RULES.map((r) => [r.id, r.title]));
   return {
     env_id: q.envId,
-    data_as_of: iso(Number.isFinite(latest) ? latest : now),
+    // Never "now" when nothing was collected: missing data must not look fresh (spec §8.1).
+    data_as_of: Number.isFinite(latest) ? iso(latest) : null,
     sources: [...q.sources],
     findings: result.findings.map((f) => toContract(f, demo)),
+    not_evaluated: result.insufficient.map((x) => ({
+      rule_id: x.ruleId,
+      title: titles.get(x.ruleId) ?? x.ruleId,
+      reason: x.reason,
+    })),
   };
 }
 

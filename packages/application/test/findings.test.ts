@@ -137,15 +137,38 @@ describe('getFindings use case (FR-ADV-01..04)', () => {
     expect(scores).toEqual([...scores].sort((a, b) => b - a));
   });
 
-  it('records no finding, not an error, when nothing was collected', async () => {
+  it('§13.2: when nothing was collected, says which rules were not evaluated and reports no data time', async () => {
     const empty = { ...deps, model: { ...model, snapshots: async () => [], workerSamples: async () => [] } };
     const f = await getFindings(empty, { envId: 'acme-prod', sources: ['DEMO'] });
     expect(f.findings.filter((x) => x.rule_id !== 'REC-DAG-05')).toEqual([]);
-    expect(f.data_as_of).toBe(new Date(NOW).toISOString());
+    expect(f.data_as_of).toBeNull();
+    expect(f.not_evaluated.find((x) => x.rule_id === 'REC-CAP-01')?.reason).toMatch(/worker samples/);
   });
 
-  it('rejects an environment without collected configuration', async () => {
-    await expect(getFindings(deps, { envId: 'acme-nope', sources: ['DEMO'] })).rejects.toThrow(/acme-nope/);
+  it('§13.2: a rule below the coverage gate is listed as not evaluated, with the coverage it saw', async () => {
+    const gappy = {
+      ...deps,
+      model: {
+        ...model,
+        workerSamples: async (_id: string, from: number, to: number) =>
+          samples.filter((s) => s.at >= from && s.at < to && s.at < NOW - 6 * 3_600_000),
+      },
+    };
+    const f = await getFindings(gappy, { envId: 'acme-prod', sources: ['DEMO'] });
+    const cap = f.not_evaluated.find((x) => x.rule_id === 'REC-CAP-01');
+    expect(cap).toMatchObject({
+      title: expect.any(String) as string,
+      reason: expect.stringMatching(/75%/) as string,
+    });
+  });
+
+  it('FR-ADV-01: an environment whose configuration is not collected yet has every rule not evaluated', async () => {
+    const f = await getFindings(deps, { envId: 'acme-nope', sources: ['DEMO'] });
+    expect(f.findings).toEqual([]);
+    expect(f.not_evaluated).toHaveLength(9);
+    expect(new Set(f.not_evaluated.map((x) => x.reason))).toEqual(
+      new Set(['The environment configuration has not been collected yet.']),
+    );
   });
 });
 

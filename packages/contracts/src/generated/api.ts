@@ -519,10 +519,19 @@ export interface components {
         };
         Findings: {
             env_id: string;
-            /** Format: date-time */
-            data_as_of: string;
+            /**
+             * Format: date-time
+             * @description Time of the newest live snapshot or worker sample used; null when none was collected.
+             */
+            data_as_of: string | null;
             sources: components["schemas"]["SourceId"][];
             findings: components["schemas"]["Finding"][];
+            /** @description Rules that produced no finding because their data was incomplete (spec §13.2), with the reason. */
+            not_evaluated: {
+                rule_id: string;
+                title: string;
+                reason: string;
+            }[];
         };
         /** @enum {string} */
         AlertState: "inactive" | "pending" | "firing" | "resolved" | "unknown";

@@ -79,32 +79,41 @@ const many: Finding[] = [
     }),
   ),
 ];
-const fixture = (findings: Finding[]): Findings => ({
+const NOT_EVALUATED: Findings['not_evaluated'] = [
+  {
+    rule_id: 'REC-CAP-08',
+    title: 'Workers under resource pressure',
+    reason: 'Worker CPU and memory sizes are not collected in this version.',
+  },
+];
+const fixture = (findings: Finding[], over: Partial<Findings> = {}): Findings => ({
   env_id: 'acme-prod',
   data_as_of: AT,
   sources: ['DEMO'],
   findings,
+  not_evaluated: NOT_EVALUATED,
+  ...over,
 });
 
 const reject = () => Promise.reject(new Error('not in this test'));
-const apiWith = (findings: Finding[]): DcamApi => ({
+const apiWith = (findings: Finding[], over: Partial<Findings> = {}): DcamApi => ({
   getMeta: reject,
   getOverview: reject,
   getDagLeague: reject,
   getDagDetail: reject,
   getBottlenecks: reject,
-  getFindings: async () => fixture(findings),
+  getFindings: async () => fixture(findings, over),
   getAlerts: reject,
   getFleet: reject,
 });
 
-function renderPage(findings: Finding[] = many) {
+function renderPage(findings: Finding[] = many, over: Partial<Findings> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ThemeProvider theme={createDcamTheme('dark')}>
       <QueryClientProvider client={client}>
         <AdvisorPage
-          api={apiWith(findings)}
+          api={apiWith(findings, over)}
           envId="acme-prod"
           route={{ page: 'advisor' }}
           linkTo={(r) => linkTo(r, 'acme-prod')}
@@ -223,9 +232,29 @@ describe('S-18 advisor page (FR-ADV-01..04, FR-ADV-08)', () => {
   });
 
   it('FR-UI-07: shows an empty state with the next step when there are no findings', async () => {
-    renderPage([]);
+    renderPage([], { not_evaluated: [] });
     expect(await screen.findByText(/No findings for acme-prod/)).toBeInTheDocument();
     expect(screen.queryByRole('list', { name: 'Top actions' })).toBeNull();
+  });
+
+  it('§13.2: lists the rules that could not be evaluated, with the reason', async () => {
+    renderPage();
+    const panel = await screen.findByRole('list', { name: 'Rules not evaluated' });
+    expect(panel).toHaveTextContent('REC-CAP-08');
+    expect(panel).toHaveTextContent('Worker CPU and memory sizes are not collected in this version.');
+  });
+
+  it('§13.2: with no findings, does not claim that nothing is wrong when some rules could not run', async () => {
+    renderPage([]);
+    const empty = await screen.findByText(/No findings for acme-prod/);
+    expect(empty).toHaveTextContent('1 rule could not be evaluated');
+    expect(empty).not.toHaveTextContent("no rule's condition held");
+  });
+
+  it('§8.1: says no data was collected instead of showing a data time', async () => {
+    renderPage([], { data_as_of: null });
+    const footer = await screen.findByText((_text, el) => el?.tagName === 'FOOTER');
+    expect(footer).toHaveTextContent('No data collected yet');
   });
 
   it('FR-UI-08: shows where the findings come from and how fresh they are', async () => {

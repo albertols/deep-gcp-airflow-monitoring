@@ -7,6 +7,7 @@
 import { useQuery } from '@tanstack/react-query';
 import Alert from '@mui/material/Alert';
 import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
 import type { Finding } from '@dcam/contracts';
 import { PageHeader } from '../../components/PageHeader';
 import { Panel, ProvenanceFooter, QueryState } from '../../components/Panel';
@@ -57,10 +58,20 @@ export function AdvisorPage({ api, envId, linkTo }: PageProps) {
       {data && (
         <>
           {data.findings.length === 0 ? (
-            <Alert severity="success">
-              No findings for {data.env_id} in the last 24 hours: no rule's condition held. Open Bottlenecks
-              to see where work waits, or check again after the next busy period.
-            </Alert>
+            data.not_evaluated.length === 0 ? (
+              <Alert severity="success">
+                No findings for {data.env_id} in the last 24 hours: no rule's condition held. Open Bottlenecks
+                to see where work waits, or check again after the next busy period.
+              </Alert>
+            ) : (
+              <Alert severity="info">
+                No findings for {data.env_id} in the last 24 hours from the rules DCAM could evaluate;{' '}
+                {data.not_evaluated.length === 1
+                  ? '1 rule could not be evaluated'
+                  : `${data.not_evaluated.length} rules could not be evaluated`}{' '}
+                (listed below). Open Bottlenecks to see where work waits.
+              </Alert>
+            )
           ) : (
             <Panel explanation={X['adv-top-actions']}>
               <FindingList label="Top actions" findings={top} offset={0} linkTo={linkTo} />
@@ -69,6 +80,17 @@ export function AdvisorPage({ api, envId, linkTo }: PageProps) {
           {rest.length > 0 && (
             <Panel explanation={X['adv-other']}>
               <FindingList label="Other findings" findings={rest} offset={TOP_ACTIONS} linkTo={linkTo} />
+            </Panel>
+          )}
+          {data.not_evaluated.length > 0 && (
+            <Panel explanation={X['adv-not-evaluated']}>
+              <Stack component="ul" aria-label="Rules not evaluated" spacing={1} sx={{ m: 0, pl: 2.5 }}>
+                {data.not_evaluated.map((r) => (
+                  <Typography key={r.rule_id} component="li" variant="body2">
+                    <strong>{r.rule_id}</strong> {r.title}: {r.reason}
+                  </Typography>
+                ))}
+              </Stack>
             </Panel>
           )}
           <ProvenanceFooter
