@@ -31,7 +31,9 @@ const tempDb = () => {
 };
 afterEach(() => dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })));
 
-describe('FR-STORE-01 embedded store with migrations', () => {
+// These tests do real DuckDB I/O, and in CI they share 4 vCPUs with every other package's tests (Turborepo
+// runs them in parallel), so Vitest's default 5 s timeout is too tight. Performance bounds are explicit.
+describe('FR-STORE-01 embedded store with migrations', { timeout: 60_000 }, () => {
   it('FR-STORE-01: applies migrations once and records them', async () => {
     const path = tempDb();
     const store = await openStore({ path });
@@ -68,7 +70,10 @@ describe('FR-STORE-01 embedded store with migrations', () => {
     );
     const started = performance.now();
     await store.upsertTaskTries(rows);
-    expect(performance.now() - started).toBeLessThan(5_000);
+    // Regression bound, not a benchmark: a batch far larger than any live snapshot must still fit in one
+    // af.live cycle of the default `standard` profile (30 s, spec §7.7). Measured: about 1 s on a laptop,
+    // 3-7 s on a loaded 4-vCPU Linux runner.
+    expect(performance.now() - started).toBeLessThan(30_000);
     expect(await store.countTaskTries('acme-prod')).toBe(100_000);
     store.close();
   });

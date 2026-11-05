@@ -14,14 +14,16 @@ describe('FR-EMU-01 demo fact synthesiser', () => {
   it('FR-EMU-01: produces tries inside the window, with running tries only up to "now"', () => {
     const tries = synthesizeTaskTries(base);
     expect(tries.length).toBeGreaterThan(1_000);
-    for (const t of tries) {
-      expect(t.envId).toBe('acme-prod');
-      expect(t.startAt).not.toBeNull();
-      expect(t.startAt as number).toBeGreaterThanOrEqual(NOW - 24 * 3_600_000);
-      expect(t.startAt as number).toBeLessThanOrEqual(NOW);
-      if (t.endAt === null) expect(t.state).toBe('running');
-      else expect(t.endAt).toBeLessThanOrEqual(NOW);
-    }
+    // One assertion over all tries: thousands of expect() calls in a loop exceed the timeout on loaded CI.
+    const outside = tries.filter(
+      (t) =>
+        t.envId !== 'acme-prod' ||
+        t.startAt === null ||
+        t.startAt < NOW - 24 * 3_600_000 ||
+        t.startAt > NOW ||
+        (t.endAt === null ? t.state !== 'running' : t.endAt > NOW),
+    );
+    expect({ count: outside.length, first: outside.slice(0, 3) }).toEqual({ count: 0, first: [] });
     expect(tries.some((t) => t.endAt === null)).toBe(true);
   });
 
