@@ -2,10 +2,10 @@
  * Demo scenarios for the fictitious "acme" organisation (spec §20.6). Each environment tells stories
  * DCAM should reveal:
  *
- * - acme-prod: workers reach `max_count` at round hours (REC-CAP-01) with low CPU per slot (REC-CAP-05),
- *   a 4-slot `external_api` pool starves (REC-CONC-02), a fan-out DAG is capped by `max_active_tasks`
- *   (REC-DAG-01), a poke-mode sensor holds slots (REC-DAG-05), schedules collide on minute 0 (REC-SCHED-01),
- *   and one DAG is flaky.
+ * - acme-prod: a nightly batch window at 01:30 UTC keeps workers at `max_count` with tasks queued for
+ *   about an hour (REC-CAP-01, AL-05), a 4-slot `external_api` pool starves (REC-CONC-02), a fan-out
+ *   DAG is capped by `max_active_tasks` (REC-DAG-01), a poke-mode sensor holds slots (REC-DAG-05),
+ *   schedules collide on minute 0 (REC-SCHED-01), and one DAG is flaky.
  * - acme-test: `parallelism` is below worker capacity and binds first (REC-CONC-01).
  * - acme-dev: quiet and healthy.
  *
@@ -156,6 +156,15 @@ function generated(
   return out.map((b) => ({ ...b, medianTaskMs: b.medianTaskMs * scale }));
 }
 
+/** Prod's nightly batch window (01:30 UTC): domain and owning team of each rebuild DAG. */
+const NIGHTLY_BATCH: ReadonlyArray<readonly [string, string]> = [
+  ['orders', 'finance-data'],
+  ['billing', 'finance-data'],
+  ['inventory', 'supply-chain'],
+  ['clickstream', 'customer'],
+  ['ml_features', 'ml-platform'],
+];
+
 const PROD: EnvironmentConfig = {
   envId: 'acme-prod',
   tier: 'prod',
@@ -234,6 +243,25 @@ export function acmeScenario(env: AcmeEnvironment): Scenario {
             ['default_pool', 'default_pool', 'default_pool', 'default_pool', 'etl'],
             0.12,
             780,
+          ),
+          // The nightly batch window: five wide rebuilds at 01:30 UTC ask for more task slots than six
+          // workers have, so workers sit at max_count with tasks queued for about an hour every night.
+          ...NIGHTLY_BATCH.map(([domain, team]) =>
+            blueprint(
+              {
+                dagId: `${domain}_nightly_rebuild`,
+                team,
+                domain,
+                hourly: false,
+                offsetMinutes: 90,
+                layers: [1, 16, 1],
+                medianTaskMs: 25 * MIN,
+                pool: 'default_pool',
+                operator: 'BigQueryInsertJobOperator',
+                cpu: 0.08,
+              },
+              PROD,
+            ),
           ),
           blueprint(
             {

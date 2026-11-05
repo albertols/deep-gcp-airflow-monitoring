@@ -21,8 +21,9 @@ simulation (5 s ticks, seeded, anchored to a fake "now") of one Airflow 2.11 env
 - Outputs: task tries (with `readyAt`, `queuedAt`, `startAt`, `endAt`, operator), a `LiveSnapshot` every 30 s (what
   M1's `af.live` collector will capture), a `WorkerSample` per minute, platform-health inputs, and **ground truth**: the
   binding reason for every waiting task instance at every snapshot (tests only).
-- Scenarios (§20.6): `acme-prod` (200 DAGs; workers at max at round hours, a 4-slot `external_api` pool that starves,
-  a fan-out DAG capped by `max_active_tasks`, a poke-mode sensor, low CPU per slot); `acme-test` (80 DAGs; parallelism
+- Scenarios (§20.6): `acme-prod` (202 DAGs; a nightly batch window at 01:30 UTC that keeps workers at max with tasks
+  queued for about an hour, a 4-slot `external_api` pool that starves, a fan-out DAG capped by `max_active_tasks`, a
+  poke-mode sensor); `acme-test` (80 DAGs; parallelism
   below worker capacity); `acme-dev` (40 DAGs; quiet).
 
 ## Data model (`packages/domain/src/model.ts`)

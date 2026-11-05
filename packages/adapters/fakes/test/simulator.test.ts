@@ -118,3 +118,36 @@ describe('FR-EMU-01 / FR-EMU-03 scheduler simulator', { timeout: 60_000 }, () =>
     expect(tries.filter((t) => !dagIds.has(t.dagId) || !pools.has(t.pool))).toEqual([]);
   });
 });
+
+/** Longest stretch of consecutive `true` values. */
+const longestStretch = (xs: readonly boolean[]) =>
+  xs.reduce((acc, x) => ({ run: x ? acc.run + 1 : 0, max: Math.max(acc.max, x ? acc.run + 1 : 0) }), {
+    run: 0,
+    max: 0,
+  }).max;
+
+describe('FR-EMU-03 acme-prod nightly batch window', { timeout: 120_000 }, () => {
+  // Prod's workers-at-maximum story (REC-CAP-01, AL-05) must show in every 24 h window, whatever the hour
+  // the demo starts: in the afternoon, and in the middle of the night's batch window.
+  it.each([
+    ['in the afternoon', NOW, 42],
+    ['during the batch window', Date.UTC(2026, 10, 5, 2, 0, 0), 42],
+    ['with another seed', NOW, 7],
+  ])('REC-CAP-01 / AL-05: workers stay at max_count with tasks queued, %s', (_label, now, seed) => {
+    const { workerSamples, config } = simulateEnvironment({
+      seed,
+      now,
+      hours: 24,
+      scenario: acmeScenario('acme-prod'),
+    });
+    const slots = config.maxWorkers * config.workerConcurrency;
+    // REC-CAP-01's bound minute: workers at max_count and ≥ max(10, 20 % of worker slots) queued.
+    const bound = workerSamples.map(
+      (w) => w.workers === config.maxWorkers && w.queued >= Math.max(10, 0.2 * slots),
+    );
+    // AL-05's condition: workers at max_count and ≥ 10 queued, for 15 min.
+    const al05 = workerSamples.map((w) => w.workers === config.maxWorkers && w.queued >= 10);
+    expect(bound.filter(Boolean).length).toBeGreaterThanOrEqual(30);
+    expect(longestStretch(al05)).toBeGreaterThanOrEqual(20);
+  });
+});

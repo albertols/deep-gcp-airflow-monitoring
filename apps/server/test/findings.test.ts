@@ -45,12 +45,11 @@ describe('GET /api/v1/environments/{env_id}/findings (FR-ADV-01..04)', { timeout
     },
   );
 
-  // The load-normalised demo keeps prod's workers below the REC-CAP-01 condition (≥ 15 queued while at
-  // max_count for 15 min); the rule itself is covered by the domain tests.
-  it('FR-ADV-01: acme-prod shows the starved pool, the capped fan-out DAG, schedule collisions and the poke sensor', async () => {
+  it('FR-ADV-01: acme-prod shows workers at maximum, the starved pool, the capped fan-out DAG, schedule collisions and the poke sensor', async () => {
     const f = await findings('acme-prod');
     expect(keys(f)).toEqual(
       expect.arrayContaining([
+        'REC-CAP-01 environment:acme-prod',
         'REC-SCHED-01 environment:acme-prod',
         'REC-CONC-02 pool:external_api',
         'REC-DAG-01 dag:customer_360_rebuild',

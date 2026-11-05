@@ -78,6 +78,16 @@ describe('GET /api/v1/alerts (FR-ALRT-01/02/06)', { timeout: 60_000 }, () => {
     expect(r.value).not.toBeNull();
   });
 
+  it('FR-ALRT-01: acme-prod: the nightly batch window fired AL-05 (tasks queued while workers are at maximum)', () => {
+    expect(rule('acme-prod', 'AL-05').fired_count_24h).toBeGreaterThanOrEqual(1);
+    const fired = all.events.filter(
+      (e) => e.env_id === 'acme-prod' && e.rule_id === 'AL-05' && e.kind === 'fired',
+    );
+    expect(fired.length).toBeGreaterThanOrEqual(1);
+    // The batch window starts at 01:30 UTC; workers reach max_count and the queue builds for 15 min first.
+    expect(fired.every((e) => [1, 2, 3].includes(new Date(e.at).getUTCHours()))).toBe(true);
+  });
+
   it('FR-ALRT-01: acme-test: two import errors fire AL-04 at the non-prod severity', () => {
     expect(rule('acme-test', 'AL-04')).toMatchObject({ state: 'firing', value: 2, severity: 'info' });
     expect(rule('acme-test', 'AL-02')).toMatchObject({ state: 'inactive', value: 93 });
