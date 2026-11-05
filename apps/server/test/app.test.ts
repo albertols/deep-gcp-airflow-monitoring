@@ -21,8 +21,10 @@ const conforms = (schema: string, body: unknown) => {
   return ok ? true : validate.errors;
 };
 
+/** Building a demo workspace simulates 48 h of three environments; other test files may do so in parallel. */
+const WORKSPACE_TIMEOUT_MS = 120_000;
+
 let app: FastifyInstance;
-// Building the demo workspace simulates 48 h for three environments; allow for loaded CI runners.
 beforeAll(async () => {
   const workspace = await createDemoWorkspace({ now: () => NOW });
   app = await buildApp({
@@ -30,7 +32,7 @@ beforeAll(async () => {
     version: '0.0.0-test',
     allowedHosts: ['127.0.0.1:8787', 'localhost:8787'],
   });
-}, 60_000);
+}, WORKSPACE_TIMEOUT_MS);
 afterAll(async () => {
   await app.close();
 });
@@ -88,7 +90,7 @@ describe('NFR-SEC-02 local web security', () => {
   });
 });
 
-describe('static UI hosting', () => {
+describe('static UI hosting', { timeout: WORKSPACE_TIMEOUT_MS }, () => {
   it('serves files added after start-up, falls back to index.html for routes, and 404s missing assets', async () => {
     const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');
