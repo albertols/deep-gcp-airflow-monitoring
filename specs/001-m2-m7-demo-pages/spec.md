@@ -154,3 +154,11 @@ related[], docs[], appliesTo`.
 - ⚠️ Preset filters: capacity hogs = top DAGs reaching 80 % of slot-seconds; flaky = flaky rate ≥ 5 % with ≥ 20
   TIs; late starters = p95 queue wait ≥ 5 min.
 - Spec inconsistency noted: HM-031 refers to "HM-006 reason 6"; it means reason 8 (scheduler throughput).
+- ⚠️ Alerts: `clearFor` is 10 min for every per-minute rule (the spec gives it only for AL-05). AL-09's
+  same-hour baseline is the median of the previous 7 days and needs 6 of them (§8.9), so it is `unknown` in
+  the demo. Health-reading rules (AL-01, -02, -04, -10, -18, -19) fire on the first breaching reading; AL-01
+  and AL-02 are checked on their 4 h ratio only. AL-15 tracks each pool and reports the longest current
+  starvation. ⚠️ VERIFY: AL-10 "over 12 h" is read as the highest value in 12 h.
+- Rules whose source is not collected in this version (AL-03, -08, -11 to -14, -16) are shown as `unknown`
+  with the reason, never guessed. Runbooks without a wiki page yet (all but RB-01 and RB-14) are named, not
+  linked.

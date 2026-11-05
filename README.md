@@ -14,10 +14,11 @@ DCAM answers the questions the default dashboards leave open, for environments w
 It runs on your laptop, reads only public Google Cloud and Airflow APIs with your own identity, never
 changes anything, and keeps all data on your machine.
 
-> **Status: milestone M0 (foundations).** Demo mode works today: the app shell, the capacity overview,
-> the read-only client, the analytics core and the development harness. Connecting to real environments
-> arrives in M1, the full DAG league table in M2 (first release) and bottleneck analysis in M3.
-> See the [roadmap](docs/spec/dcam-spec.md#222-milestone-overview).
+> **Status: M0 foundations done; every page works in demo mode.** `pnpm dcam --demo` shows the fleet,
+> capacity overview, DAG league table and DAG detail, bottlenecks, advisor, local alerts and the wiki over
+> a scheduler simulation of three fictitious environments (feature
+> [001](specs/001-m2-m7-demo-pages/spec.md)). Connecting to real environments, and so real data on these
+> pages, arrives in M1. See the [roadmap](docs/spec/dcam-spec.md#222-milestone-overview).
 
 ## Quickstart (demo mode)
 

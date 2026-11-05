@@ -21,7 +21,7 @@ Test tasks come before the code they cover. `[P]` = can run in parallel.
       (FR-BOTL-01); attribution series, top contributors, capacity (HM-011/012), sensors (HM-008); route; page
 - [x] T-030 [P] Code + content: wiki pages and runbook RB-01, (i) → wiki links (FR-WIKI-01/05/06/07)
 - [ ] T-040 [P] Test + code: advisor rules and priority score (FR-ADV-01/03/04/08); route; page
-- [ ] T-050 [P] Test + code: alert rules AL-xx evaluable in demo, state machine, history (FR-ALRT-01/02/06); route; page
+- [x] T-050 [P] Test + code: alert rules AL-xx evaluable in demo, state machine, history (FR-ALRT-01/02/06); route; page
 - [x] T-060 Test + code: fleet cards and HM-028 health score (FR-FLEET-01/02); route; page
 
 ## Done
