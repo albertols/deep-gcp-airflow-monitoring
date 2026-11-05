@@ -16,8 +16,11 @@ import { findWikiPage, type ComposerGeneration, type WikiPage } from './content'
 
 const VISUALLY_HIDDEN = {
   position: 'absolute',
-  width: 1,
-  height: 1,
+  width: '1px', // in MUI sx a bare 1 means 100 %
+  height: '1px',
+  margin: '-1px',
+  padding: 0,
+  border: 0,
   overflow: 'hidden',
   clip: 'rect(0 0 0 0)',
   whiteSpace: 'nowrap',
