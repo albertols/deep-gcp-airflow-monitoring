@@ -218,7 +218,7 @@ export const pools: WikiPage = {
     p(
       'If every pool is full, the Airflow 2.11 scheduler queues nothing in that loop. Otherwise it also caps the batch at the free pool slots.',
     ),
-    h2('Priority inside a pool'),
+    h2('Priority when slots are scarce'),
     p(
       'When slots are scarce, the scheduler considers scheduled task instances in order of ',
       code('priority_weight'),

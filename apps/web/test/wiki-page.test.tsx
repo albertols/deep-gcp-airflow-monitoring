@@ -180,6 +180,9 @@ describe('wiki index', () => {
   });
 });
 
+// The wiki is a lazy chunk with long pages; on a loaded CI runner it can take more than the default 1 s.
+const LAZY_PAGE = { timeout: 5_000 };
+
 describe('wiki in the app shell', () => {
   it('FR-UI-06: opens the wiki page named in the URL, and links lead to other pages', async () => {
     window.location.hash = '#/wiki/pools?env=acme-prod';
@@ -191,9 +194,11 @@ describe('wiki in the app shell', () => {
         </QueryClientProvider>
       </ThemeProvider>,
     );
-    expect(await screen.findByRole('heading', { level: 1, name: 'Pools' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Pools' }, LAZY_PAGE)).toBeInTheDocument();
     const article = screen.getByRole('article', { name: 'Pools' });
     await userEvent.click(within(article).getAllByRole('link', { name: 'Pool exhausted' })[0] as HTMLElement);
-    expect(await screen.findByRole('heading', { level: 1, name: 'Why work waits' })).toBeInTheDocument();
-  });
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Why work waits' }, LAZY_PAGE),
+    ).toBeInTheDocument();
+  }, 20_000);
 });

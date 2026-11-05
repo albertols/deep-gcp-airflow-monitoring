@@ -91,10 +91,10 @@ export const queueWait: WikiPage = {
     ),
     codeBlock('text', 'Queue wait (HM-001)', 'queue wait = start_date − queued_when'),
     p(
-      'The Airflow REST API calls the queued time ',
-      code('queued_when'),
-      '; in the metadata database it is ',
+      'Airflow records the queued time as ',
       code('queued_dttm'),
+      '; the REST API exposes it as ',
+      code('queued_when'),
       '.',
     ),
     h2('How DCAM computes it'),
