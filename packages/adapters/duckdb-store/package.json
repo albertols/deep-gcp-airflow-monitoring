@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "DuckDB analytical store: migrations, idempotent upserts, storage-version check. Spec §11.7, ADR-0005.",
+  "description": "DuckDB analytical store: migrations, idempotent upserts, storage-version check, the live CollectionStore, the data-directory file store with pre-migration backups. Spec §11.7, §17.5, ADR-0005.",
   "exports": {
     ".": "./src/index.ts"
   },

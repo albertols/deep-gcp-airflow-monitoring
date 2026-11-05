@@ -39,10 +39,20 @@ describe('FR-STORE-01 embedded store with migrations', { timeout: 60_000 }, () =
   it('FR-STORE-01: applies migrations once and records them', async () => {
     const path = tempDb();
     const store = await openStore({ path });
-    expect(await store.appliedMigrations()).toEqual(['0001_initial', '0002_staging', '0003_ready_operator']);
+    expect(await store.appliedMigrations()).toEqual([
+      '0001_initial',
+      '0002_staging',
+      '0003_ready_operator',
+      '0004_collection',
+    ]);
     store.close();
     const again = await openStore({ path });
-    expect(await again.appliedMigrations()).toEqual(['0001_initial', '0002_staging', '0003_ready_operator']);
+    expect(await again.appliedMigrations()).toEqual([
+      '0001_initial',
+      '0002_staging',
+      '0003_ready_operator',
+      '0004_collection',
+    ]);
     again.close();
   });
 
