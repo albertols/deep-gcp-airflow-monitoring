@@ -107,6 +107,17 @@ const UPDATE_NOTE = [
 /** Terraform resource label from an environment ID: `acme-prod` → `acme_prod`. */
 const label = (envId: string) => envId.replace(/[^A-Za-z0-9_]/g, '_');
 
+/**
+ * One shell word from a value read from the monitored system (a pool name): left as is when it is
+ * plainly safe, otherwise single-quoted with `'` written as `'\''`, so pasting the snippet runs
+ * nothing else (spec §13.5).
+ */
+export const shellWord = (value: string): string =>
+  /^[A-Za-z0-9_.:/=@+-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
+
+/** A `#` comment line whose text cannot end the comment: line breaks and control characters become spaces. */
+const commentLine = (text: string): string => `# ${text.replace(/\p{Cc}+/gu, ' ')}`;
+
 /** `gcloud composer environments update` with Airflow configuration overrides (merged with existing ones). */
 export function gcloudConfigOverride(
   config: EnvironmentConfig,
@@ -121,7 +132,7 @@ export function gcloudConfigOverride(
     title: 'gcloud',
     language: 'bash',
     code: [
-      `# ${comment}`,
+      commentLine(comment),
       ...UPDATE_NOTE,
       `gcloud composer environments update ${config.envId} \\`,
       '  --location LOCATION \\',
@@ -142,7 +153,7 @@ export function terraformConfigOverride(
     title: 'Terraform',
     language: 'hcl',
     code: [
-      `# ${comment}`,
+      commentLine(comment),
       '# airflow_config_overrides replaces the whole map: keep your existing overrides in it.',
       `resource "google_composer_environment" "${label(config.envId)}" {`,
       `  name   = "${config.envId}"`,
@@ -171,7 +182,7 @@ export function gcloudWorkers(
     title: 'gcloud',
     language: 'bash',
     code: [
-      `# ${comment}`,
+      commentLine(comment),
       ...UPDATE_NOTE,
       `gcloud composer environments update ${config.envId} \\`,
       '  --location LOCATION \\',
@@ -192,13 +203,13 @@ export function gcloudPoolSet(
     title: 'gcloud (Airflow CLI)',
     language: 'bash',
     code: [
-      `# ${comment}`,
+      commentLine(comment),
       '# Runs the Airflow CLI in the environment; the new slot count applies at once, without a restart.',
       "# Replace DESCRIPTION with the pool's current description, and add --include-deferred if the pool",
       '# counts deferred tasks. ⚠️ VERIFY that "pools set" is in the supported Airflow CLI commands of Composer 3.',
       `gcloud composer environments run ${config.envId} \\`,
       '  --location LOCATION \\',
-      `  pools set -- ${pool} ${slots} "DESCRIPTION"`,
+      `  pools set -- ${shellWord(pool)} ${slots} "DESCRIPTION"`,
     ].join('\n'),
   };
 }
@@ -215,7 +226,7 @@ export function terraformWorkers(
     title: 'Terraform',
     language: 'hcl',
     code: [
-      `# ${comment}`,
+      commentLine(comment),
       `resource "google_composer_environment" "${label(config.envId)}" {`,
       `  name   = "${config.envId}"`,
       '  region = "LOCATION"',
