@@ -27,8 +27,11 @@ export interface ReadOnlyHttp {
 export interface AccessTokenSource {
   /** A valid token, refreshed when it is about to expire. */
   accessToken(): Promise<string>;
-  /** Forget the cached token, for example after a 401. */
-  invalidate(): void;
+  /**
+   * Forget the cached token, for example after a 401. With `token`, only if that is still the cached
+   * one: a late 401 for an old token must not throw away a fresh one.
+   */
+  invalidate(token?: string): void;
 }
 
 /** Why a call to a monitored system failed, in terms collectors and the doctor act on. */

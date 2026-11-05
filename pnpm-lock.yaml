@@ -173,6 +173,15 @@ importers:
         specifier: workspace:*
         version: link:../../ports
 
+  packages/adapters/gcp:
+    dependencies:
+      '@dcam/ports':
+        specifier: workspace:*
+        version: link:../../ports
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
+
   packages/adapters/http-guard:
     dependencies:
       '@dcam/ports':

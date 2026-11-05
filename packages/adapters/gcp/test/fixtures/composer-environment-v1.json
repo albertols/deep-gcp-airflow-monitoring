@@ -1,0 +1,28 @@
+{
+  "name": "projects/acme-prod-123/locations/europe-west1/environments/acme-composer-prod",
+  "config": {
+    "dagGcsPrefix": "gs://europe-west1-acme-composer-prod-bucket/dags",
+    "softwareConfig": {
+      "imageVersion": "composer-3-airflow-2.11.1-build.22",
+      "airflowConfigOverrides": {
+        "core-parallelism": "120",
+        "celery-worker_concurrency": "12"
+      },
+      "pypiPackages": { "acme-utils": "==1.2.3" },
+      "envVariables": { "ACME_TIER": "prod" }
+    },
+    "workloadsConfig": {
+      "scheduler": { "cpu": 2, "memoryGb": 7.5, "storageGb": 5, "count": 2 },
+      "webServer": { "cpu": 1, "memoryGb": 2, "storageGb": 1 },
+      "worker": { "cpu": 2, "memoryGb": 7.5, "storageGb": 10, "minCount": 2, "maxCount": 10 },
+      "triggerer": { "count": 1, "cpu": 0.5, "memoryGb": 1 }
+    },
+    "environmentSize": "ENVIRONMENT_SIZE_MEDIUM",
+    "airflowUri": "https://abc123-dot-europe-west1.composer.googleusercontent.com"
+  },
+  "uuid": "00000000-0000-4000-8000-000000000001",
+  "state": "RUNNING",
+  "createTime": "2026-01-15T10:00:00Z",
+  "updateTime": "2026-10-30T08:00:00Z",
+  "labels": { "team": "acme-data" }
+}
