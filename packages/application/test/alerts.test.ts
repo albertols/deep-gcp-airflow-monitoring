@@ -207,21 +207,33 @@ describe('getAlerts use case (FR-ALRT-01/02/06)', () => {
     const a = await getAlerts(deps(), query);
     expect(rule(a.rules, 'AL-01')).toMatchObject({ state: 'firing', value: 85, threshold: 90, unit: '%' });
     expect(rule(a.rules, 'AL-02')).toMatchObject({ state: 'inactive', value: 95 });
-    expect(rule(a.rules, 'AL-04')).toMatchObject({
-      state: 'firing',
-      value: 2,
-      threshold: 0,
-      fired_count_24h: 1,
-    });
+    expect(rule(a.rules, 'AL-04')).toMatchObject({ state: 'firing', value: 2, threshold: 0 });
     expect(rule(a.rules, 'AL-10')).toMatchObject({ state: 'inactive', value: 50, threshold: 80 });
     expect(rule(a.rules, 'AL-18')).toMatchObject({ state: 'inactive', value: 99, threshold: 95 });
-    expect(rule(a.rules, 'AL-19')).toMatchObject({
-      state: 'firing',
-      value: 3,
-      threshold: 1,
-      since: iso(NOW),
+    expect(rule(a.rules, 'AL-19')).toMatchObject({ state: 'firing', value: 3, threshold: 1 });
+  });
+
+  it('§16.7: a health reading breaching now has no start time, so it is not stamped with the request time', async () => {
+    const a = await getAlerts(deps(), query);
+    const r = rule(a.rules, 'AL-19');
+    expect(r).toMatchObject({ state: 'firing', since: null, fired_count_24h: 0 });
+    expect(r.summary).toMatch(/latest health reading/);
+    expect(a.events.filter((e) => e.rule_id === 'AL-19')).toEqual([]);
+  });
+
+  it('FR-ALRT-01 AL-06 / HM-001: tasks still in the queue count with their wait so far (live: now − queued)', async () => {
+    const stuck = (i: number): SnapshotTaskInstance => ({
+      ...waiting('default_pool'),
+      taskId: `t${i}`,
+      since: NOW - 50 * MIN,
     });
-    expect(a.events.some((e) => e.rule_id === 'AL-19' && e.kind === 'fired' && e.at === iso(NOW))).toBe(true);
+    const queued = snapshots.map((x) =>
+      x.at >= NOW - 50 * MIN ? { ...x, queued: Array.from({ length: 30 }, (_, i) => stuck(i)) } : x,
+    );
+    const a = await getAlerts(deps({ store: storeOf([]), model: modelOf({ snapshots: queued }) }), query);
+    const r = rule(a.rules, 'AL-06');
+    expect(r).toMatchObject({ state: 'firing', value: 3_000 });
+    expect(r.summary).toMatch(/30 tasks still queued/);
   });
 
   it('§16.2: a health reading that is not collected leaves its rule unknown', async () => {

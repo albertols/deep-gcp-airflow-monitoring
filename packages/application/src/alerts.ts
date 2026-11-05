@@ -172,8 +172,33 @@ function starvation(snapshots: readonly LiveSnapshot[]) {
   });
 }
 
-/** Queue waits (HM-001: start − queued) of tries started in (t − window, t], per grid time. */
-function queueWaits(tries: readonly StoredTaskTry[], grid: readonly number[], windowMs: number) {
+/**
+ * Queue waits per grid time (HM-001): `start − queued` of tries started in (t − window, t], plus the
+ * wait so far (`t − queued`) of task instances still queued in the latest fresh snapshot. Without the
+ * second part a queue where nothing starts would never alert (HM-001 live: now − queued_when).
+ */
+function queueWaits(
+  tries: readonly StoredTaskTry[],
+  snapshots: readonly LiveSnapshot[],
+  grid: readonly number[],
+  windowMs: number,
+) {
+  const started = startedWaits(tries, grid, windowMs);
+  const latest = latestAt(snapshots, grid);
+  return grid.map((t, i) => {
+    const snap = isFresh(latest[i], t, SNAPSHOT_CADENCE_MS);
+    const stillQueued = (snap?.queued ?? []).map((ti) => Math.max(0, t - ti.since) / SECOND);
+    return {
+      wait: quantile([...(started[i] ?? []), ...stillQueued], 0.95),
+      starts: started[i]?.length ?? 0,
+      stillQueued: stillQueued.length,
+      longestQueuedS: stillQueued.length ? Math.max(...stillQueued) : null,
+    };
+  });
+}
+
+/** Queue waits in seconds of tries started in (t − window, t], per grid time. */
+function startedWaits(tries: readonly StoredTaskTry[], grid: readonly number[], windowMs: number) {
   const starts = tries
     .filter((t) => t.startAt !== null && t.queuedAt !== null && t.startAt >= t.queuedAt)
     .map((t) => ({
@@ -186,10 +211,7 @@ function queueWaits(tries: readonly StoredTaskTry[], grid: readonly number[], wi
   return grid.map((t) => {
     while (hi < starts.length && (starts[hi] as { at: number }).at <= t) hi++;
     while (lo < hi && (starts[lo] as { at: number }).at <= t - windowMs) lo++;
-    return quantile(
-      starts.slice(lo, hi).map((x) => x.wait),
-      0.95,
-    );
+    return starts.slice(lo, hi).map((x) => x.wait);
   });
 }
 
@@ -232,6 +254,9 @@ function durationText(ms: number): string {
   const rest = minutes % 60;
   return rest ? `${Math.floor(minutes / 60)} h ${rest} min` : `${minutes / 60} h`;
 }
+
+/** "1 task", "30 tasks". */
+const plural = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
 
 const DEFINITIONS: Readonly<Record<AlertRuleId, RuleDefinition>> = {
   'AL-01': {
@@ -299,15 +324,19 @@ const DEFINITIONS: Readonly<Record<AlertRuleId, RuleDefinition>> = {
     unit: 's',
     rule: { comparator: '>=', threshold: 600, forMs: 0, clearForMs: CLEAR_FOR_MS, noData: 'keep_state' },
     points: (s) =>
-      queueWaits(s.tries, s.grid, 15 * MIN).map((q, i) => ({
+      queueWaits(s.tries, s.snapshots, s.grid, 15 * MIN).map((q, i) => ({
         at: s.grid[i] as number,
-        value: q.value === null ? null : round(q.value),
+        value: q.wait.value === null ? null : round(q.wait.value),
       })),
     summary: (s) => {
-      const q = queueWaits(s.tries, [s.now], 15 * MIN)[0];
-      if (!q || q.value === null) return 'No task started in the last 15 min.';
-      const low = q.lowSample ? '; fewer than 20 starts, so this is the max' : '';
-      return `p95 queue wait ${durationText(q.value * SECOND)} from ${q.samples} task starts in the last 15 min${low}.`;
+      const q = queueWaits(s.tries, s.snapshots, [s.now], 15 * MIN)[0];
+      if (!q || q.wait.value === null) return 'No task started in the last 15 min, and none is queued.';
+      const low = q.wait.lowSample ? '; fewer than 20 waits, so this is the max' : '';
+      const queued =
+        q.stillQueued > 0 && q.longestQueuedS !== null
+          ? ` and ${plural(q.stillQueued, 'task')} still queued (longest ${durationText(q.longestQueuedS * SECOND)} so far)`
+          : '';
+      return `p95 queue wait ${durationText(q.wait.value * SECOND)} from ${plural(q.starts, 'task start')} in the last 15 min${queued}${low}.`;
     },
   },
   'AL-07': {
@@ -531,8 +560,14 @@ function evaluateRule(pack: PackRule, s: Signals, from: number): Evaluated {
       clearForMs: 0,
       noData: 'ok',
     };
-    evaluation = evaluateAlert(condition, [{ at: s.now, value }], { from });
-    summary = def.summary(value);
+    const reading = evaluateAlert(condition, [{ at: s.now, value }], { from });
+    // A reading aggregates its own window and carries no start time: report the state it shows, but
+    // never stamp "since" or a fired event with the request time (spec §16.7).
+    evaluation = { ...reading, since: null, events: [], firedCount: 0 };
+    summary =
+      reading.state === 'firing'
+        ? `${def.summary(value)} Breaching at the latest health reading; DCAM does not know since when.`
+        : def.summary(value);
   } else {
     condition = def.rule;
     evaluation = evaluateAlert(condition, def.points(s), { from });
