@@ -7,3 +7,4 @@ export * from './health';
 export * from './dag-runs';
 export * from './dag-league';
 export * from './dag-detail';
+export * from './alerts';
