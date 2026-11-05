@@ -159,6 +159,14 @@ related[], docs[], appliesTo`.
   the demo. Health-reading rules (AL-01, -02, -04, -10, -18, -19) fire on the first breaching reading; AL-01
   and AL-02 are checked on their 4 h ratio only. AL-15 tracks each pool and reports the longest current
   starvation. ⚠️ VERIFY: AL-10 "over 12 h" is read as the highest value in 12 h.
+- ⚠️ Advisor: REC-CAP-01's "≥ 15 min in 24 h" is read as a total (the §13.7 SQL counts only unbroken
+  stretches). Impact steps (decades of hours per day), the confidence sample factor (linear up to 30
+  observations), SCHED-01's "coinciding with queueing" (≥ half of the waiting in the 15 min after the busiest
+  minute), 15 min minimum durations for CAP-05/-08, 80 % "mostly occupied", 50 % headroom for DAG-01 and a
+  +50 % concurrency step are DCAM's calls. Not built: REC-CONC-04 (needs 28-day priority baselines), the
+  long-wait part of REC-DAG-05 (needs CPU per try), finding hysteresis, lifecycle and grouping. REC-CAP-08
+  records "insufficient data" until worker sizes are collected (M1). Snippets carry ⚠️ VERIFY where a
+  Composer 3 fact is unconfirmed.
 - Rules whose source is not collected in this version (AL-03, -08, -11 to -14, -16) are shown as `unknown`
   with the reason, never guessed. Runbooks without a wiki page yet (all but RB-01 and RB-14) are named, not
   linked.
