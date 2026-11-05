@@ -46,17 +46,17 @@ interface Column {
 }
 
 const COLUMNS: readonly Column[] = [
-  { key: 'dag_id', explanation: 'dagx-col-dag', numeric: false, width: '19%' },
-  { key: 'team', explanation: 'dagx-col-team', numeric: false, width: '11%' },
-  { key: 'runs', explanation: 'dagx-col-runs', numeric: true, width: '7%' },
-  { key: 'success_rate', explanation: 'dagx-col-success', numeric: true, width: '8%' },
+  { key: 'dag_id', explanation: 'dagx-col-dag', numeric: false, width: '18%' },
+  { key: 'team', explanation: 'dagx-col-team', numeric: false, width: '10%' },
+  { key: 'runs', explanation: 'dagx-col-runs', numeric: true, width: '6%' },
+  { key: 'success_rate', explanation: 'dagx-col-success', numeric: true, width: '7%' },
   { key: 'run_duration_p95', explanation: 'dagx-col-duration', numeric: true, width: '9%' },
   { key: 'executor_slot_seconds', explanation: 'dagx-col-slot-hours', numeric: true, width: '8%' },
   { key: 'share', explanation: 'dagx-col-share', numeric: true, width: '11%' },
   { key: 'queue_wait_p95', explanation: 'dagx-col-queue', numeric: true, width: '8%' },
-  { key: 'ready_wait_p95', explanation: 'dagx-col-ready', numeric: true, width: '8%' },
+  { key: 'ready_wait_p95', explanation: 'dagx-col-ready', numeric: true, width: '9%' },
   { key: 'peak_concurrency', explanation: 'dagx-col-peak', numeric: true, width: '7%' },
-  { key: 'open_findings', explanation: 'dagx-col-findings', numeric: true, width: '6%' },
+  { key: 'open_findings', explanation: 'dagx-col-findings', numeric: true, width: '7%' },
 ];
 
 /** Change of share in percentage points, with a text label so colour is never the only cue. */
@@ -188,7 +188,7 @@ export function LeagueTable({
         size="small"
         aria-label="DAG league table"
         aria-rowcount={rows.length + 1}
-        sx={{ tableLayout: 'fixed', minWidth: 1080 }}
+        sx={{ tableLayout: 'fixed', minWidth: 1240 }}
       >
         <TableHead>
           <TableRow aria-rowindex={1}>
@@ -200,7 +200,7 @@ export function LeagueTable({
                   key={c.key}
                   align={c.numeric ? 'right' : 'left'}
                   sortDirection={active ? sort.direction : false}
-                  sx={{ width: c.width, whiteSpace: 'nowrap' }}
+                  sx={{ width: c.width, verticalAlign: 'bottom' }}
                 >
                   <Stack
                     direction="row"

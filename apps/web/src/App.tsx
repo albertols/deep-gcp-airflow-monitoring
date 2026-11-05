@@ -19,6 +19,7 @@ import TextField from '@mui/material/TextField';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import type { DcamApi } from './api';
+import { PageErrorBoundary } from './components/PageErrorBoundary';
 import { OverviewPage } from './OverviewPage';
 import type { PageProps } from './pages/types';
 import { linkTo, useLocation, type Page, type Route } from './router';
@@ -148,12 +149,14 @@ export function App({ api }: { api: DcamApi }) {
               Couldn't reach the DCAM server. Check that it is still running, then reload the page.
             </Alert>
           )}
-          {envId && route.page === 'overview' && <OverviewPage api={api} envId={envId} />}
-          {envId && PageComponent && (
-            <Suspense fallback={<Skeleton variant="rounded" height={240} aria-label="Loading page" />}>
-              <PageComponent api={api} envId={envId} route={route} linkTo={link} navigate={navigate} />
-            </Suspense>
-          )}
+          <PageErrorBoundary resetKey={linkTo(route, envId)}>
+            {envId && route.page === 'overview' && <OverviewPage api={api} envId={envId} />}
+            {envId && PageComponent && (
+              <Suspense fallback={<Skeleton variant="rounded" height={240} aria-label="Loading page" />}>
+                <PageComponent api={api} envId={envId} route={route} linkTo={link} navigate={navigate} />
+              </Suspense>
+            )}
+          </PageErrorBoundary>
         </Box>
       </Box>
     </Box>
