@@ -11,3 +11,5 @@ export * from './alerts';
 export * from './schedule';
 export * from './advisor-model';
 export * from './advisor-signals';
+export * from './advisor-rule';
+export * from './advisor';

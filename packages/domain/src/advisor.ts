@@ -1,0 +1,89 @@
+/**
+ * The advisor rules engine (spec §13.2): evaluates every rule over one environment's signals, applies
+ * the data quality gates and inhibitions, and ranks the findings (§13.4). Evaluation is stateless: it
+ * produces exactly one finding per rule and scope for the window (FR-ADV-01); hysteresis and the
+ * finding lifecycle need stored evaluations and come with FR-ADV-05.
+ *
+ * Not evaluated yet: REC-CONC-04 (priority starvation) needs 28-day per-band baselines (HM-023), and the
+ * long-wait part of REC-DAG-05 needs per-try CPU (HM-004 Method A).
+ *
+ * @implements FR-ADV-01, FR-ADV-04, FR-ADV-08
+ */
+import {
+  applyInhibitions,
+  rankFindings,
+  type AdvisorFinding,
+  type Inhibition,
+  type RuleId,
+} from './advisor-model';
+import { MIN_COVERAGE, MIN_SAMPLES, toFinding, type RuleDefinition, type RuleInput } from './advisor-rule';
+import { REC_CAP_01, REC_CAP_05, REC_CAP_08 } from './advisor-rules-capacity';
+import { REC_CONC_01, REC_CONC_02, REC_CONC_03 } from './advisor-rules-concurrency';
+import { REC_DAG_01, REC_DAG_05, REC_SCHED_01 } from './advisor-rules-dag';
+import type { EnvironmentSignals } from './advisor-signals';
+
+/** The rules evaluated in this version, in catalog order. */
+export const ADVISOR_RULES: readonly RuleDefinition[] = [
+  REC_CAP_01,
+  REC_CAP_05,
+  REC_CAP_08,
+  REC_CONC_01,
+  REC_CONC_02,
+  REC_CONC_03,
+  REC_DAG_01,
+  REC_DAG_05,
+  REC_SCHED_01,
+];
+
+export interface InsufficientData {
+  readonly ruleId: RuleId;
+  readonly reason: string;
+}
+
+export interface AdvisorResult {
+  /** Ranked: critical first, then priority score, affected DAGs and recency. */
+  readonly findings: readonly AdvisorFinding[];
+  readonly inhibited: readonly Inhibition[];
+  /** Rules that produced no finding because their data was incomplete (spec §13.2). */
+  readonly insufficient: readonly InsufficientData[];
+}
+
+const INPUT_NAMES: Readonly<Record<RuleInput, string>> = {
+  snapshots: 'live snapshots',
+  samples: 'worker samples',
+  tries: 'task instance history',
+};
+
+/** §13.2 data quality gate: the reason a rule cannot be evaluated, or `null`. */
+function dataGap(s: EnvironmentSignals, inputs: readonly RuleInput[]): string | null {
+  for (const input of inputs) {
+    const coverage = s.coverage[input];
+    if (coverage < MIN_COVERAGE)
+      return `Only ${Math.round(coverage * 100)}% of the window has ${INPUT_NAMES[input]}; the rule needs ${MIN_COVERAGE * 100}%.`;
+    const count = input === 'snapshots' ? s.snapshotCount : input === 'samples' ? s.sampleCount : Infinity;
+    if (count < MIN_SAMPLES)
+      return `Only ${count} ${INPUT_NAMES[input]} in the window; the rule needs at least ${MIN_SAMPLES}.`;
+  }
+  return null;
+}
+
+export function evaluateAdvisor(
+  s: EnvironmentSignals,
+  rules: readonly RuleDefinition[] = ADVISOR_RULES,
+): AdvisorResult {
+  const insufficient: InsufficientData[] = [];
+  const findings: AdvisorFinding[] = [];
+  for (const rule of rules) {
+    const gap = dataGap(s, rule.inputs);
+    if (gap) {
+      insufficient.push({ ruleId: rule.id, reason: gap });
+      continue;
+    }
+    const outcome = rule.evaluate(s);
+    if (outcome.kind === 'insufficient') insufficient.push({ ruleId: rule.id, reason: outcome.reason });
+    else findings.push(...outcome.findings.map((m) => toFinding(s, rule, m)));
+  }
+  const inhibits = Object.fromEntries(rules.map((r) => [r.id, r.inhibits ?? []]));
+  const { kept, inhibited } = applyInhibitions(findings, inhibits);
+  return { findings: rankFindings(kept), inhibited, insufficient };
+}

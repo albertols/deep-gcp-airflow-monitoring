@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { collisionDensity, dailyStartsByMinute, type DagMeta } from '../src/index';
+import { collisionDensity, dailyStartsByMinute, withStartMinute, type DagMeta } from '../src/index';
 
 const sum = (xs: readonly number[]) => xs.reduce((s, x) => s + x, 0);
 
@@ -70,5 +70,19 @@ describe('HM-009 collision density', () => {
     const d = collisionDensity([dag('manual', 'None')]);
     expect(d.busiestMinute).toBeNull();
     expect(d.collisionIndex).toBe(0);
+  });
+});
+
+describe('HM-009 stagger helper (FR-BOTL-04)', () => {
+  it('REC-SCHED-01: moves a single fixed start minute and keeps the other fields', () => {
+    expect(withStartMinute('0 * * * *', 7)).toBe('7 * * * *');
+    expect(withStartMinute('0 3 * * 1-5', 12)).toBe('12 3 * * 1-5');
+    expect(withStartMinute('@hourly', 7)).toBe('7 * * * *');
+    expect(withStartMinute('@daily', 5)).toBe('5 0 * * *');
+  });
+
+  it('REC-SCHED-01: leaves schedules with several or no fixed minutes alone', () => {
+    for (const s of ['*/15 * * * *', '0,30 * * * *', '0-5 * * * *', '@once', 'None'])
+      expect(withStartMinute(s, 7)).toBeNull();
   });
 });

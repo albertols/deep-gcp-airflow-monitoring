@@ -125,6 +125,8 @@ export interface EnvironmentSignals {
   readonly to: number;
   readonly coverage: { readonly snapshots: number; readonly samples: number; readonly tries: number };
   readonly snapshotCount: number;
+  /** Time each snapshot stands for. */
+  readonly snapshotIntervalMs: number;
   readonly sampleCount: number;
   readonly waiting: {
     readonly totalsMs: ReadonlyMap<WaitReasonId, number>;
@@ -423,6 +425,7 @@ export function environmentSignals(input: AdvisorInput): EnvironmentSignals {
       tries: Math.min(1, Math.max(0, input.triesCoverage)),
     },
     snapshotCount: snapshots.length,
+    snapshotIntervalMs: input.snapshotIntervalMs,
     sampleCount: samples.length,
     waiting: {
       totalsMs: a.totals,

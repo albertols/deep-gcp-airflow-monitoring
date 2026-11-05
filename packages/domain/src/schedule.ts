@@ -93,6 +93,19 @@ export function dailyStartsByMinute(schedule: string): number[] | null {
   return out;
 }
 
+/**
+ * The schedule with its start minute moved to `minute` (stagger offsets, FR-BOTL-04), or `null` when
+ * its minute field is not one fixed minute.
+ */
+export function withStartMinute(schedule: string, minute: number): string | null {
+  const cron = PRESETS[schedule.trim()] ?? schedule.trim();
+  const fields = cron.split(/\s+/);
+  if (fields.length !== 5 || !/^\d+$/.test(fields[0] ?? '') || dailyStartsByMinute(cron) === null)
+    return null;
+  if (!Number.isInteger(minute) || minute < 0 || minute > 59) return null;
+  return [String(minute), ...fields.slice(1)].join(' ');
+}
+
 export interface CollisionDensity {
   /** Planned starts per day of every unpaused DAG with a cron schedule. */
   readonly totalDailyStarts: number;
