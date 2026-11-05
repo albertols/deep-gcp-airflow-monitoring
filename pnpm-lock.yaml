@@ -193,6 +193,12 @@ importers:
 
   packages/cli:
     dependencies:
+      '@dcam/application':
+        specifier: workspace:*
+        version: link:../application
+      '@dcam/ports':
+        specifier: workspace:*
+        version: link:../ports
       '@dcam/server':
         specifier: workspace:*
         version: link:../../apps/server

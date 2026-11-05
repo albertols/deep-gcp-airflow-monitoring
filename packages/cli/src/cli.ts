@@ -8,21 +8,23 @@ import { createServer } from 'node:net';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildApp, createDemoWorkspace } from '@dcam/server';
+import { DOCTOR_USAGE, parseDoctorArgs, type DoctorCliOptions } from './doctor/command';
 
 export type CliOptions =
-  | { command: 'start'; demo: boolean; port: number; open: boolean }
-  | { command: 'doctor' }
-  | { command: 'help' };
+  { command: 'start'; demo: boolean; port: number; open: boolean } | DoctorCliOptions | { command: 'help' };
 
 export const VERSION = '0.0.0';
 const HOST = '127.0.0.1';
 
 export const USAGE = `Usage: dcam [start] [--demo] [--port <n>] [--no-open]
-       dcam doctor
+       ${DOCTOR_USAGE}
 
   start      Start DCAM on http://127.0.0.1:<port> (default 8787)
   --demo     Use the synthetic demo workspace (no Google Cloud access)
-  doctor     Check prerequisites (Google Cloud checks arrive in M1)`;
+  doctor     Check credentials, quota project, proxy, Composer and Airflow access
+  --config   Configuration file (default: DCAM_CONFIG, else dcam.config.yaml)
+  --env      Check only this environment id (repeatable)
+  --json     Print the results as JSON (schemaVersion 1); exit code 1 when a check fails`;
 
 export function parseCli(argv: readonly string[]): CliOptions {
   const args = [...argv];
@@ -30,7 +32,7 @@ export function parseCli(argv: readonly string[]): CliOptions {
   let command = 'start';
   if (first && !first.startsWith('-')) command = args.shift() as string;
   if (command === 'help' || args.includes('--help') || args.includes('-h')) return { command: 'help' };
-  if (command === 'doctor') return { command: 'doctor' };
+  if (command === 'doctor') return parseDoctorArgs(args, USAGE);
   if (command !== 'start') throw new Error(`Unknown command "${command}".\n\n${USAGE}`);
   let demo = false;
   let open = true;
@@ -102,30 +104,4 @@ export async function start(options: Extract<CliOptions, { command: 'start' }>):
   ).catch(() => undefined);
   console.log(`DCAM ${VERSION} (demo data) is running at ${url}\nPress Ctrl+C to stop.`);
   if (options.open) openBrowser(url);
-}
-
-export async function doctor(): Promise<boolean> {
-  const checks: Array<[string, boolean, string]> = [];
-  const [major = 0, minor = 0] = process.versions.node.split('.').map(Number);
-  checks.push([
-    'Node.js 22.12 or later',
-    major > 22 || (major === 22 && minor >= 12),
-    `found ${process.versions.node}; install Node.js 22.12 or later`,
-  ]);
-  try {
-    const { DuckDBInstance } = await import('@duckdb/node-api');
-    const instance = await DuckDBInstance.create(':memory:');
-    instance.closeSync();
-    checks.push(['DuckDB native binary loads', true, '']);
-  } catch (error) {
-    checks.push([
-      'DuckDB native binary loads',
-      false,
-      `${(error as Error).message}; see ADR-0005 for supported platforms`,
-    ]);
-  }
-  for (const [name, ok, fix] of checks)
-    console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : ` (${fix})`}`);
-  console.log('INFO  Google Cloud checks (credentials, IAM, Airflow access, proxy) arrive in milestone M1.');
-  return checks.every(([, ok]) => ok);
 }
