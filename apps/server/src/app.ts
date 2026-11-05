@@ -14,7 +14,7 @@ import { problem } from './http';
 import { alertsFiringFor, registerAlertRoutes } from './routes/alerts';
 import { registerBottleneckRoutes } from './routes/bottlenecks';
 import { registerDagRoutes } from './routes/dags';
-import { registerFindingRoutes } from './routes/findings';
+import { findingCountsFor, registerFindingRoutes, topFindingsFor } from './routes/findings';
 import { registerFleetRoutes } from './routes/fleet';
 import { registerOverviewRoutes } from './routes/overview';
 
@@ -73,11 +73,14 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   // never changes (its clock is frozen), so results stay cached longer.
   const memo = createMemo({ ttlMs: options.mode === 'demo' ? 10 * 60_000 : 15_000 });
   registerOverviewRoutes(app, options, memo);
-  registerDagRoutes(app, options, memo);
+  registerDagRoutes(app, options, memo, { findingCounts: findingCountsFor(options, memo) });
   registerBottleneckRoutes(app, options, memo);
-  registerFindingRoutes(app, options);
+  registerFindingRoutes(app, options, memo);
   registerAlertRoutes(app, options, memo);
-  registerFleetRoutes(app, options, memo, { alertsFiring: alertsFiringFor(options, memo) });
+  registerFleetRoutes(app, options, memo, {
+    topFindings: topFindingsFor(options, memo),
+    alertsFiring: alertsFiringFor(options, memo),
+  });
 
   if (options.staticDir && existsSync(join(options.staticDir, 'index.html'))) {
     // Files are looked up per request, so a rebuilt UI is served without a restart.

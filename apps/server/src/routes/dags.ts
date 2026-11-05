@@ -11,7 +11,18 @@ import { findEnvironment, notFound, parseRange, problem, sourcesFor } from '../h
 
 const MAX_ID_LENGTH = 250;
 
-export function registerDagRoutes(app: FastifyInstance, ws: Workspace, memo: Memo) {
+/** Cross-slice inputs for the league table, wired by the composition root. */
+export interface DagProviders {
+  /** Open advisor findings per DAG in one environment (FR-DAGX-02). */
+  readonly findingCounts?: (envId: string) => Promise<ReadonlyMap<string, number>>;
+}
+
+export function registerDagRoutes(
+  app: FastifyInstance,
+  ws: Workspace,
+  memo: Memo,
+  providers: DagProviders = {},
+) {
   app.get<{ Params: { env_id: string }; Querystring: { range?: string } }>(
     '/api/v1/environments/:env_id/dags',
     async (req, reply) => {
@@ -19,8 +30,13 @@ export function registerDagRoutes(app: FastifyInstance, ws: Workspace, memo: Mem
       if (!env) return reply;
       const range = parseRange(reply, req.query.range);
       if (!range) return reply;
-      return memo(`dags:${env.env_id}:${range}`, () =>
-        getDagLeague(ws, { envId: env.env_id, range, sources: sourcesFor(ws, ['SRC-AF-API']) }),
+      return memo(`dags:${env.env_id}:${range}`, async () =>
+        getDagLeague(ws, {
+          envId: env.env_id,
+          range,
+          sources: sourcesFor(ws, ['SRC-AF-API']),
+          ...(providers.findingCounts ? { openFindings: await providers.findingCounts(env.env_id) } : {}),
+        }),
       );
     },
   );

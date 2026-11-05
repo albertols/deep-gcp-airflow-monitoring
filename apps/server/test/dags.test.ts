@@ -5,7 +5,7 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { parse } from 'yaml';
 import type { FastifyInstance } from 'fastify';
-import type { DagDetail, DagLeague } from '@dcam/contracts';
+import type { DagDetail, DagLeague, Findings } from '@dcam/contracts';
 import { buildApp, createDemoWorkspace } from '../src/index';
 
 const NOW = Date.UTC(2026, 10, 5, 12, 0, 0);
@@ -60,6 +60,14 @@ describe('FR-DAGX-01..03 GET /api/v1/environments/{env_id}/dags', () => {
     const flaky = league.rows.find((r) => r.dag_id === 'fraud_scoring_hourly');
     expect(flaky?.flaky_rate).toBeGreaterThan(0.05);
     expect(flaky?.retries).toBeGreaterThan(0);
+  });
+
+  it('FR-DAGX-02: open findings per DAG count the advisor findings that name the DAG', async () => {
+    const league = (await get(`${ENV}/acme-prod/dags`)).json<DagLeague>();
+    const { findings } = (await get(`${ENV}/acme-prod/findings`)).json<Findings>();
+    const named = (dagId: string) => findings.filter((f) => f.affected_dags.includes(dagId)).length;
+    for (const row of league.rows) expect(row.open_findings, row.dag_id).toBe(named(row.dag_id));
+    expect(league.rows.find((r) => r.dag_id === 'customer_360_rebuild')?.open_findings).toBeGreaterThan(0);
   });
 
   it('returns RFC 9457 problems for an unknown environment and a bad range', async () => {

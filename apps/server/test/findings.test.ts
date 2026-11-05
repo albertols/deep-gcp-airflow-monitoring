@@ -45,11 +45,13 @@ describe('GET /api/v1/environments/{env_id}/findings (FR-ADV-01..04)', { timeout
     },
   );
 
-  it('FR-ADV-01: acme-prod shows workers at max, the starved pool, the capped fan-out DAG and the poke sensor', async () => {
+  // The load-normalised demo keeps prod's workers below the REC-CAP-01 condition (≥ 15 queued while at
+  // max_count for 15 min); the rule itself is covered by the domain tests.
+  it('FR-ADV-01: acme-prod shows the starved pool, the capped fan-out DAG, schedule collisions and the poke sensor', async () => {
     const f = await findings('acme-prod');
     expect(keys(f)).toEqual(
       expect.arrayContaining([
-        'REC-CAP-01 environment:acme-prod',
+        'REC-SCHED-01 environment:acme-prod',
         'REC-CONC-02 pool:external_api',
         'REC-DAG-01 dag:customer_360_rebuild',
         'REC-DAG-05 task:partner_feed_wait/wait_for_1_1',
@@ -82,10 +84,10 @@ describe('GET /api/v1/environments/{env_id}/findings (FR-ADV-01..04)', { timeout
   });
 
   it('FR-ADV-03: snippets are copy-only text with placeholders, and the endpoint only reads', async () => {
-    const f = await findings('acme-prod');
-    const cap = f.findings.find((x) => x.rule_id === 'REC-CAP-01');
-    expect(cap?.remediation.map((r) => r.kind)).toEqual(['gcloud', 'terraform']);
-    expect(cap?.remediation[0]?.code).toContain('--location LOCATION');
+    const f = await findings('acme-test');
+    const conc = f.findings.find((x) => x.rule_id === 'REC-CONC-01');
+    expect(conc?.remediation.map((r) => r.kind)).toEqual(['gcloud', 'terraform']);
+    expect(conc?.remediation[0]?.code).toContain('--location LOCATION');
     const post = await app.inject({
       method: 'POST',
       url: '/api/v1/environments/acme-prod/findings',

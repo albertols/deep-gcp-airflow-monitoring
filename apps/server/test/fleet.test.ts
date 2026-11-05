@@ -5,7 +5,7 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 import { parse } from 'yaml';
 import type { FastifyInstance } from 'fastify';
-import type { Alerts, Fleet } from '@dcam/contracts';
+import type { Alerts, Findings, Fleet } from '@dcam/contracts';
 import { buildApp, createDemoWorkspace } from '../src/index';
 
 const NOW = Date.UTC(2026, 10, 5, 12, 0, 0);
@@ -67,5 +67,18 @@ describe('GET /api/v1/fleet (FR-FLEET-01/02, HM-028)', { timeout: 60_000 }, () =
       expect(card.alerts_firing, card.env_id).toBe(firing);
     }
     expect(fleet.environments.some((e) => e.alerts_firing > 0)).toBe(true);
+  });
+
+  it('FR-FLEET-01: each card shows the top three advisor findings of its environment', async () => {
+    const get = (url: string) => app.inject({ method: 'GET', url, headers: { host: '127.0.0.1:8787' } });
+    const fleet = (await get('/api/v1/fleet')).json<Fleet>();
+    for (const card of fleet.environments) {
+      const { findings } = (await get(`/api/v1/environments/${card.env_id}/findings`)).json<Findings>();
+      expect(
+        card.top_findings.map((f) => f.id),
+        card.env_id,
+      ).toEqual(findings.slice(0, 3).map((f) => f.id));
+    }
+    expect(fleet.environments.find((e) => e.env_id === 'acme-prod')?.top_findings).toHaveLength(3);
   });
 });
