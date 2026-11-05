@@ -3,8 +3,9 @@
   "tasks": {
     "build": { "dependsOn": ["^build"], "outputs": ["dist/**"] },
     "gen": { "outputs": ["src/generated/**"] },
-    "typecheck": {},
-    "test": { "outputs": [] },
+    "transit": { "dependsOn": ["^transit"] },
+    "typecheck": { "dependsOn": ["transit"] },
+    "test": { "dependsOn": ["transit"], "outputs": [] },
     "dev": { "cache": false, "persistent": true }
   }
 }
