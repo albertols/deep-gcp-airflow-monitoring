@@ -302,10 +302,10 @@ describe('DCAM health page (FR-SELF-01, FR-COLL-11, HM-030)', () => {
     expect(await screen.findByText(/No environments are configured/)).toBeInTheDocument();
   });
 
-  it('FR-SELF-01: polls every 15 s in live mode', async () => {
+  it('FR-SELF-01: polls every 10 s while visible in live mode', async () => {
     const client = renderPage(fakeApi(async () => LIVE));
     await screen.findByRole('region', { name: 'acme-prod' });
-    expect(POLL_MS).toBe(15_000);
+    expect(POLL_MS).toBe(10_000);
     expect(refetchInterval(client)).toBe(POLL_MS);
   });
 

@@ -15,9 +15,9 @@ import type { DcamApi } from '../api';
 
 /**
  * How often the collection status refreshes in live mode. TanStack Query pauses the interval while
- * the browser tab is hidden. (FR-SELF-01 asks for 10 s; 15 s keeps the local polling light.)
+ * the browser tab is hidden, so the page updates every 10 s while visible (FR-SELF-01).
  */
-export const COLLECTION_POLL_MS = 15_000;
+export const COLLECTION_POLL_MS = 10_000;
 
 export function useCollection(api: DcamApi, { enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({

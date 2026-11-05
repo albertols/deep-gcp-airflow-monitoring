@@ -143,13 +143,13 @@ describe('live mode in the shell (FR-COLL-11, FR-SELF-01)', () => {
     expect(screen.queryByRole('link', { name: 'Reduced fidelity' })).toBeNull();
   });
 
-  it('FR-SELF-01: live mode refreshes the collection status every 15 s on every page', async () => {
+  it('FR-SELF-01: live mode refreshes the collection status every 10 s on every page', async () => {
     const { api, getCollection } = fakeApi(LIVE_META);
     const client = renderApp(api);
     await screen.findByRole('link', { name: 'Collection failing' });
     expect(getCollection).toHaveBeenCalledTimes(1);
     expect(refetchInterval(client)).toBe(COLLECTION_POLL_MS);
-    expect(COLLECTION_POLL_MS).toBe(15_000);
+    expect(COLLECTION_POLL_MS).toBe(10_000);
   });
 
   it('FR-SELF-01: the navigation links to DCAM health, which opens the page', async () => {
