@@ -80,3 +80,30 @@ describe('NFR-SEC-02 local web security', () => {
     expect(res.headers['x-content-type-options']).toBe('nosniff');
   });
 });
+
+describe('static UI hosting', () => {
+  it('serves files added after start-up, falls back to index.html for routes, and 404s missing assets', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const dir = mkdtempSync(join(tmpdir(), 'dcam-web-'));
+    writeFileSync(join(dir, 'index.html'), '<!doctype html><title>DCAM</title>');
+    const workspace = await createDemoWorkspace({ now: () => NOW });
+    const web = await buildApp({ ...workspace, version: 't', allowedHosts: ['127.0.0.1:8787'], staticDir: dir });
+    try {
+      mkdirSync(join(dir, 'assets'));
+      writeFileSync(join(dir, 'assets', 'index-new.js'), 'console.log(1)');
+      const asset = await web.inject({ method: 'GET', url: '/assets/index-new.js', headers: { host: '127.0.0.1:8787' } });
+      expect(asset.statusCode).toBe(200);
+      expect(asset.headers['content-type']).toContain('javascript');
+      const route = await web.inject({ method: 'GET', url: '/league-table', headers: { host: '127.0.0.1:8787' } });
+      expect(route.statusCode).toBe(200);
+      expect(route.headers['content-type']).toContain('text/html');
+      const missing = await web.inject({ method: 'GET', url: '/assets/gone.js', headers: { host: '127.0.0.1:8787' } });
+      expect(missing.statusCode).toBe(404);
+    } finally {
+      await web.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

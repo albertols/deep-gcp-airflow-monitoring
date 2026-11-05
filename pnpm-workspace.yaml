@@ -9,6 +9,8 @@ allowBuilds:
 
 minimumReleaseAgeExclude:
   - '@fastify/static@10.1.10'
+  - '@tanstack/query-core@5.106.0'
+  - '@tanstack/react-query@5.106.0'
 
 # openapi-typescript declares a TypeScript ^5 peer range; TypeScript 6 works (ADR-0002).
 peerDependencyRules:
