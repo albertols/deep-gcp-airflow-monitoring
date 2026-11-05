@@ -40,4 +40,14 @@ export const MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    // When a try became ready (from live snapshots, HM-006) and its operator (sensor detection, HM-008).
+    id: '0003_ready_operator',
+    sql: `
+      ALTER TABLE fact.task_instance ADD COLUMN ready_at TIMESTAMPTZ;
+      ALTER TABLE fact.task_instance ADD COLUMN operator VARCHAR;
+      ALTER TABLE meta.staging_task_instance ADD COLUMN ready_s DOUBLE;
+      ALTER TABLE meta.staging_task_instance ADD COLUMN operator VARCHAR;
+    `,
+  },
 ];

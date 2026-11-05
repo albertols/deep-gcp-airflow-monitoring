@@ -90,6 +90,9 @@ export async function openStore(options: OpenStoreOptions): Promise<Store> {
           dbl(r.startAt);
           dbl(r.endAt);
           dbl(r.sourceUpdatedAt);
+          dbl(r.readyAt);
+          if (r.operator === null) appender.appendNull();
+          else appender.appendVarchar(r.operator);
           appender.endRow();
         }
         appender.flushSync();
@@ -97,9 +100,11 @@ export async function openStore(options: OpenStoreOptions): Promise<Store> {
         // The last row wins when a batch repeats a natural key.
         await con.run(
           `INSERT OR REPLACE INTO fact.task_instance
+             (env_id, dag_id, run_id, task_id, map_index, try_number, state, pool, pool_slots,
+              queued_at, start_at, end_at, source_updated_at, ingested_at, ready_at, operator)
            SELECT env_id, dag_id, run_id, task_id, map_index, try_number, state, pool, pool_slots,
                   to_timestamp(queued_s), to_timestamp(start_s), to_timestamp(end_s), to_timestamp(updated_s),
-                  to_timestamp($1)
+                  to_timestamp($1), to_timestamp(ready_s), operator
            FROM meta.staging_task_instance
            QUALIFY row_number() OVER (
              PARTITION BY env_id, dag_id, run_id, task_id, map_index, try_number ORDER BY rowid DESC) = 1`,
@@ -116,7 +121,8 @@ export async function openStore(options: OpenStoreOptions): Promise<Store> {
       const rows = await all(
         `SELECT env_id, dag_id, run_id, task_id, map_index, try_number, state, pool, pool_slots,
                 epoch_ms(queued_at)::DOUBLE AS queued_at, epoch_ms(start_at)::DOUBLE AS start_at,
-                epoch_ms(end_at)::DOUBLE AS end_at, epoch_ms(source_updated_at)::DOUBLE AS source_updated_at
+                epoch_ms(end_at)::DOUBLE AS end_at, epoch_ms(source_updated_at)::DOUBLE AS source_updated_at,
+                epoch_ms(ready_at)::DOUBLE AS ready_at, operator
          FROM fact.task_instance
          WHERE env_id = $1 AND start_at IS NOT NULL AND start_at < to_timestamp($3)
            AND (end_at IS NULL OR end_at > to_timestamp($2))`,
@@ -189,5 +195,7 @@ function toTry(r: Record<string, unknown>): StoredTaskTry {
     startAt: num(r['start_at']),
     endAt: num(r['end_at']),
     sourceUpdatedAt: num(r['source_updated_at']),
+    readyAt: num(r['ready_at']),
+    operator: r['operator'] === null ? null : str(r['operator']),
   };
 }

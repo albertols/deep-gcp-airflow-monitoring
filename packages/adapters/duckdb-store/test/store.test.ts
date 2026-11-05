@@ -20,6 +20,8 @@ const row = (over: Partial<StoredTaskTry> = {}): StoredTaskTry => ({
   startAt: T0,
   endAt: T0 + 60_000,
   sourceUpdatedAt: T0 + 60_000,
+  readyAt: T0 - 20_000,
+  operator: 'PythonOperator',
   ...over,
 });
 
@@ -37,10 +39,10 @@ describe('FR-STORE-01 embedded store with migrations', { timeout: 60_000 }, () =
   it('FR-STORE-01: applies migrations once and records them', async () => {
     const path = tempDb();
     const store = await openStore({ path });
-    expect(await store.appliedMigrations()).toEqual(['0001_initial', '0002_staging']);
+    expect(await store.appliedMigrations()).toEqual(['0001_initial', '0002_staging', '0003_ready_operator']);
     store.close();
     const again = await openStore({ path });
-    expect(await again.appliedMigrations()).toEqual(['0001_initial', '0002_staging']);
+    expect(await again.appliedMigrations()).toEqual(['0001_initial', '0002_staging', '0003_ready_operator']);
     again.close();
   });
 
@@ -88,6 +90,19 @@ describe('FR-STORE-01 embedded store with migrations', { timeout: 60_000 }, () =
     ]);
     const ids = (await store.taskTries('acme-prod', T0, T0 + 60_000)).map((t) => t.taskId).sort();
     expect(ids).toEqual(['overlap', 'running']);
+    store.close();
+  });
+
+  it('HM-006 / HM-008: stores when a try became ready and its operator (migration 0003)', async () => {
+    const store = await openStore({ path: ':memory:' });
+    await store.upsertTaskTries([
+      row({ taskId: 'known' }),
+      row({ taskId: 'unknown', readyAt: null, operator: null }),
+    ]);
+    const tries = await store.taskTries('acme-prod', T0, T0 + 60_000);
+    const byId = new Map(tries.map((t) => [t.taskId, t]));
+    expect(byId.get('known')).toMatchObject({ readyAt: T0 - 20_000, operator: 'PythonOperator' });
+    expect(byId.get('unknown')).toMatchObject({ readyAt: null, operator: null });
     store.close();
   });
 
