@@ -59,3 +59,43 @@ export function describeQuantile(q: Quantile): string {
   const exact = `${intFmt.format(Math.round(q.value_seconds))} s from ${intFmt.format(q.samples)} samples`;
   return q.low_sample ? `${exact}: fewer than 20, so this is the max` : exact;
 }
+
+/** A message placed inside a sentence of ours, without its own final period (no "..": §12.12). */
+export const clause = (message: string) => message.trim().replace(/\.+$/, '');
+
+/**
+ * Python's `str(timedelta)` as the Airflow API reports a delta schedule (`0:07:00`, `1 day, 0:00:00`),
+ * in seconds; `null` for anything else.
+ */
+function timedeltaSeconds(schedule: string): number | null {
+  const m = /^(?:(\d+) days?, )?(\d+):(\d{2}):(\d{2})(?:\.\d+)?$/.exec(schedule.trim());
+  if (!m) return null;
+  const [, days, h, min, sec] = m;
+  const total = (Number(days ?? 0) * 24 + Number(h)) * 3600 + Number(min) * 60 + Number(sec);
+  return total > 0 ? total : null;
+}
+
+/** "7 min", "1 h 30 min", "1 day", "45 s". */
+function everyText(seconds: number): string {
+  if (seconds % 86_400 === 0) return seconds === 86_400 ? '1 day' : `${intFmt.format(seconds / 86_400)} days`;
+  const parts: string[] = [];
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h) parts.push(`${intFmt.format(h)} h`);
+  if (m) parts.push(`${m} min`);
+  if (s) parts.push(`${s} s`);
+  return parts.join(' ');
+}
+
+/**
+ * A DAG schedule in plain words (§12.12): no schedule says so, a timedelta reads as "Every 7 min";
+ * cron expressions, presets and timetable summaries are shown as written (`code`).
+ */
+export function formatSchedule(schedule: string): { readonly text: string; readonly code: boolean } {
+  const s = schedule.trim();
+  if (s === '' || s === 'None') return { text: 'No schedule: runs only when triggered', code: false };
+  const delta = timedeltaSeconds(s);
+  if (delta !== null) return { text: `Every ${everyText(delta)}`, code: false };
+  return { text: s, code: true };
+}

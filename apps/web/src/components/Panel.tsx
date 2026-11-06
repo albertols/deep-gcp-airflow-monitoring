@@ -9,6 +9,7 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import type { SourceId } from '@dcam/contracts';
 import { InfoPopover, type Explanation } from '@dcam/ui-kit';
+import { clause } from './format';
 
 export function PanelTitle({
   explanation,
@@ -104,7 +105,7 @@ export function QueryState({
   if (error)
     return (
       <Alert severity="error">
-        Couldn't load {what}: {error.message}. Check that DCAM is still running, then reload the page.
+        Couldn't load {what}: {clause(error.message)}. Check that DCAM is still running, then reload the page.
       </Alert>
     );
   if (isPending) return <Skeleton variant="rounded" height={height} aria-label={`Loading ${what}`} />;

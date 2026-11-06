@@ -42,6 +42,19 @@ const LABEL = {
 
 const CHECK_STATE: Record<HealthCheck['state'], string> = { pass: 'Pass', fail: 'Fail', unknown: 'No data' };
 
+/**
+ * The platform line of a card in plain words (§12.12). A self-managed Airflow (the emulator) has no
+ * Composer image; the collectors report `none (self-managed Airflow)` for it, and `unknown` until the
+ * configuration is read.
+ */
+export function platformLine(env: Pick<FleetCard, 'composer_image' | 'airflow_version'>): string {
+  const airflow =
+    env.airflow_version === 'unknown' ? 'Airflow version not known yet' : `Airflow ${env.airflow_version}`;
+  if (env.composer_image.startsWith('none')) return `Self-managed ${airflow}`;
+  if (env.composer_image === 'unknown') return `Composer image not known yet · ${airflow}`;
+  return `${env.composer_image} · ${airflow}`;
+}
+
 function Metric({
   label,
   value,
@@ -101,7 +114,7 @@ function EnvironmentCard({ env }: { env: FleetCard }) {
           />
         </Stack>
         <Typography variant="caption" color="text.secondary">
-          {env.composer_image} · Airflow {env.airflow_version}
+          {platformLine(env)}
         </Typography>
 
         <Stack direction="row" sx={{ alignItems: 'flex-end', gap: 2 }}>

@@ -5,6 +5,7 @@
 import { Component, type ReactNode } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
+import { clause } from './format';
 
 interface Props {
   /** Changing it (for example the route) clears the error. */
@@ -46,7 +47,7 @@ export class PageErrorBoundary extends Component<Props, State> {
         Couldn't show this page.{' '}
         {isChunkError(error)
           ? 'DCAM was probably updated while this tab was open; reload to get the new version.'
-          : `${error.message}. Reload, and if it happens again, check the DCAM server output.`}
+          : `${clause(error.message)}. Reload, and if it happens again, check the DCAM server output.`}
       </Alert>
     );
   }

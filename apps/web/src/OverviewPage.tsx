@@ -21,6 +21,7 @@ import Typography from '@mui/material/Typography';
 import { InfoPopover } from '@dcam/ui-kit';
 import { useState } from 'react';
 import type { DcamApi, OverviewRange } from './api';
+import { clause } from './components/format';
 import { ProvenanceFooter } from './components/Panel';
 import { EXPLANATIONS, type ExplanationId } from './explanations';
 
@@ -93,8 +94,8 @@ export function OverviewPage({ api, envId }: { api: DcamApi; envId: string }) {
 
       {overview.isError && (
         <Alert severity="error">
-          Couldn't load the overview: {overview.error.message}. Check that DCAM is still running, then reload
-          the page.
+          Couldn't load the overview: {clause(overview.error.message)}. Check that DCAM is still running, then
+          reload the page.
         </Alert>
       )}
 

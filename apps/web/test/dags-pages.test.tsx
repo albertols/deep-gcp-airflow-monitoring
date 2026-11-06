@@ -341,6 +341,33 @@ describe('S-12 DAG detail page', { timeout: UI_TIMEOUT_MS }, () => {
     for (const id of DETAIL_PANELS) expect(about, id).toContain(`About ${DAG_EXPLANATIONS[id].title}`);
   });
 
+  it('§12.12: an unknown DAG error reads as one sentence, without a double period', async () => {
+    renderPage(
+      DagDetailPage,
+      fakeApi({
+        getDagDetail: () => Promise.reject(new Error('No DAG "x" is known in environment "acme-emulator".')),
+      }),
+      route,
+    );
+    const alert = await screen.findByText(/No DAG "x" is known/);
+    expect(alert).toHaveTextContent('environment "acme-emulator". Check the DAG ID');
+    expect(alert.textContent).not.toContain('..');
+  });
+
+  it('§12.12: schedules read in plain words: no schedule, and timedeltas as "every …"', async () => {
+    const withSchedule = (schedule: string): DagDetail => ({ ...DETAIL, meta: { ...DETAIL.meta, schedule } });
+    const getDagDetail = vi.fn(async () => withSchedule('None'));
+    renderPage(DagDetailPage, fakeApi({ getDagDetail }), route);
+    expect(await screen.findByText('No schedule: runs only when triggered')).toBeInTheDocument();
+  });
+
+  it('§12.12: a timedelta schedule reads as "every 7 min"', async () => {
+    const getDagDetail = vi.fn(async () => ({ ...DETAIL, meta: { ...DETAIL.meta, schedule: '0:07:00' } }));
+    renderPage(DagDetailPage, fakeApi({ getDagDetail }), route);
+    expect(await screen.findByText('Every 7 min')).toBeInTheDocument();
+    expect(screen.queryByText('0:07:00')).toBeNull();
+  });
+
   it('FR-UI-07: an unknown DAG says what to do next', async () => {
     renderPage(
       DagDetailPage,

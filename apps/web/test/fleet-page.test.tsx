@@ -168,4 +168,14 @@ describe('S-02 fleet page (FR-FLEET-01/02)', () => {
     expect(within(prod).queryByText('Healthy')).toBeNull();
     expect(within(prod).queryByText('95')).toBeNull();
   });
+
+  it('§12.12: a self-managed Airflow says so in plain words, not "none (self-managed Airflow)"', async () => {
+    renderPage({
+      ...fleet,
+      environments: [card({ composer_image: 'none (self-managed Airflow)', airflow_version: '2.11.1' })],
+    });
+    const prod = await screen.findByRole('region', { name: 'acme-prod' });
+    expect(within(prod).getByText('Self-managed Airflow 2.11.1')).toBeInTheDocument();
+    expect(within(prod).queryByText(/none \(/)).toBeNull();
+  });
 });

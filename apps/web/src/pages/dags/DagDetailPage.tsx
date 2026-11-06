@@ -27,8 +27,10 @@ import { InfoPopover } from '@dcam/ui-kit';
 import { PageHeader } from '../../components/PageHeader';
 import { Kpi, KpiRow, Panel, ProvenanceFooter } from '../../components/Panel';
 import {
+  clause,
   describeQuantile,
   formatDuration,
+  formatSchedule,
   formatInt,
   formatQuantile,
   formatShare,
@@ -43,6 +45,7 @@ import { RANGE_LABEL, formatUtc } from './time';
 const MONO = '"Roboto Mono", ui-monospace, monospace';
 
 function Facts({ meta }: { meta: DagDetail['meta'] }) {
+  const schedule = formatSchedule(meta.schedule);
   const facts: ReadonlyArray<readonly [string, ReactNode]> = [
     [
       'File',
@@ -53,9 +56,13 @@ function Facts({ meta }: { meta: DagDetail['meta'] }) {
     [
       'Schedule',
       <>
-        <Box component="code" sx={{ fontFamily: MONO }}>
-          {meta.schedule || '—'}
-        </Box>
+        {schedule.code ? (
+          <Box component="code" sx={{ fontFamily: MONO }} title={meta.schedule}>
+            {schedule.text}
+          </Box>
+        ) : (
+          <span title={meta.schedule}>{schedule.text}</span>
+        )}
         {` · catchup ${meta.catchup ? 'on' : 'off'}`}
       </>,
     ],
@@ -296,8 +303,8 @@ export function DagDetailPage({ api, envId, route, linkTo }: PageProps) {
             </Button>
           }
         >
-          Couldn't load this DAG: {detail.error.message}. Check the DAG ID, or pick a DAG from the league
-          table.
+          Couldn't load this DAG: {clause(detail.error.message)}. Check the DAG ID, or pick a DAG from the
+          league table.
         </Alert>
       )}
       {detail.isPending && <Skeleton variant="rounded" height={240} aria-label="Loading the DAG" />}
