@@ -150,6 +150,73 @@ describe('FR-COLL-06 af.facts: windows that fit in one page, within the budget',
     expect(airflow.tiQueries.some((q) => q.offset === 100)).toBe(true);
   });
 
+  describe('a second with more finished task instances than a cycle can page', () => {
+    // A branch skipping 1,500 mapped tasks marks them all in one statement: one `updated_at` second. Six
+    // requests a cycle read at most 600 of them; before the fix the collector stalled there for good.
+    const N = 1_500;
+    const BURST = T0 - 20 * MIN;
+    const burst = (n: number) =>
+      Array.from({ length: n }, (_, i) =>
+        ti({ taskId: 'mapped', mapIndex: i, state: 'skipped', updatedAt: BURST }),
+      );
+    const after = ti({ taskId: 'after_burst', updatedAt: T0 - 10 * MIN });
+    const run = async (airflow: FakeAirflow, cycles: number) => {
+      const store = new MemoryStore();
+      const ctx = fakeContext({ airflow, store, shared });
+      const collector = afFactsCollector();
+      const trace: Array<{ watermark: number | null; afterStored: boolean; denseStored: number }> = [];
+      for (let i = 0; i < cycles; i++) {
+        await collector.collect(ctx);
+        const tries = [...store.tries.values()];
+        trace.push({
+          watermark: await store.watermark('acme-prod', 'af.facts'),
+          afterStored: tries.some((t) => t.taskId === 'after_burst'),
+          denseStored: tries.filter((t) => t.taskId === 'mapped').length,
+        });
+        ctx.advance(MIN);
+      }
+      return { store, ctx, trace };
+    };
+
+    it('FR-COLL-06: reads it across cycles and stores later rows meanwhile, the watermark waiting at it', async () => {
+      const { store, trace } = await run(new FakeAirflow({ tis: [...burst(N), after] }), 40);
+      // While the burst is incomplete, later finished task instances are already stored ...
+      const waiting = trace.filter((c) => c.afterStored && c.denseStored < N);
+      expect(waiting.length).toBeGreaterThan(0);
+      // ... and the watermark never passes the burst second until every row of it is stored.
+      for (const c of trace) if (c.denseStored < N) expect(c.watermark ?? 0).toBeLessThanOrEqual(BURST);
+      expect(store.tries.size).toBe(N + 1);
+      expect(trace.at(-1)?.watermark).toBe(END + 39 * MIN);
+    });
+
+    it('FR-COLL-06: says the history is stuck at that second while it is incomplete', async () => {
+      const { ctx } = await run(new FakeAirflow({ tis: [...burst(N), after] }), 40);
+      const stuck = ctx.fidelity
+        .map((f) => /history is stuck at (\S+): 1500 task instances changed within that second/.exec(f))
+        .filter((m) => m !== null);
+      expect(stuck.length).toBeGreaterThan(1);
+      for (const m of stuck) {
+        const at = Date.parse(m[1] as string);
+        expect(at).toBeGreaterThan(BURST - 1_000);
+        expect(at).toBeLessThanOrEqual(BURST);
+      }
+    });
+
+    it('FR-COLL-06: after a bounded number of cycles it keeps what it read and reports the gap', async () => {
+      /** Offset paging over an unstable order: past the second page, the first rows come back again. */
+      class UnstableAirflow extends FakeAirflow {
+        override async taskInstances(q: Parameters<FakeAirflow['taskInstances']>[0]) {
+          return super.taskInstances(q.offset >= 200 ? { ...q, offset: q.offset % 200 } : q);
+        }
+      }
+      const { store, ctx, trace } = await run(new UnstableAirflow({ tis: [...burst(700), after] }), 60);
+      expect(trace.at(-1)?.denseStored).toBe(200);
+      expect(trace.at(-1)?.watermark).toBe(END + 59 * MIN);
+      expect(store.tries.size).toBe(201);
+      expect(ctx.fidelity.some((f) => /200 of the 700 .* the other 500 are missing/.test(f))).toBe(true);
+    });
+  });
+
   it('FR-COLL-06: an exhausted budget mid-window commits nothing past the last complete window', async () => {
     const tis = spread(350, END - H + MIN, END - MIN);
     const airflow = new FakeAirflow({ tis }, new Budget('airflow', 3));
