@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  UNKNOWN_LIMIT,
   collisionDensity,
   evaluateAdvisor,
   type AdvisorFinding,
@@ -327,6 +328,18 @@ describe('REC-CONC-01 global parallelism is binding', () => {
         signals({ config: { ...test, parallelism: 48 }, waiting: enough, minutes: [['parallelism', 600]] }),
         'REC-CONC-01',
       ),
+    ).toEqual([]);
+  });
+
+  it('REC-CONC-01 / HM-032: proposes no parallelism while worker_concurrency is not known', () => {
+    const waiting = { totalsMs: [['parallelism', 50 * HOUR]] as [WaitReasonId, number][] };
+    const unknownSlots = {
+      ...test,
+      workerConcurrency: UNKNOWN_LIMIT,
+      limitSources: { workerConcurrency: 'unknown' as const },
+    };
+    expect(
+      only(signals({ config: unknownSlots, waiting, minutes: [['parallelism', 600]] }), 'REC-CONC-01'),
     ).toEqual([]);
   });
 });

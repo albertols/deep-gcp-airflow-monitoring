@@ -7,6 +7,7 @@
 import type { RuleMeasurement } from './advisor-rule';
 import { RULE_THRESHOLDS, evaluated, perDay, type RuleDefinition } from './advisor-rule';
 import type { EnvironmentSignals, PoolSignal } from './advisor-signals';
+import { limitKnown } from './model';
 import {
   DOCS,
   fmtHours,
@@ -39,6 +40,13 @@ export const REC_CONC_01: RuleDefinition = {
   evaluate(s) {
     const t = RULE_THRESHOLDS['REC-CONC-01'];
     const { config } = s;
+    if (!limitKnown(config, 'parallelism') || !limitKnown(config, 'workerConcurrency'))
+      return {
+        kind: 'insufficient',
+        reason:
+          'core.parallelism or worker_concurrency is not known (no override in the Composer configuration), so ' +
+          'parallelism cannot be compared with worker capacity (HM-032).',
+      };
     const total = config.parallelism * config.schedulers;
     const capacity = config.maxWorkers * config.workerConcurrency;
     const waitingMs = s.waiting.totalsMs.get('parallelism') ?? 0;

@@ -342,10 +342,10 @@ export interface components {
                         /** @description Slots each task of this DAG takes. */
                         pool_slots: number;
                     }[];
-                    /** @description Environment-wide: parallelism × schedulers. */
-                    parallelism: number;
-                    /** @description Environment-wide: max workers × worker_concurrency. */
-                    worker_slots: number;
+                    /** @description Environment-wide: parallelism × schedulers; null when DCAM does not know [core] parallelism (no override, HM-032). */
+                    parallelism: number | null;
+                    /** @description Environment-wide: max workers × worker_concurrency; null when DCAM does not know [celery] worker_concurrency. */
+                    worker_slots: number | null;
                 };
             };
             stats: {
@@ -466,7 +466,8 @@ export interface components {
                     min: number;
                     max: number;
                 };
-                worker_slots: number;
+                /** @description Current workers × worker_concurrency; null when DCAM does not know [celery] worker_concurrency. */
+                worker_slots: number | null;
             };
             pools: {
                 name: string;

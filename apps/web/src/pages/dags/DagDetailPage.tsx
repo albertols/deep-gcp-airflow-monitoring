@@ -101,6 +101,10 @@ function Facts({ meta }: { meta: DagDetail['meta'] }) {
   );
 }
 
+/** Shown for a limit with no override in the Composer configuration: DCAM does not assume a default (HM-032). */
+const NOT_KNOWN = 'Not known yet';
+const NOT_KNOWN_WHY = 'No override in the Composer configuration, and DCAM does not assume a default. ';
+
 function Limits({ limits }: { limits: DagDetail['meta']['limits'] }) {
   const rows: ReadonlyArray<readonly [string, string, string]> = [
     [
@@ -121,10 +125,14 @@ function Limits({ limits }: { limits: DagDetail['meta']['limits'] }) {
     ),
     [
       '[core] parallelism × schedulers',
-      formatInt(limits.parallelism),
-      'Running + queued task instances in the environment',
+      limits.parallelism === null ? NOT_KNOWN : formatInt(limits.parallelism),
+      `${limits.parallelism === null ? NOT_KNOWN_WHY : ''}Running + queued task instances in the environment`,
     ],
-    ['Worker slots', formatInt(limits.worker_slots), 'Maximum workers × worker_concurrency'],
+    [
+      'Worker slots',
+      limits.worker_slots === null ? NOT_KNOWN : formatInt(limits.worker_slots),
+      `${limits.worker_slots === null ? NOT_KNOWN_WHY : ''}Maximum workers × worker_concurrency`,
+    ],
   ];
   return (
     <TableContainer sx={{ minWidth: 0 }}>

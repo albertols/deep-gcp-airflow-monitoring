@@ -244,6 +244,17 @@ describe('S-12 DAG detail page', { timeout: UI_TIMEOUT_MS }, () => {
     expect(screen.getByText('finance-data-oncall')).toBeInTheDocument();
   });
 
+  it('HM-032: a limit DCAM does not know says so instead of showing a number', async () => {
+    const unknown: DagDetail = {
+      ...DETAIL,
+      meta: { ...DETAIL.meta, limits: { ...DETAIL.meta.limits, parallelism: null, worker_slots: null } },
+    };
+    renderPage(DagDetailPage, fakeApi({ getDagDetail: async () => unknown }), route);
+    const limits = await screen.findByRole('table', { name: 'Limits that can throttle this DAG' });
+    expect(within(limits).getAllByText('Not known yet')).toHaveLength(2);
+    expect(within(limits).getAllByText(/no override in the Composer configuration/i)).toHaveLength(2);
+  });
+
   it('FR-DAGD-02 / HM-005: KPIs and a runs timeline whose runs can be shown in the Gantt', async () => {
     const getDagDetail = vi.fn(async (): Promise<DagDetail> => DETAIL);
     renderPage(DagDetailPage, fakeApi({ getDagDetail }), route);

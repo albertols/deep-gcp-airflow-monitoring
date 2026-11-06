@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DagMeta, EnvironmentConfig, LiveSnapshot } from '@dcam/domain';
+import { UNKNOWN_LIMIT, type DagMeta, type EnvironmentConfig, type LiveSnapshot } from '@dcam/domain';
 import type { EnvironmentModelSource, StoredTaskTry, TaskInstanceStore } from '@dcam/ports';
 import { getDagDetail, getDagLeague } from '../src/index';
 
@@ -80,9 +80,13 @@ function storeOf(rows: StoredTaskTry[]) {
   return { store, calls };
 }
 
-function modelOf(dags: DagMeta[], snapshots: LiveSnapshot[] = []): EnvironmentModelSource {
+function modelOf(
+  dags: DagMeta[],
+  snapshots: LiveSnapshot[] = [],
+  config: EnvironmentConfig = CONFIG,
+): EnvironmentModelSource {
   return {
-    config: async (envId) => (envId === 'acme-prod' ? CONFIG : null),
+    config: async (envId) => (envId === 'acme-prod' ? config : null),
     dags: async () => dags,
     snapshots: async (_env, from, to) => snapshots.filter((s) => s.at >= from && s.at < to),
     workerSamples: async () => [],
@@ -235,6 +239,24 @@ describe('FR-DAGD-01..04 DAG detail use case', () => {
       },
     });
     expect(result.detail.findings).toEqual([]);
+  });
+
+  it('HM-032: a limit DCAM does not know is null, never the placeholder', async () => {
+    const unknown: EnvironmentConfig = {
+      ...CONFIG,
+      parallelism: UNKNOWN_LIMIT,
+      workerConcurrency: UNKNOWN_LIMIT,
+      limitSources: { parallelism: 'unknown', workerConcurrency: 'unknown' },
+    };
+    const result = await getDagDetail(
+      {
+        ...deps(),
+        model: modelOf([dag('etl_daily', 'finance-data'), dag('other', 'customer')], [], unknown),
+      },
+      query,
+    );
+    if (result.kind !== 'ok') throw new Error(result.kind);
+    expect(result.detail.meta.limits).toMatchObject({ parallelism: null, worker_slots: null });
   });
 
   it('FR-DAGD-02 / HM-005: KPIs, runs with start delay, and the self-throttled ratio', async () => {

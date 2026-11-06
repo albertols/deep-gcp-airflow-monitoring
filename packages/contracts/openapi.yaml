@@ -470,12 +470,16 @@ components:
                       pool_slots:
                         { type: integer, minimum: 1, description: 'Slots each task of this DAG takes.' }
                 parallelism:
-                  { type: integer, minimum: 0, description: 'Environment-wide: parallelism × schedulers.' }
+                  {
+                    type: ['integer', 'null'],
+                    minimum: 0,
+                    description: 'Environment-wide: parallelism × schedulers; null when DCAM does not know [core] parallelism (no override, HM-032).',
+                  }
                 worker_slots:
                   {
-                    type: integer,
+                    type: ['integer', 'null'],
                     minimum: 0,
-                    description: 'Environment-wide: max workers × worker_concurrency.',
+                    description: 'Environment-wide: max workers × worker_concurrency; null when DCAM does not know [celery] worker_concurrency.',
                   }
         stats:
           type: object
@@ -710,7 +714,12 @@ components:
                 target: { type: integer, minimum: 0 }
                 min: { type: integer, minimum: 0 }
                 max: { type: integer, minimum: 0 }
-            worker_slots: { type: integer, minimum: 0 }
+            worker_slots:
+              {
+                type: ['integer', 'null'],
+                minimum: 0,
+                description: 'Current workers × worker_concurrency; null when DCAM does not know [celery] worker_concurrency.',
+              }
         pools:
           type: array
           items:

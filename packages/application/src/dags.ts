@@ -11,6 +11,7 @@ import {
   dagRuns,
   dagWindowStats,
   emptyDagStats,
+  limitKnown,
   runGantt,
   runKey,
   selfThrottledRatio,
@@ -174,8 +175,11 @@ function limitsOf(
     pools: [...poolSlots]
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([name, slots]) => ({ name, slots: sizes.get(name) ?? 0, pool_slots: Math.max(1, slots) })),
-    parallelism: config.parallelism * config.schedulers,
-    worker_slots: config.maxWorkers * config.workerConcurrency,
+    // Limits DCAM does not know are null, never the placeholder (HM-032).
+    parallelism: limitKnown(config, 'parallelism') ? config.parallelism * config.schedulers : null,
+    worker_slots: limitKnown(config, 'workerConcurrency')
+      ? config.maxWorkers * config.workerConcurrency
+      : null,
   };
 }
 

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { EnvironmentConfig, LiveSnapshot, SnapshotTaskInstance, WorkerSample } from '@dcam/domain';
+import {
+  UNKNOWN_LIMIT,
+  type EnvironmentConfig,
+  type LiveSnapshot,
+  type SnapshotTaskInstance,
+  type WorkerSample,
+} from '@dcam/domain';
 import type { EnvironmentModelSource, StoredTaskTry, TaskInstanceStore } from '@dcam/ports';
 import { getBottlenecks } from '../src/index';
 
@@ -121,6 +127,19 @@ describe('getBottlenecks use case (FR-BOTL-01/02/07/09)', () => {
     expect(b.pools.find((p) => p.name === 'external_api')).toMatchObject({ starved_minutes: 60, slots: 1 });
     expect(b.capacity).toMatchObject({ minutes_at_max_workers: 60, capacity_bound_minutes: 60 });
     expect(b.current).toMatchObject({ binding: 'pool-exhausted', scheduled: 3, queued: 1, worker_slots: 8 });
+  });
+
+  it('HM-032: current worker slots are null when worker_concurrency is not known', async () => {
+    const unknown: EnvironmentConfig = {
+      ...config,
+      workerConcurrency: UNKNOWN_LIMIT,
+      limitSources: { workerConcurrency: 'unknown' },
+    };
+    const b = await getBottlenecks(
+      { ...deps, model: { ...model, config: async () => unknown } },
+      { envId: 'acme-prod', range: '1h', sources: ['DEMO'] },
+    );
+    expect(b.current.worker_slots).toBeNull();
   });
 
   it('FR-BOTL-07 / HM-008: ranks poke-mode sensor slot time', async () => {

@@ -11,6 +11,7 @@ import {
   WAIT_REASONS,
   attributeWaiting,
   capacityStats,
+  limitKnown,
   quantile,
   type WaitReasonId,
 } from '@dcam/domain';
@@ -132,7 +133,10 @@ export async function getBottlenecks(deps: BottleneckDeps, q: BottleneckQuery): 
         min: config.minWorkers,
         max: config.maxWorkers,
       },
-      worker_slots: (latest?.snapshot.workers.current ?? 0) * config.workerConcurrency,
+      // A worker_concurrency DCAM does not know is null, never the placeholder (HM-032).
+      worker_slots: limitKnown(config, 'workerConcurrency')
+        ? (latest?.snapshot.workers.current ?? 0) * config.workerConcurrency
+        : null,
     },
     pools: config.pools.map((p) => {
       const pressure = a.pools.get(p.name);
