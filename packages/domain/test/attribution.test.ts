@@ -6,6 +6,7 @@ import {
   type LiveSnapshot,
   type SnapshotTaskInstance,
   type WorkerSample,
+  UNKNOWN_LIMIT,
 } from '../src/index';
 
 const T0 = Date.UTC(2026, 10, 5, 11, 0, 0);
@@ -136,5 +137,28 @@ describe('HM-011 / HM-012 worker capacity', () => {
     const c = capacityStats(gap, config);
     expect(c.minutesAtMax).toBe(1);
     expect(c.capacityBoundMinutes).toBe(1);
+  });
+
+  it('HM-011: with an unknown worker_concurrency slot utilisation is unknown, never a placeholder ratio', () => {
+    const unknown: EnvironmentConfig = {
+      ...config,
+      workerConcurrency: UNKNOWN_LIMIT,
+      limitSources: { workerConcurrency: 'unknown' },
+    };
+    const c = capacityStats(samples, unknown);
+    expect(c.utilisation).toEqual({ value: null, samples: 0, lowSample: true });
+    expect(c.minutesAtMax).toBe(2);
+    const a = attributeWaiting(
+      snapshots,
+      { config: unknown, dagMaxActiveTasks: new Map() },
+      {
+        from: T0,
+        to: T0 + 2 * MIN,
+        bucketMs: MIN,
+        intervalMs: 30_000,
+      },
+    );
+    expect(a.buckets.map((b) => b.slotsUsed)).toEqual([null, null]);
+    expect(a.buckets.map((b) => b.workers)).toEqual([2, 2]);
   });
 });

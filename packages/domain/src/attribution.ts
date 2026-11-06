@@ -5,7 +5,13 @@
  *
  * @implements FR-BOTL-01, HM-006, HM-011, HM-012
  */
-import type { EnvironmentConfig, LiveSnapshot, WaitReasonId, WorkerSample } from './model';
+import {
+  limitKnown,
+  type EnvironmentConfig,
+  type LiveSnapshot,
+  type WaitReasonId,
+  type WorkerSample,
+} from './model';
 import { quantile, type Quantile } from './stats';
 import { classifySnapshot, type ClassifiedWait, type ClassifierContext } from './waiting';
 
@@ -61,6 +67,8 @@ export function attributeWaiting(
   const pools = new Map<string, { waitingMs: number; starvedMs: number; utilisation: number[] }>(
     config.pools.map((p) => [p.name, { waitingMs: 0, starvedMs: 0, utilisation: [] }]),
   );
+  // Without worker_concurrency the share of busy slots is unknown: a gap, never a placeholder ratio.
+  const slotsKnown = limitKnown(config, 'workerConcurrency');
   const bucketCount = Math.max(0, Math.ceil((opts.to - opts.from) / opts.bucketMs));
   const buckets = Array.from({ length: bucketCount }, (_, i) => ({
     start: opts.from + i * opts.bucketMs,
@@ -111,7 +119,7 @@ export function attributeWaiting(
       start: b.start,
       byReason: b.byReason,
       workers: b.n ? b.workers / b.n : null,
-      slotsUsed: b.n ? b.slotsUsed / b.n : null,
+      slotsUsed: b.n && slotsKnown ? b.slotsUsed / b.n : null,
     })),
     byReasonDag: new Map([...byReasonDag].map(([r, m]) => [r, sortDesc(m)])),
     pools,
@@ -146,9 +154,10 @@ export function capacityStats(samples: readonly WorkerSample[], config: Environm
   const lags: number[] = [];
   let episode: { start: number; target: number } | null = null;
 
+  const slotsKnown = limitKnown(config, 'workerConcurrency');
   samples.forEach((s, i) => {
     const slots = s.workers * config.workerConcurrency;
-    utilisation.push(slots > 0 ? Math.min(1, s.running / slots) : 0);
+    if (slotsKnown) utilisation.push(slots > 0 ? Math.min(1, s.running / slots) : 0);
     const span = minutes(s, samples[i + 1]);
     if (s.workers >= config.maxWorkers) {
       minutesAtMax += span;
