@@ -1,3 +1,10 @@
+/**
+ * The UI's API client: typed calls, errors that carry the HTTP status, and the retry rule of the query
+ * client (FR-UI-07).
+ *
+ * @implements FR-UI-07
+ */
+import { QueryClient } from '@tanstack/react-query';
 import {
   createApiClient,
   type Alerts,
@@ -29,11 +36,41 @@ export interface DcamApi {
   getCollection(): Promise<Collection>;
 }
 
-/** Turns an openapi-fetch result into data or an Error carrying the problem's detail. */
-function unwrap<T>(result: { data?: T; error?: unknown }, what: string): T {
+/** An error answer of the DCAM API: the problem's detail (RFC 9457) and the HTTP status. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+/** Turns an openapi-fetch result into data or an {@link ApiError} carrying the problem's detail. */
+function unwrap<T>(result: { data?: T; error?: unknown; response: Response }, what: string): T {
   if (result.data !== undefined) return result.data;
   const detail = (result.error as { detail?: string } | undefined)?.detail;
-  throw new Error(detail ?? `Could not load ${what}`);
+  throw new ApiError(detail ?? `Could not load ${what}`, result.response.status);
+}
+
+/** Attempts after the first, for server errors and network failures. */
+const MAX_RETRIES = 3;
+
+/**
+ * Query retry rule: a 4xx answer (unknown DAG, invalid range) is final, so the page says so at once
+ * instead of after the retries' backoff; server errors and network failures are retried.
+ */
+export function shouldRetry(failureCount: number, error: unknown): boolean {
+  if (error instanceof ApiError && error.status < 500) return false;
+  return failureCount < MAX_RETRIES;
+}
+
+/** The app's query client: refreshes every 30 s and retries per {@link shouldRetry}. */
+export function createQueryClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: { queries: { refetchInterval: 30_000, staleTime: 15_000, retry: shouldRetry } },
+  });
 }
 
 export function createDcamApi(baseUrl = ''): DcamApi {

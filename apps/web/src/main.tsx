@@ -1,15 +1,13 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import CssBaseline from '@mui/material/CssBaseline';
 import { ThemeProvider } from '@mui/material/styles';
 import { createDcamTheme } from '@dcam/ui-kit';
-import { createDcamApi } from './api';
+import { createDcamApi, createQueryClient } from './api';
 import { App } from './App';
 
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { refetchInterval: 30_000, staleTime: 15_000 } },
-});
+const queryClient = createQueryClient();
 const root = document.getElementById('root');
 if (!root) throw new Error('Missing #root element');
 
