@@ -255,4 +255,30 @@ describe('live workspace (FR-SETUP-02, FR-COLL-11, HM-030, FR-STORE-01)', () => 
     expect(started).toEqual([]);
     expect(sent).toEqual([]);
   });
+
+  it.each<[string, string, Record<string, string>, RegExp]>([
+    [
+      'a missing network.caBundlePath',
+      'network:\n  caBundlePath: ./acme-missing-root.pem\n',
+      {},
+      /network\.caBundlePath: cannot read .*acme-missing-root\.pem/,
+    ],
+    ['a SOCKS proxy', '', { HTTPS_PROXY: 'socks5://proxy.acme.example:1080' }, /HTTPS_PROXY must be an http/],
+    [
+      'a mistyped DCAM_NETWORK',
+      '',
+      { DCAM_NETWORK: 'loopback' },
+      /DCAM_NETWORK must be "loopback-only" or "any"/,
+    ],
+  ])(
+    'FR-AUTH-07: %s stops start-up with its error, before the database is opened',
+    async (_name, extra, env, message) => {
+      const dataDir = join(dir, 'data');
+      await writeFile(join(dir, 'dcam.config.yaml'), `${EMULATOR_CONFIG(dataDir)}${extra}`);
+      // No injected transport: the real proxy- and CA-aware transport is built (and sends nothing).
+      await expect(open(env)).rejects.toThrow(message);
+      expect(existsSync(join(dataDir, DB_FILE_NAME))).toBe(false);
+      expect(started).toEqual([]);
+    },
+  );
 });

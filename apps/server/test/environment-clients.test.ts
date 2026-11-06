@@ -235,4 +235,68 @@ describe('environment clients on the guarded client (FR-AUTH-01, FR-AUTH-04, FR-
     await expect(clients.serverDate(url)).resolves.toBe(NOW - 2_000);
     expect(header(sent[0], 'authorization')).toBeUndefined();
   });
+
+  it.each<[string, string, Record<string, string>]>([
+    ['https://acme-dot-europe-west1.composer.googleusercontent.com', 'acme-prod', {}],
+    ['http://127.0.0.1:8080', 'acme-prod', {}],
+    [
+      'http://127.0.0.1:9090',
+      'acme-emulator',
+      { DCAM_EMULATOR_USER: 'acme', DCAM_EMULATOR_PASSWORD: 'acme-secret' },
+    ],
+  ])('NFR-SEC-04: the allowlist of each environment: %s from %s', async (baseUrl, id, env) => {
+    const { sent, transport } = fakeTransport({ version: '2.11.1' });
+    const entry = id === COMPOSER.id ? COMPOSER : EMULATOR;
+    const clients = createEnvironmentClients({ entry, config: config(), env, tokens, transport });
+    const result = await clients
+      .airflow(baseUrl)
+      .version()
+      .then(
+        () => 'sent',
+        (e: unknown) => e,
+      );
+    if (baseUrl.startsWith('https://')) {
+      expect(result).toBe('sent');
+      return;
+    }
+    // A Composer environment never reaches a loopback Airflow, and the emulator only its own port.
+    expect(result).toBeInstanceOf(SourceError);
+    expect(result).toMatchObject({ kind: 'guard' });
+    expect((result as SourceError).message).toContain(`${new URL(baseUrl).host} is not a monitored service`);
+    expect(sent).toEqual([]);
+  });
+});
+
+describe('environment clients on the real transport (FR-AUTH-07)', () => {
+  it('FR-AUTH-07: a network.caBundlePath that cannot be read throws when the clients are built', () => {
+    expect(() =>
+      createEnvironmentClients({
+        entry: COMPOSER,
+        config: config({ caBundlePath: '/home/acme/acme-missing-root.pem' }),
+        env: {},
+        tokens,
+      }),
+    ).toThrow(/network\.caBundlePath: cannot read \/home\/acme\/acme-missing-root\.pem/);
+  });
+
+  it('FR-AUTH-07: a SOCKS proxy throws when the clients are built', () => {
+    expect(() =>
+      createEnvironmentClients({
+        entry: COMPOSER,
+        config: config(),
+        env: { HTTPS_PROXY: 'socks5://proxy.acme.example:1080' },
+        tokens,
+      }),
+    ).toThrow(/HTTPS_PROXY must be an http:\/\/ or https:\/\/ URL, not socks5:/);
+  });
+
+  it('FR-AUTH-07: valid settings build clients that close cleanly', async () => {
+    const clients = createEnvironmentClients({
+      entry: COMPOSER,
+      config: config(),
+      env: { HTTPS_PROXY: 'proxy.acme.example:3128', NO_PROXY: '10.0.0.0/8' },
+      tokens,
+    });
+    await expect(clients.close()).resolves.not.toThrow();
+  });
 });

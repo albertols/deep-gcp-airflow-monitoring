@@ -3,7 +3,11 @@
  * the DuckDB store in the data directory. The store also serves every page, so live and demo pages are
  * the same code. Without a valid configuration DCAM starts in setup mode instead (FR-SETUP-02).
  *
- * @implements FR-SETUP-02, FR-COLL-01, FR-COLL-11, FR-STORE-01, HM-030
+ * Every environment's clients are built before the store opens: a network setting DCAM cannot use (a
+ * missing `network.caBundlePath`, a SOCKS proxy, a mistyped `DCAM_NETWORK`) stops start-up with its own
+ * message, instead of failing every collection cycle afterwards (FR-AUTH-07).
+ *
+ * @implements FR-SETUP-02, FR-COLL-01, FR-COLL-11, FR-STORE-01, FR-AUTH-07, HM-030
  */
 import {
   createCollectionEngine,
@@ -14,7 +18,7 @@ import {
 } from '@dcam/application';
 import { loadWorkspaceConfig } from '@dcam/config-file';
 import { openFileStore } from '@dcam/duckdb-store';
-import type { Transport } from '@dcam/http-guard';
+import { networkModeFromEnv, type Transport } from '@dcam/http-guard';
 import type { AccessTokenSource, Clock, ConfigIssue, Sleeper, WorkspaceConfig } from '@dcam/ports';
 import { createSetupWorkspace } from '../setup';
 import type { Workspace } from '../workspace';
@@ -62,17 +66,54 @@ function storeError(dataDir: string, error: unknown): Error {
   return new Error(`DCAM could not open its database in ${dataDir}: ${message}\n${hint}`, { cause: error });
 }
 
+function networkError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  return new Error(
+    `DCAM cannot use its network settings: ${message}\n` +
+      'Correct this in the shell that starts DCAM or in dcam.config.yaml, then start DCAM again ' +
+      '("pnpm dcam doctor" checks the proxy and CA settings).',
+    { cause: error },
+  );
+}
+
+const closeAll = (clients: Iterable<EnvironmentClients>) =>
+  Promise.allSettled([...clients].map((c) => c.close()));
+
 export async function createLiveWorkspace(options: LiveWorkspaceOptions): Promise<RunningWorkspace> {
   const { config, env } = options;
   const now = options.now ?? Date.now;
   const clock: Clock = { now };
-  const store = await openFileStore({ dataDir: config.dataDir, now }).catch((e: unknown) => {
-    throw storeError(config.dataDir, e);
-  });
   const tokens = options.tokens ?? createAdcTokenSource({ env, now });
-  const clients = new Map<string, EnvironmentClients>();
   // The guard's footprint hook needs the engine, and the engine needs the clients: bound late.
   let engine: CollectionEngine | undefined;
+  const clients = new Map<string, EnvironmentClients>();
+  try {
+    networkModeFromEnv(env);
+    for (const entry of config.environments) {
+      clients.set(
+        entry.id,
+        createEnvironmentClients({
+          entry,
+          config,
+          env,
+          tokens,
+          now,
+          ...(options.transport === undefined ? {} : { transport: options.transport }),
+          onRequest: (api, request) => engine?.recordRequest(entry.id, api, request),
+        }),
+      );
+    }
+  } catch (error) {
+    await closeAll(clients.values());
+    throw networkError(error);
+  }
+  let store: Awaited<ReturnType<typeof openFileStore>>;
+  try {
+    store = await openFileStore({ dataDir: config.dataDir, now });
+  } catch (error) {
+    await closeAll(clients.values());
+    throw storeError(config.dataDir, error);
+  }
   try {
     engine = createCollectionEngine({
       config,
@@ -82,24 +123,14 @@ export async function createLiveWorkspace(options: LiveWorkspaceOptions): Promis
       collectors: options.collectors ?? createCollectors(),
       ...(options.log === undefined ? {} : { log: options.log }),
       sources: (entry) => {
-        let c = clients.get(entry.id);
-        if (!c) {
-          c = createEnvironmentClients({
-            entry,
-            config,
-            env,
-            tokens,
-            now,
-            ...(options.transport === undefined ? {} : { transport: options.transport }),
-            onRequest: (api, request) => engine?.recordRequest(entry.id, api, request),
-          });
-          clients.set(entry.id, c);
-        }
+        const c = clients.get(entry.id);
+        if (!c) throw new Error(`No clients for environment ${entry.id}: it is not in the configuration.`);
         return c;
       },
     });
   } catch (error) {
     store.close();
+    await closeAll(clients.values());
     throw error;
   }
   const running = engine;
@@ -119,7 +150,7 @@ export async function createLiveWorkspace(options: LiveWorkspaceOptions): Promis
     close: () =>
       (closing ??= (async () => {
         await running.stop();
-        await Promise.allSettled([...clients.values()].map((c) => c.close()));
+        await closeAll(clients.values());
         store.close();
       })()),
   };
