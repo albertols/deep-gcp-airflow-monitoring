@@ -427,6 +427,8 @@ export interface components {
                 share: number;
                 /** @description Share of that reason's waiting while workers were at max_count. */
                 workers_at_max_share: number;
+                /** @description Why the headline gives no advice for the reason: the data quality gate (§13.2) of the advisor rule behind it, over this range. Null when advice may be shown, or without a reason. */
+                advice_withheld: string | null;
             };
             reasons: {
                 id: components["schemas"]["WaitReasonId"];

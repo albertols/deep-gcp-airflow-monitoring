@@ -645,7 +645,7 @@ components:
         answer:
           type: object
           additionalProperties: false
-          required: [reason, share, workers_at_max_share]
+          required: [reason, share, workers_at_max_share, advice_withheld]
           properties:
             reason: { oneOf: [{ $ref: '#/components/schemas/WaitReasonId' }, { type: 'null' }] }
             share: { type: number, minimum: 0, maximum: 1 }
@@ -655,6 +655,11 @@ components:
                 minimum: 0,
                 maximum: 1,
                 description: "Share of that reason's waiting while workers were at max_count.",
+              }
+            advice_withheld:
+              {
+                type: ['string', 'null'],
+                description: 'Why the headline gives no advice for the reason: the data quality gate (§13.2) of the advisor rule behind it, over this range. Null when advice may be shown, or without a reason.',
               }
         reasons:
           type: array

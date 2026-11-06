@@ -9,6 +9,7 @@ import {
   REASON_PHASE,
   UNEVALUATED_REASONS,
   WAIT_REASONS,
+  adviceGap,
   attributeWaiting,
   capacityStats,
   limitKnown,
@@ -76,6 +77,18 @@ export async function getBottlenecks(deps: BottleneckDeps, q: BottleneckQuery): 
   }
 
   const capacity = capacityStats(samples, config);
+  // The advisor's data gate over this range: the headline never advises what the advisor would not.
+  const rangeMs = RANGE_MS[q.range];
+  const inRange = snapshots.filter((s) => s.at >= from && s.at < now).length;
+  const quality = {
+    coverage: {
+      snapshots: Math.min(1, a.coveredMs / rangeMs),
+      samples: Math.min(1, (samples.length * 60_000) / rangeMs),
+      tries: 1,
+    },
+    snapshotCount: inRange,
+    sampleCount: samples.length,
+  };
   const sensors = new Map<string, { dag_id: string; task_id: string; slot_seconds: number }>();
   for (const t of tries) {
     if (!t.operator?.endsWith('Sensor') || t.startAt === null) continue;
@@ -100,6 +113,7 @@ export async function getBottlenecks(deps: BottleneckDeps, q: BottleneckQuery): 
       reason: top,
       share: top ? share(a.totals.get(top) ?? 0, waitingMs) : 0,
       workers_at_max_share: top ? share(a.atMaxWorkersMs.get(top) ?? 0, a.totals.get(top) ?? 0) : 0,
+      advice_withheld: top ? adviceGap(quality, top) : null,
     },
     reasons: PLATFORM_REASONS.map((id) => {
       const total = a.totals.get(id) ?? 0;

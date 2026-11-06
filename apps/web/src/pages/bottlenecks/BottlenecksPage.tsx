@@ -96,7 +96,11 @@ export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
                 {b.answer.reason === 'executor-slots-exhausted' && b.answer.workers_at_max_share > 0.5
                   ? ' while workers were at max'
                   : ''}
-                . {REASONS[b.answer.reason].action}
+                .{' '}
+                {b.answer.advice_withheld === null
+                  ? REASONS[b.answer.reason].action
+                  : // The advisor's data gate (§13.2): never advise what the advisor reports as not evaluated.
+                    `No advice yet. ${b.answer.advice_withheld}`}
               </Typography>
             </Alert>
           ) : (

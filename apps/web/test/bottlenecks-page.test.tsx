@@ -21,7 +21,7 @@ const fixture: Bottlenecks = {
   snapshot_interval_seconds: 30,
   waiting_task_seconds: 14_400,
   normal_latency_task_seconds: 600,
-  answer: { reason: 'pool-exhausted', share: 0.75, workers_at_max_share: 0.2 },
+  answer: { reason: 'pool-exhausted', share: 0.75, workers_at_max_share: 0.2, advice_withheld: null },
   reasons: [
     {
       id: 'pool-exhausted',
@@ -199,5 +199,23 @@ describe('S-16 bottlenecks page (FR-BOTL-01)', () => {
       expect(card).not.toHaveTextContent(/\d+\s*min/);
     }
     expect(await kpi('Scale-up lag (p95)')).toHaveTextContent('Needs Cloud Monitoring worker samples');
+  });
+
+  it('§13.2: below the advisor data gate the headline states the cause but gives no advice', async () => {
+    renderPage({
+      ...fixture,
+      answer: {
+        reason: 'parallelism',
+        share: 0.49,
+        workers_at_max_share: 1,
+        advice_withheld: 'Only 2% of the window has live snapshots; the rule needs 80%.',
+      },
+    });
+    const answer = await screen.findByText(/of waiting task-time was caused by/);
+    expect(answer).toHaveTextContent('49% of waiting task-time was caused by "Global parallelism"');
+    expect(answer).toHaveTextContent(
+      'No advice yet. Only 2% of the window has live snapshots; the rule needs 80%.',
+    );
+    expect(answer).not.toHaveTextContent(REASONS.parallelism.action);
   });
 });

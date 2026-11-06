@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   UNKNOWN_LIMIT,
+  adviceGap,
   collisionDensity,
   evaluateAdvisor,
   type AdvisorFinding,
@@ -618,6 +619,15 @@ describe('§13.2 data quality gates and §13.4 ranking', () => {
     const reason = run(s).insufficient.find((i) => i.ruleId === 'REC-CAP-01')?.reason ?? '';
     expect(reason).toMatch(/^No data: needs Cloud Monitoring/);
     expect(reason).not.toMatch(/0%/);
+  });
+
+  it('§13.2 / FR-BOTL-01: advice on a waiting reason passes the data gate of the rule behind it', () => {
+    const halfSamples = signals({ coverage: { samples: 0.5 } });
+    expect(adviceGap(halfSamples, 'executor-slots-exhausted')).toMatch(/worker samples/);
+    expect(adviceGap(halfSamples, 'parallelism')).toBeNull();
+    expect(adviceGap(signals({ coverage: { snapshots: 0.02 } }), 'scheduler-throughput')).toMatch(
+      /Only 2% of the window has live snapshots/,
+    );
   });
 
   it('FR-ADV-04: findings come back ranked, critical first, then by priority score', () => {

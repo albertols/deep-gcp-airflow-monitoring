@@ -198,4 +198,15 @@ describe('getBottlenecks use case (FR-BOTL-01/02/07/09)', () => {
     const b = await getBottlenecks(empty, { envId: 'acme-prod', range: '1h', sources: ['DEMO'] });
     expect(b.snapshot_interval_seconds).toBeNull();
   });
+
+  it('§13.2 / FR-BOTL-01: the headline gives advice only past the advisor data gate (80 % snapshot coverage)', async () => {
+    const hour = await getBottlenecks(deps, { envId: 'acme-prod', range: '1h', sources: ['DEMO'] });
+    expect(hour.answer.advice_withheld).toBeNull();
+    // One hour of snapshots in a 24 h range: the advisor would not evaluate REC-CONC-02, so no advice.
+    const day = await getBottlenecks(deps, { envId: 'acme-prod', range: '24h', sources: ['DEMO'] });
+    expect(day.answer.reason).toBe('pool-exhausted');
+    expect(day.answer.advice_withheld).toMatch(
+      /Only 4% of the window has live snapshots; the rule needs 80%/,
+    );
+  });
 });

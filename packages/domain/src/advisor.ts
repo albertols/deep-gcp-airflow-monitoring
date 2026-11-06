@@ -21,6 +21,7 @@ import { REC_CAP_01, REC_CAP_05, REC_CAP_08 } from './advisor-rules-capacity';
 import { REC_CONC_01, REC_CONC_02, REC_CONC_03 } from './advisor-rules-concurrency';
 import { REC_DAG_01, REC_DAG_05, REC_SCHED_01 } from './advisor-rules-dag';
 import type { EnvironmentSignals } from './advisor-signals';
+import type { WaitReasonId } from './model';
 
 /** The rules evaluated in this version, in catalog order. */
 export const ADVISOR_RULES: readonly RuleDefinition[] = [
@@ -63,8 +64,11 @@ const NO_DATA: Readonly<Record<RuleInput, string>> = {
     'No data: needs task instance history from the Airflow REST API, and none was collected in the window.',
 };
 
-/** §13.2 data quality gate: the reason a rule cannot be evaluated, or `null`. */
-function dataGap(s: EnvironmentSignals, inputs: readonly RuleInput[]): string | null {
+/** What the §13.2 data quality gate reads. */
+export type DataQuality = Pick<EnvironmentSignals, 'coverage' | 'snapshotCount' | 'sampleCount'>;
+
+/** §13.2 data quality gate: the reason a rule with these inputs cannot be evaluated, or `null`. */
+export function dataGap(s: DataQuality, inputs: readonly RuleInput[]): string | null {
   for (const input of inputs) {
     const coverage = s.coverage[input];
     const count = input === 'snapshots' ? s.snapshotCount : input === 'samples' ? s.sampleCount : Infinity;
@@ -75,6 +79,26 @@ function dataGap(s: EnvironmentSignals, inputs: readonly RuleInput[]): string | 
       return `Only ${count} ${INPUT_NAMES[input]} in the window; the rule needs at least ${MIN_SAMPLES}.`;
   }
   return null;
+}
+
+/** The advisor rule that acts on each HM-006 reason; the Bottlenecks headline points to it. */
+export const REASON_RULES: Readonly<Partial<Record<WaitReasonId, RuleId>>> = {
+  parallelism: 'REC-CONC-01',
+  'pool-exhausted': 'REC-CONC-02',
+  'dag-max-active-tasks': 'REC-DAG-01',
+  'executor-slots-exhausted': 'REC-CAP-01',
+  'autoscaling-lag': 'REC-CAP-01',
+};
+
+/**
+ * Why advice on a reason is withheld: the data gate of the rule behind it, or of live snapshots for a
+ * reason without a rule (the waiting itself comes from snapshots). `null` when advice may be shown, so a
+ * headline never recommends what the advisor reports as not evaluated.
+ */
+export function adviceGap(s: DataQuality, reason: WaitReasonId): string | null {
+  const ruleId = REASON_RULES[reason];
+  const inputs = ADVISOR_RULES.find((r) => r.id === ruleId)?.inputs ?? ['snapshots'];
+  return dataGap(s, inputs);
 }
 
 export function evaluateAdvisor(
