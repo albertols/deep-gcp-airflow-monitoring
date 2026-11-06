@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { loadWorkspaceConfig } from '../src/index';
+import { configFileLocation, loadWorkspaceConfig } from '../src/index';
 import { HOME, MINIMAL, tempDir, writeFile } from './helpers';
 
 describe('FR-SETUP-02 configuration file location and precedence (§17.1)', () => {
@@ -9,6 +9,17 @@ describe('FR-SETUP-02 configuration file location and precedence (§17.1)', () =
     const path = writeFile(cwd, 'dcam.config.yaml', MINIMAL);
     const result = await loadWorkspaceConfig({ env: {}, cwd, homeDir: HOME });
     expect(result).toMatchObject({ ok: true, config: { path } });
+  });
+
+  it('FR-SETUP-02: configFileLocation names the file that would be read, in the same order', () => {
+    const cwd = tempDir();
+    expect(configFileLocation({ env: {}, cwd, homeDir: HOME })).toBe(join(cwd, 'dcam.config.yaml'));
+    expect(configFileLocation({ env: { DCAM_CONFIG: 'env.yaml' }, cwd, homeDir: HOME })).toBe(
+      join(cwd, 'env.yaml'),
+    );
+    expect(
+      configFileLocation({ flagPath: '~/flag.yaml', env: { DCAM_CONFIG: 'env.yaml' }, cwd, homeDir: HOME }),
+    ).toBe(join(HOME, 'flag.yaml'));
   });
 
   it('FR-SETUP-02: DCAM_CONFIG overrides the default file, and --config overrides DCAM_CONFIG', async () => {

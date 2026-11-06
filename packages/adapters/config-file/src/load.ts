@@ -54,6 +54,11 @@ function locate(input: LoadWorkspaceConfigInput): { readonly path: string; reado
   return { path: resolvePath(CONFIG_FILE_NAME, cwd, homeDir), origin: 'default' };
 }
 
+/** The file DCAM reads: `--config`, else `DCAM_CONFIG`, else `dcam.config.yaml` in `cwd` (absolute). */
+export function configFileLocation(input: LoadWorkspaceConfigInput): string {
+  return locate(input).path;
+}
+
 const CREATE_HINT =
   'run `cp dcam.config.example.yaml dcam.config.yaml` in the DCAM folder, then set projectId, location and environment. To try DCAM without Google Cloud, run `pnpm dcam --demo`.';
 

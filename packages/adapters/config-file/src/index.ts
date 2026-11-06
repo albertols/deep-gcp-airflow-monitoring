@@ -5,6 +5,7 @@
  */
 export {
   CONFIG_FILE_NAME,
+  configFileLocation,
   defaultProfile,
   loadWorkspaceConfig,
   type LoadWorkspaceConfigInput,
