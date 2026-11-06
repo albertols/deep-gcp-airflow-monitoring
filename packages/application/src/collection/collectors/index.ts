@@ -6,10 +6,18 @@
  * @implements FR-COLL-01
  */
 import type { Collector } from '../types';
+import { afFactsCollector } from './af-facts';
 import { afInventoryCollector } from './af-inventory';
 import { afLiveCollector } from './af-live';
 import { composerConfigCollector } from './composer-config';
 
+export {
+  afFactsCollector,
+  FACT_STATES,
+  FACTS_OVERLAP_MS,
+  FACTS_SETTLE_MS,
+  FIRST_FACTS_WINDOW_MS,
+} from './af-facts';
 export { afInventoryCollector } from './af-inventory';
 export { afLiveCollector } from './af-live';
 export { composerConfigCollector } from './composer-config';
@@ -26,5 +34,5 @@ export {
 } from './mapping';
 
 export function createCollectors(): readonly Collector[] {
-  return [composerConfigCollector(), afInventoryCollector(), afLiveCollector()];
+  return [composerConfigCollector(), afInventoryCollector(), afLiveCollector(), afFactsCollector()];
 }

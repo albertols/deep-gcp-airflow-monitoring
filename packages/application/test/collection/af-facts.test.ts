@@ -1,0 +1,192 @@
+import { describe, expect, it } from 'vitest';
+import { afFactsCollector, afLiveCollector } from '../../src/index';
+import { Budget, fakeContext, FakeAirflow, H, MemoryStore, MIN, pool, T0, ti } from './collectors-harness';
+
+const shared = { airflowBaseUrl: 'https://acme-composer-prod.example.test', airflowVersion: '2.11.1' };
+/** The window end: now minus the settling delay. */
+const END = T0 - MIN;
+
+const spread = (n: number, from: number, to: number, state = 'success') =>
+  Array.from({ length: n }, (_, i) => {
+    const at = from + Math.floor(((to - from) * i) / n);
+    return ti({ taskId: `t_${i}`, state, startAt: at - MIN, endAt: at, updatedAt: at });
+  });
+
+describe('FR-COLL-03 af.facts: watermark, overlap and idempotent upserts', () => {
+  it('FR-COLL-03: the first cycle reads a bounded first window of finished task instances and commits its end', async () => {
+    const airflow = new FakeAirflow({
+      tis: [
+        ti({ taskId: 'old', updatedAt: T0 - 2 * H }),
+        ti({ taskId: 'recent', updatedAt: T0 - 30 * MIN }),
+        ti({ taskId: 'running', state: 'running', endAt: null, updatedAt: T0 - 10 * MIN }),
+      ],
+    });
+    const store = new MemoryStore();
+    const result = await afFactsCollector().collect(fakeContext({ airflow, store, shared }));
+
+    expect(airflow.tiQueries).toEqual([
+      {
+        states: ['success', 'failed', 'upstream_failed', 'skipped', 'up_for_retry'],
+        updatedFrom: END - H,
+        updatedTo: END,
+        limit: 100,
+        offset: 0,
+      },
+    ]);
+    expect([...store.tries.values()].map((t) => t.taskId)).toEqual(['recent']);
+    expect(store.commits).toEqual([{ rows: 1, watermark: END }]);
+    expect(result.dataAsOf).toBe(END);
+  });
+
+  it('FR-COLL-03: re-reads the overlap, picks up late updates, and a restart resumes without duplicates', async () => {
+    const airflow = new FakeAirflow({ tis: spread(40, T0 - 50 * MIN, T0 - 2 * MIN) });
+    const store = new MemoryStore();
+    const ctx = fakeContext({ airflow, store, shared });
+    await afFactsCollector().collect(ctx);
+    expect(await store.countTaskTries('acme-prod')).toBe(40);
+
+    // A row finished long ago is marked again by hand; its updated_at falls inside the overlap.
+    airflow.data.tis.push(
+      ti({ taskId: 'marked_again', state: 'failed', endAt: T0 - 3 * H, updatedAt: END - 5 * MIN }),
+    );
+    ctx.advance(5 * MIN);
+    // A restart: a new collector with the same store resumes from the persisted watermark.
+    await afFactsCollector().collect(ctx);
+    const q = airflow.tiQueries.at(-1);
+    expect(q?.updatedFrom).toBe(END - 10 * MIN);
+    expect(q?.updatedTo).toBe(END + 5 * MIN);
+    expect(await store.countTaskTries('acme-prod')).toBe(41);
+    expect(store.tries.size).toBe(41);
+    expect(store.commits.at(-1)?.watermark).toBe(END + 5 * MIN);
+  });
+
+  it('FR-COLL-03: in steady state the overlap is re-read once per overlap period, not every cycle', async () => {
+    const airflow = new FakeAirflow({ tis: spread(20, T0 - 50 * MIN, T0 - 2 * MIN) });
+    const store = new MemoryStore();
+    const collector = afFactsCollector();
+    const ctx = fakeContext({ airflow, store, shared });
+    const overlapped: boolean[] = [];
+    for (let i = 0; i < 12; i++) {
+      const before = await store.watermark('acme-prod', 'af.facts');
+      const seen = airflow.tiQueries.length;
+      await collector.collect(ctx);
+      const from = airflow.tiQueries[seen]?.updatedFrom;
+      if (before !== null) overlapped.push(from === before - 10 * MIN);
+      if (before !== null && !overlapped.at(-1)) expect(from).toBe(before);
+      ctx.advance(MIN);
+    }
+    // Cycle 2 (the first with a watermark) and cycle 12, ten minutes later.
+    expect(overlapped.filter(Boolean)).toHaveLength(2);
+    expect(overlapped[0]).toBe(true);
+    expect(overlapped[10]).toBe(true);
+    expect(store.tries.size).toBe(20);
+  });
+
+  it('FR-COLL-03: a failed try waiting for its retry is stored under its own try number', async () => {
+    const airflow = new FakeAirflow({
+      tis: [ti({ taskId: 'flaky', state: 'up_for_retry', tryNumber: 1, updatedAt: T0 - 5 * MIN })],
+    });
+    const store = new MemoryStore();
+    await afFactsCollector().collect(fakeContext({ airflow, store, shared }));
+    expect([...store.tries.values()]).toMatchObject([
+      { taskId: 'flaky', tryNumber: 1, state: 'up_for_retry', startAt: T0 - 9 * MIN, endAt: T0 - 5 * MIN },
+    ]);
+  });
+
+  it('HM-001/HM-006: a finished try gets the ready time af.live recorded while it was scheduled', async () => {
+    const airflow = new FakeAirflow({
+      tis: [ti({ taskId: 'waits', state: 'scheduled', queuedAt: null, startAt: null, endAt: null })],
+      pools: [pool()],
+    });
+    const store = new MemoryStore();
+    const ctx = fakeContext({ airflow, store, shared });
+    await afLiveCollector().collect(ctx);
+    airflow.data.tis = [
+      ti({
+        taskId: 'waits',
+        queuedAt: T0 + MIN,
+        startAt: T0 + 2 * MIN,
+        endAt: T0 + 3 * MIN,
+        updatedAt: T0 + 3 * MIN,
+      }),
+    ];
+    ctx.advance(10 * MIN);
+    await afFactsCollector().collect(ctx);
+    expect([...store.tries.values()].find((t) => t.taskId === 'waits')).toMatchObject({
+      readyAt: T0,
+      queuedAt: T0 + MIN,
+      state: 'success',
+    });
+  });
+});
+
+describe('FR-COLL-06 af.facts: windows that fit in one page, within the budget', () => {
+  it('FR-COLL-06: splits a window with more rows than a page until each request fits, never paging by offset', async () => {
+    const airflow = new FakeAirflow({ tis: spread(350, END - H + MIN, END - MIN) });
+    const store = new MemoryStore();
+    const collector = afFactsCollector();
+    const ctx = fakeContext({ airflow, store, shared });
+    for (let i = 0; i < 4 && store.commits.at(-1)?.watermark !== END; i++) await collector.collect(ctx);
+
+    expect(store.tries.size).toBe(350);
+    expect(store.commits.at(-1)?.watermark).toBe(END);
+    expect(airflow.tiQueries.every((q) => q.offset === 0 && q.limit === 100)).toBe(true);
+    // Windows are contiguous: each starts where the previous complete one ended.
+    const windows = airflow.tiQueries.map((q) => [q.updatedFrom, q.updatedTo] as const);
+    expect(windows[0]?.[0]).toBe(END - H);
+  });
+
+  it('FR-COLL-06: more rows than a page in the smallest window are read by offset until every key is seen', async () => {
+    const same = Array.from({ length: 150 }, (_, i) =>
+      ti({ taskId: `burst_${i}`, updatedAt: T0 - 20 * MIN }),
+    );
+    const airflow = new FakeAirflow({ tis: same });
+    const store = new MemoryStore();
+    const collector = afFactsCollector();
+    const ctx = fakeContext({ airflow, store, shared });
+    for (let i = 0; i < 6 && store.commits.at(-1)?.watermark !== END; i++) await collector.collect(ctx);
+    expect(store.tries.size).toBe(150);
+    expect(store.commits.at(-1)?.watermark).toBe(END);
+    expect(airflow.tiQueries.some((q) => q.offset === 100)).toBe(true);
+  });
+
+  it('FR-COLL-06: an exhausted budget mid-window commits nothing past the last complete window', async () => {
+    const tis = spread(350, END - H + MIN, END - MIN);
+    const airflow = new FakeAirflow({ tis }, new Budget('airflow', 3));
+    const store = new MemoryStore();
+    const ctx = fakeContext({ airflow, store, shared });
+    const result = await afFactsCollector().collect(ctx);
+
+    expect(ctx.fidelity).toHaveLength(1);
+    const mark = store.commits.at(-1)?.watermark ?? null;
+    if (mark !== null) {
+      expect(mark).toBeLessThan(END);
+      // Every row up to the watermark is stored; none after it.
+      const expected = tis.filter((t) => t.updatedAt <= mark).map((t) => t.taskId);
+      expect([...store.tries.keys()].length).toBe(expected.length);
+      expect(result.dataAsOf).toBe(mark);
+    } else expect(store.tries.size).toBe(0);
+
+    airflow.budget.limit = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < 4 && store.commits.at(-1)?.watermark !== END; i++)
+      await afFactsCollector().collect(ctx);
+    expect(store.tries.size).toBe(350);
+  });
+
+  it('FR-COLL-08: refuses an Airflow 3 environment', async () => {
+    const ctx = fakeContext({ airflow: new FakeAirflow(), shared: { ...shared, airflowVersion: '3.1.8' } });
+    await expect(afFactsCollector().collect(ctx)).rejects.toMatchObject({ kind: 'unsupported' });
+  });
+
+  it('FR-COLL-01: declares a standard Airflow facts collector', () => {
+    expect(afFactsCollector().manifest).toMatchObject({
+      id: 'af.facts',
+      source: 'SRC-AF-API',
+      api: 'airflow',
+      cadence: 'airflowFacts',
+      priority: 'standard',
+      outputs: ['tries'],
+      sourceKinds: ['composer', 'airflow'],
+    });
+  });
+});
