@@ -39,6 +39,24 @@ export interface StoredTaskTry extends TaskTry {
   readonly endEstimated?: boolean;
 }
 
+/**
+ * How much of the non-terminal task instances a live snapshot read. Spec §7.5: "when a state has more rows
+ * than the page budget allows, the rows read are a sample and are labelled as such".
+ */
+export interface SnapshotCoverage {
+  /** Task instance tries read. */
+  readonly read: number;
+  /** Task instances in the states read, from `total_entries`; `null` when a page could not be read. */
+  readonly total: number | null;
+  /** `true` when every non-terminal task instance was read; otherwise the snapshot is a sample. */
+  readonly complete: boolean;
+}
+
+/** A live snapshot as collected and stored. `coverage` is absent on demo snapshots, which are complete. */
+export interface StoredLiveSnapshot extends LiveSnapshot {
+  readonly coverage?: SnapshotCoverage;
+}
+
 /** Fact storage for task instance tries (spec §11.7). Upserts are idempotent on the natural key. */
 export interface TaskInstanceStore {
   /**

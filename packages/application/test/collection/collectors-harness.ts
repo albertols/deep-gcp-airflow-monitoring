@@ -3,7 +3,7 @@
  * Composer and Monitoring sources with a request budget, and a {@link CollectorContext} that records
  * reduced fidelity and series counts. Fictitious `acme_*` data only.
  */
-import type { DagMeta, EnvironmentConfig, LiveSnapshot, PlatformHealth, WorkerSample } from '@dcam/domain';
+import type { DagMeta, EnvironmentConfig, PlatformHealth, WorkerSample } from '@dcam/domain';
 import {
   SourceError,
   type AirflowApi,
@@ -17,6 +17,7 @@ import {
   type MetricQuery,
   type MetricSeries,
   type MonitoringApi,
+  type StoredLiveSnapshot,
   type StoredTaskTry,
   type TaskInstanceQuery,
   type TryKey,
@@ -56,7 +57,7 @@ export class MemoryStore implements CollectionStore {
   readonly configs = new Map<string, EnvironmentConfig>();
   readonly dagSets = new Map<string, DagMeta[]>();
   readonly health = new Map<string, PlatformHealth>();
-  readonly snaps: LiveSnapshot[] = [];
+  readonly snaps: StoredLiveSnapshot[] = [];
   readonly samples = new Map<number, WorkerSample>();
   readonly tries = new Map<string, StoredTaskTry>();
   readonly ready = new Map<string, number>();
@@ -125,7 +126,7 @@ export class MemoryStore implements CollectionStore {
   async dags(envId: string): Promise<DagMeta[]> {
     return [...(this.dagSets.get(envId) ?? [])];
   }
-  async snapshots(_envId: string, from: number, to: number): Promise<LiveSnapshot[]> {
+  async snapshots(_envId: string, from: number, to: number): Promise<StoredLiveSnapshot[]> {
     return this.snaps.filter((s) => s.at >= from && s.at < to).sort((a, b) => a.at - b.at);
   }
   async workerSamples(_envId: string, from: number, to: number): Promise<WorkerSample[]> {
@@ -144,7 +145,7 @@ export class MemoryStore implements CollectionStore {
   async savePlatformHealth(envId: string, health: PlatformHealth): Promise<void> {
     this.health.set(envId, health);
   }
-  async saveSnapshot(_envId: string, snapshot: LiveSnapshot): Promise<void> {
+  async saveSnapshot(_envId: string, snapshot: StoredLiveSnapshot): Promise<void> {
     this.snaps.push(snapshot);
   }
   async saveWorkerSamples(_envId: string, samples: readonly WorkerSample[]): Promise<void> {

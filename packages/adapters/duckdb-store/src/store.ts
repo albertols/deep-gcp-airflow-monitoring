@@ -16,8 +16,14 @@ import {
   type DuckDBConnection,
   type DuckDBValue,
 } from '@duckdb/node-api';
-import type { DagMeta, EnvironmentConfig, LiveSnapshot, PlatformHealth, WorkerSample } from '@dcam/domain';
-import type { CollectionStore, StoredTaskTry, TaskInstanceStore, TryKey } from '@dcam/ports';
+import type { DagMeta, EnvironmentConfig, PlatformHealth, WorkerSample } from '@dcam/domain';
+import type {
+  CollectionStore,
+  StoredLiveSnapshot,
+  StoredTaskTry,
+  TaskInstanceStore,
+  TryKey,
+} from '@dcam/ports';
 import { MIGRATIONS, type Migration } from './migrations';
 
 /** Bump when a migration cannot be read by older DCAM versions. */
@@ -406,7 +412,8 @@ export class DuckDbStore implements Store, CollectionStore {
     });
   }
 
-  saveSnapshot(envId: string, snapshot: LiveSnapshot): Promise<void> {
+  /** The snapshot, with its coverage when it has one, is stored as JSON. */
+  saveSnapshot(envId: string, snapshot: StoredLiveSnapshot): Promise<void> {
     return this.write(async (con) => {
       await con.run(`INSERT OR REPLACE INTO fact.live_snapshot VALUES ($1, to_timestamp($2), $3)`, [
         envId,
@@ -525,7 +532,7 @@ export class DuckDbStore implements Store, CollectionStore {
     }));
   }
 
-  async snapshots(envId: string, from: number, to: number): Promise<LiveSnapshot[]> {
+  async snapshots(envId: string, from: number, to: number): Promise<StoredLiveSnapshot[]> {
     const rows = await this.rows(
       `SELECT payload FROM fact.live_snapshot
        WHERE env_id = $1 AND taken_at >= to_timestamp($2) AND taken_at < to_timestamp($3) ORDER BY taken_at`,
@@ -541,7 +548,7 @@ export class DuckDbStore implements Store, CollectionStore {
           dagActive: 'object',
           executor: 'object',
           workers: 'object',
-        }) as unknown as LiveSnapshot,
+        }) as unknown as StoredLiveSnapshot,
     );
   }
 

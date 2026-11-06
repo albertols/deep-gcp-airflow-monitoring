@@ -3,8 +3,8 @@
  *
  * @implements FR-COLL-03, FR-STORE-01, FR-STORE-06
  */
-import type { DagMeta, EnvironmentConfig, LiveSnapshot, PlatformHealth, WorkerSample } from '@dcam/domain';
-import type { EnvironmentModelSource, TaskInstanceStore } from './store';
+import type { DagMeta, EnvironmentConfig, PlatformHealth, WorkerSample } from '@dcam/domain';
+import type { EnvironmentModelSource, StoredLiveSnapshot, TaskInstanceStore } from './store';
 
 /** Identity of one task instance try (the natural key of the task-instance fact table). */
 export interface TryKey {
@@ -23,7 +23,10 @@ export interface CollectionStore extends TaskInstanceStore, EnvironmentModelSour
   saveConfig(envId: string, config: EnvironmentConfig): Promise<void>;
   saveDags(envId: string, dags: readonly DagMeta[]): Promise<void>;
   savePlatformHealth(envId: string, health: PlatformHealth): Promise<void>;
-  saveSnapshot(envId: string, snapshot: LiveSnapshot): Promise<void>;
+  /** Stores the snapshot with its coverage, so that history tells a sample from a complete snapshot. */
+  saveSnapshot(envId: string, snapshot: StoredLiveSnapshot): Promise<void>;
+  /** Snapshots with `from <= at < to`, oldest first, with the coverage they were stored with. */
+  snapshots(envId: string, from: number, to: number): Promise<StoredLiveSnapshot[]>;
   /** Upserts by `at` (one sample per minute; a re-read trailing window replaces its points). */
   saveWorkerSamples(envId: string, samples: readonly WorkerSample[]): Promise<void>;
   /**

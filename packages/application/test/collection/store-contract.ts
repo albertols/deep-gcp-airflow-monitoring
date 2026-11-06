@@ -5,7 +5,13 @@
  * Fictitious `acme_*` data only.
  */
 import type { ExpectStatic } from 'vitest';
-import type { CollectionStore, StoredTaskTry, TryKey } from '@dcam/ports';
+import type {
+  CollectionStore,
+  SnapshotCoverage,
+  StoredLiveSnapshot,
+  StoredTaskTry,
+  TryKey,
+} from '@dcam/ports';
 
 export interface StoreContractCase {
   readonly name: string;
@@ -157,6 +163,30 @@ export const STORE_CONTRACT: readonly StoreContractCase[] = [
       await store.upsertTaskTries([runningRow({ taskId: 'flaky', startAt: T0 + 3 * MIN })]);
       await store.upsertTaskTries([tryRow({ taskId: 'flaky', tryNumber: 2, queuedAt: T0 - 10 * MIN })]);
       expect((await all(store)).get('flaky#1')).toMatchObject({ endAt: T0 + 3 * MIN, endEstimated: true });
+    },
+  },
+  {
+    name: 'FR-COLL-06: a live snapshot keeps its coverage, so history tells a sample from a complete one',
+    async run(store, expect) {
+      const snapshot = (at: number, coverage?: SnapshotCoverage): StoredLiveSnapshot => ({
+        at,
+        scheduled: [],
+        queued: [],
+        pools: [{ name: 'default_pool', slots: 128, running: 3, queued: 1, open: 124 }],
+        dagActive: { acme_orders_daily: 4 },
+        executor: { running: 3, queued: 1 },
+        workers: { current: 2, target: 2 },
+        ...(coverage ? { coverage } : {}),
+      });
+      await store.saveSnapshot(ENV, snapshot(T0, { read: 100, total: 480, complete: false }));
+      await store.saveSnapshot(ENV, snapshot(T0 + 30 * S, { read: 6, total: 6, complete: true }));
+      await store.saveSnapshot(ENV, snapshot(T0 + 60 * S));
+      const stored = await store.snapshots(ENV, T0, T0 + MIN + 1);
+      expect(stored.map((s) => s.coverage)).toEqual([
+        { read: 100, total: 480, complete: false },
+        { read: 6, total: 6, complete: true },
+        undefined,
+      ]);
     },
   },
   {

@@ -339,25 +339,112 @@ describe('FR-COLL-06 af.live within the budget', () => {
       ti({ taskId: `t_${state}_${i}`, state, startAt: state === 'running' ? T0 - MIN : null, endAt: null }),
     );
 
-  it('FR-COLL-06: stops at the page cap, labels the snapshot a sample and takes executor counts from Monitoring', async () => {
+  /** A busy moment: more waiting and running task instances than two pages hold, rows of every state mixed. */
+  const busy = () => {
+    const [q, r, s] = [crowd(300, 'queued'), crowd(120, 'running'), crowd(60, 'scheduled')];
+    return Array.from({ length: 300 }, (_, i) => [q[i], r[i], s[i]])
+      .flat()
+      .filter((t) => t !== undefined);
+  };
+  const sample = {
+    at: T0 - 3 * MIN,
+    workers: 6,
+    target: 6,
+    running: 118,
+    queued: 290,
+    cpu: 0.9,
+    memory: 0.6,
+  };
+
+  it('FR-COLL-06: a snapshot that fits one page costs /pools and that page, and says it is complete', async () => {
+    const airflow = new FakeAirflow({ tis: liveRows(), pools: livePools() });
+    const store = new MemoryStore();
+    const ctx = fakeContext({ airflow, store, shared });
+    await afLiveCollector().collect(ctx);
+    expect(airflow.calls).toEqual(['pools', 'taskInstances']);
+    expect(store.snaps[0]?.coverage).toEqual({ read: 6, total: 6, complete: true });
+    expect(ctx.fidelity).toEqual([]);
+  });
+
+  it('FR-COLL-06: reads at most /pools and two pages a cycle (spec §7.5), the second for the queued state', async () => {
+    const airflow = new FakeAirflow({ tis: busy(), pools: livePools() });
+    const live = afLiveCollector();
+    await live.collect(fakeContext({ airflow, shared }));
+    expect(live.manifest.maxRequestsPerCycle).toBe(3);
+    expect(airflow.calls).toEqual(['pools', 'taskInstances', 'taskInstances']);
+    expect(airflow.tiQueries).toEqual([
+      { states: ['scheduled', 'queued', 'running'], limit: 100, offset: 0 },
+      { states: ['queued'], limit: 100, offset: 0 },
+    ]);
+  });
+
+  it('FR-COLL-06: a sample is labelled with its coverage, its queued count is exact and its running count comes from Monitoring', async () => {
+    const airflow = new FakeAirflow({ tis: busy(), pools: livePools() });
+    const store = new MemoryStore();
+    await store.saveWorkerSamples('acme-prod', [sample]);
+    const ctx = fakeContext({ airflow, store, shared });
+    await afLiveCollector().collect(ctx);
+    const s = store.snaps[0];
+    // The first page holds 34 queued, 33 running and 33 scheduled rows; the queued page adds 66 more queued.
+    expect(s?.coverage).toEqual({ read: 166, total: 480, complete: false });
+    expect(s?.queued).toHaveLength(100);
+    // Queued from `total_entries` of the queued page; running from the fresh Cloud Monitoring sample.
+    expect(s?.executor).toEqual({ queued: 300, running: 118 });
+    expect(ctx.fidelity).toEqual([expect.stringMatching(/read 166 of 480 .* it is a sample/)]);
+  });
+
+  it('FR-COLL-06: while the snapshot is a sample, the next cycle reads queued first, then scheduled and running', async () => {
+    const airflow = new FakeAirflow({ tis: busy(), pools: livePools() });
+    const live = afLiveCollector();
+    const ctx = fakeContext({ airflow, shared });
+    await live.collect(ctx);
+    ctx.advance(30_000);
+    await live.collect(ctx);
+    expect(airflow.tiQueries.slice(2)).toEqual([
+      { states: ['queued'], limit: 100, offset: 0 },
+      { states: ['scheduled', 'running'], limit: 100, offset: 0 },
+    ]);
+    expect(airflow.calls).toHaveLength(6);
+  });
+
+  it('HM-003: when only the queued state overflows, the running set is complete and ends the tries it no longer lists', async () => {
+    const running = (taskId: string) => ti({ taskId, state: 'running', startAt: T0 - MIN, endAt: null });
     const airflow = new FakeAirflow({
-      tis: [...crowd(300, 'queued'), ...crowd(300, 'running')],
+      tis: [...crowd(300, 'queued'), running('run_a'), running('run_b')],
       pools: livePools(),
     });
     const store = new MemoryStore();
-    await store.saveWorkerSamples('acme-prod', [
-      { at: T0 - 3 * MIN, workers: 6, target: 6, running: 300, queued: 310, cpu: 0.9, memory: 0.6 },
-    ]);
     const live = afLiveCollector();
     const ctx = fakeContext({ airflow, store, shared });
     await live.collect(ctx);
-    expect(airflow.calls.length).toBe(live.manifest.maxRequestsPerCycle);
-    expect(airflow.tiQueries.every((q) => q.limit <= 100)).toBe(true);
-    expect(ctx.fidelity).toHaveLength(1);
-    const s = store.snaps[0];
-    const read = (s?.queued.length ?? 0) + Object.values(s?.dagActive ?? {}).reduce((a, b) => a + b, 0);
-    expect(read).toBeGreaterThan(0);
-    expect(s?.executor).toEqual({ running: 300, queued: 310 });
+    ctx.advance(30_000);
+    await live.collect(ctx);
+    airflow.data.tis = [...crowd(300, 'queued'), running('run_b')];
+    ctx.advance(30_000);
+    await live.collect(ctx);
+    const s = store.snaps.at(-1);
+    expect(s?.coverage).toEqual({ read: 101, total: 301, complete: false });
+    expect(s?.executor.running).toBe(1);
+    const tries = new Map((await store.taskTries('acme-prod', T0 - MIN, T0 + MIN)).map((t) => [t.taskId, t]));
+    expect(tries.get('run_a')).toMatchObject({ endAt: T0 + 30_000, endEstimated: true });
+    expect(tries.get('run_b')).toMatchObject({ endAt: null });
+  });
+
+  it('FR-COLL-06: once everything fits again, the next cycle is one page', async () => {
+    const airflow = new FakeAirflow({ tis: busy(), pools: livePools() });
+    const live = afLiveCollector();
+    const ctx = fakeContext({ airflow, shared });
+    await live.collect(ctx);
+    airflow.data.tis = liveRows();
+    ctx.advance(30_000);
+    await live.collect(ctx);
+    ctx.advance(30_000);
+    await live.collect(ctx);
+    expect(airflow.tiQueries.slice(2).map((q) => q.states)).toEqual([
+      ['queued'],
+      ['scheduled', 'running'],
+      ['scheduled', 'queued', 'running'],
+    ]);
   });
 
   it('FR-COLL-06: an exhausted budget after the first page still saves the snapshot it has', async () => {
