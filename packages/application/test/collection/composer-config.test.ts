@@ -92,6 +92,21 @@ describe('FR-COLL-09 composer.config', () => {
     });
   });
 
+  it('FR-COLL-09: a core-parallelism override of 0 (unlimited in Airflow) is unknown, never a limit of 0', async () => {
+    const store = new MemoryStore();
+    const composer = new FakeComposer(
+      composerEnv({
+        airflowConfigOverrides: { 'core-parallelism': '0', 'core-max_active_runs_per_dag': '4' },
+      }),
+    );
+    await composerConfigCollector().collect(fakeContext({ store, composer }));
+    expect(await store.config('acme-prod')).toMatchObject({
+      parallelism: UNKNOWN_LIMIT,
+      maxActiveRunsPerDag: 4,
+      limitSources: { parallelism: 'unknown', maxActiveRunsPerDag: 'override' },
+    });
+  });
+
   it('FR-COLL-09: keeps the pools af.live learned, from the stored config or else the newest snapshot', async () => {
     const store = new MemoryStore();
     store.snaps.push({

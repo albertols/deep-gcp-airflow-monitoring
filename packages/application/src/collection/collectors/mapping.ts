@@ -79,6 +79,15 @@ export function assertAirflow2(version: string | null): void {
 /** Refuses Airflow 3 once any collector has learned the version (FR-COLL-08). */
 export const assertSupported = (ctx: CollectorContext) => assertAirflow2(ctx.shared.airflowVersion);
 
+/**
+ * `[core] parallelism` 0 is no limit: "Setting this value to zero allows unlimited parallelism" (Airflow
+ * 2.11.1 configuration reference, https://airflow.apache.org/docs/apache-airflow/2.11.1/configurations-ref.html,
+ * generated from `airflow/config_templates/config.yml`, checked at tag 2.11.1 on 2026-11-07). DCAM has
+ * no "unlimited" limit source, so such an override counts as unknown: no signal treats it as binding,
+ * and the workers' slots bound the work instead.
+ */
+const UNLIMITED_AT_ZERO: ReadonlySet<string> = new Set(['core-parallelism']);
+
 /** A non-negative integer override such as `core-parallelism: "48"`, or `null`. */
 function intOverride(overrides: Readonly<Record<string, string>>, key: string): number | null {
   const raw = overrides[key];
@@ -102,7 +111,8 @@ export function configFromComposer(
   const o = env.airflowConfigOverrides;
   const sources: Partial<Record<LimitKey, LimitSource>> = {};
   const pick = (key: LimitKey, override: string, fallback: number, source: LimitSource) => {
-    const v = intOverride(o, override);
+    const raw = intOverride(o, override);
+    const v = raw === 0 && UNLIMITED_AT_ZERO.has(override) ? null : raw;
     sources[key] = v === null ? source : 'override';
     return v ?? fallback;
   };
