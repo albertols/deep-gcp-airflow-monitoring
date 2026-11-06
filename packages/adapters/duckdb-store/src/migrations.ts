@@ -134,4 +134,18 @@ export const MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    // Estimated ends of tries that stopped showing as running before their finished row was read (HM-003,
+    // FR-COLL-03), and when DCAM last saw a try running: the earliest its end can be.
+    id: '0005_estimated_end',
+    sql: `
+      ALTER TABLE fact.task_instance ADD COLUMN end_estimated BOOLEAN DEFAULT false;
+      ALTER TABLE fact.task_instance ADD COLUMN seen_running_at TIMESTAMPTZ;
+      ALTER TABLE meta.staging_task_instance ADD COLUMN end_estimated BOOLEAN;
+      ALTER TABLE meta.staging_task_instance ADD COLUMN seen_running_s DOUBLE;
+      CREATE TABLE meta.staging_try_key (
+        dag_id VARCHAR, run_id VARCHAR, task_id VARCHAR, map_index INTEGER, try_number INTEGER
+      );
+    `,
+  },
 ];

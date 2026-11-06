@@ -92,10 +92,11 @@ describe('FR-STORE-01 / FR-COLL-03 file store in the data directory (§17.5)', {
       if (n === 3) writeFileSync(join(dataDir, 'backups', 'notes.txt'), 'kept by the user\n');
       store.close();
     }
+    // Each open backs up the file as it was: last applied LATER[n - 2], one minute after the previous open.
     expect(backupsOf(dataDir)).toEqual([
-      'dcam-20261105T080200000Z-from-0003_ready_operator.duckdb',
-      'dcam-20261105T080300000Z-from-0004_collection.duckdb',
-      'dcam-20261105T080400000Z-from-9001_test.duckdb',
+      `dcam-20261105T080200000Z-from-${LATER[2]?.id}.duckdb`,
+      `dcam-20261105T080300000Z-from-${LATER[3]?.id}.duckdb`,
+      `dcam-20261105T080400000Z-from-${LATER[4]?.id}.duckdb`,
     ]);
     expect(existsSync(join(dataDir, 'backups', 'notes.txt'))).toBe(true);
   });

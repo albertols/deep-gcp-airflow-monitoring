@@ -6,7 +6,7 @@
  * time on a dedicated connection, each in its own transaction, so concurrent collectors never share (or roll
  * back) each other's work (FR-STORE-06). Reads use a second connection and see committed data only.
  *
- * @implements FR-STORE-01, FR-STORE-06, FR-COLL-03, NFR-PORT-04, HM-006
+ * @implements FR-STORE-01, FR-STORE-06, FR-COLL-03, NFR-PORT-04, HM-003 (estimated ends), HM-006
  */
 import {
   DuckDBInstance,
@@ -216,9 +216,18 @@ export class DuckDbStore implements Store, CollectionStore {
   }
 
   /**
-   * Stages `rows` and upserts them into `fact.task_instance` inside the caller's transaction. The last row wins
-   * when a batch repeats a natural key. A row without `readyAt` takes the first-seen ready time, else keeps the
-   * ready time the stored try already has: an unknown value never erases a known one (HM-006).
+   * Stages `rows` and upserts them into `fact.task_instance` inside the caller's transaction, by the rules of
+   * `TaskInstanceStore.upsertTaskTries`:
+   *
+   * - When a batch repeats a natural key, a row with a true end wins, else the last row.
+   * - A row without an end never replaces a stored try whose end is true: `af.live` reads a running try,
+   *   `af.facts` commits its finished row, then the running row arrives (FR-COLL-03). An estimated end is
+   *   replaced, so a try that runs again (resumed from deferral) is open again.
+   * - A row without `readyAt` takes the first-seen ready time, else keeps the ready time the stored try already
+   *   has: an unknown value never erases a known one (HM-006).
+   * - Then every try of the batch's task instances that is still open while a later try exists ends at the
+   *   later try's earliest known time (never before it started or was last seen running), estimated: a failed
+   *   try rescheduled before `af.facts` read its row is no longer in the task instance list (HM-003).
    */
   private async mergeTries(con: DuckDBConnection, rows: readonly StoredTaskTry[]): Promise<void> {
     await con.run('DELETE FROM meta.staging_task_instance');
@@ -238,21 +247,75 @@ export class DuckDbStore implements Store, CollectionStore {
       double(a, seconds(r.sourceUpdatedAt));
       double(a, seconds(r.readyAt));
       text(a, r.operator);
+      a.appendBoolean(r.endEstimated ?? false);
+      double(a, seconds(r.seenRunningAt ?? null));
     });
+    const trueEnd = (t: string) => `(${t}.end_at IS NOT NULL AND NOT coalesce(${t}.end_estimated, false))`;
     await con.run(
       `INSERT OR REPLACE INTO fact.task_instance
          (env_id, dag_id, run_id, task_id, map_index, try_number, state, pool, pool_slots,
-          queued_at, start_at, end_at, source_updated_at, ingested_at, ready_at, operator)
+          queued_at, start_at, end_at, source_updated_at, ingested_at, ready_at, operator, end_estimated,
+          seen_running_at)
        SELECT s.env_id, s.dag_id, s.run_id, s.task_id, s.map_index, s.try_number, s.state, s.pool, s.pool_slots,
               to_timestamp(s.queued_s), to_timestamp(s.start_s), to_timestamp(s.end_s), to_timestamp(s.updated_s),
-              to_timestamp($1), coalesce(to_timestamp(s.ready_s), r.ready_at, f.ready_at), s.operator
+              to_timestamp($1), coalesce(to_timestamp(s.ready_s), r.ready_at, f.ready_at), s.operator,
+              s.end_estimated, to_timestamp(s.seen_running_s)
        FROM meta.staging_task_instance s
        LEFT JOIN fact.ready_time r ON ${sameTry('r', 's')}
        LEFT JOIN fact.task_instance f ON ${sameTry('f', 's')}
-       QUALIFY row_number() OVER (PARTITION BY ${TRY_KEY.map((c) => `s.${c}`).join(', ')} ORDER BY s.rowid DESC) = 1`,
+       WHERE NOT (s.end_s IS NULL AND ${trueEnd('f')})
+       QUALIFY row_number() OVER (
+         PARTITION BY ${TRY_KEY.map((c) => `s.${c}`).join(', ')}
+         ORDER BY (s.end_s IS NOT NULL AND NOT s.end_estimated) DESC, s.rowid DESC) = 1`,
       [seconds(this.now())],
     );
+    const sameInstance = (a: string, b: string) =>
+      TRY_KEY.filter((c) => c !== 'try_number')
+        .map((c) => `${a}.${c} = ${b}.${c}`)
+        .join(' AND ');
+    await con.run(
+      `UPDATE fact.task_instance AS p
+       SET end_at = e.end_at, end_estimated = true, state = CASE WHEN p.state = 'running' THEN NULL ELSE p.state END
+       FROM (
+         SELECT o.env_id, o.dag_id, o.run_id, o.task_id, o.map_index, o.try_number,
+                greatest(any_value(o.start_at), any_value(o.seen_running_at),
+                         min(least(n.ready_at, n.queued_at, n.start_at, n.end_at))) AS end_at
+         FROM fact.task_instance o
+         JOIN fact.task_instance n ON ${sameInstance('n', 'o')} AND n.try_number > o.try_number
+         WHERE o.end_at IS NULL
+           AND EXISTS (SELECT 1 FROM meta.staging_task_instance s WHERE ${sameInstance('s', 'o')})
+         GROUP BY o.env_id, o.dag_id, o.run_id, o.task_id, o.map_index, o.try_number
+         HAVING min(least(n.ready_at, n.queued_at, n.start_at, n.end_at)) IS NOT NULL
+       ) e
+       WHERE ${sameTry('p', 'e')}`,
+    );
     await con.run('DELETE FROM meta.staging_task_instance');
+  }
+
+  async closeRunningTries(envId: string, running: readonly TryKey[], at: number): Promise<void> {
+    await this.write(async (con) => {
+      await con.run('DELETE FROM meta.staging_try_key');
+      await append(con, 'staging_try_key', running, (a, k) => {
+        text(a, k.dagId);
+        text(a, k.runId);
+        text(a, k.taskId);
+        integer(a, k.mapIndex);
+        integer(a, k.tryNumber);
+      });
+      await con.run(
+        `UPDATE fact.task_instance AS p
+         SET end_at = greatest(p.start_at, coalesce(p.seen_running_at, to_timestamp($2))), end_estimated = true,
+             state = NULL
+         WHERE p.env_id = $1 AND p.end_at IS NULL AND p.state = 'running'
+           AND NOT EXISTS (
+             SELECT 1 FROM meta.staging_try_key k
+             WHERE ${TRY_KEY.filter((c) => c !== 'env_id')
+               .map((c) => `k.${c} = p.${c}`)
+               .join(' AND ')})`,
+        [envId, seconds(at)],
+      );
+      await con.run('DELETE FROM meta.staging_try_key');
+    });
   }
 
   async taskTries(envId: string, from: number, to: number): Promise<StoredTaskTry[]> {
@@ -260,7 +323,8 @@ export class DuckDbStore implements Store, CollectionStore {
       `SELECT env_id, dag_id, run_id, task_id, map_index, try_number, state, pool, pool_slots,
               epoch_ms(queued_at)::DOUBLE AS queued_at, epoch_ms(start_at)::DOUBLE AS start_at,
               epoch_ms(end_at)::DOUBLE AS end_at, epoch_ms(source_updated_at)::DOUBLE AS source_updated_at,
-              epoch_ms(ready_at)::DOUBLE AS ready_at, operator
+              epoch_ms(ready_at)::DOUBLE AS ready_at, operator, coalesce(end_estimated, false) AS end_estimated,
+              epoch_ms(seen_running_at)::DOUBLE AS seen_running_at
        FROM fact.task_instance
        WHERE env_id = $1 AND start_at IS NOT NULL AND start_at < to_timestamp($3)
          AND (end_at IS NULL OR end_at > to_timestamp($2))`,
@@ -593,5 +657,7 @@ function toTry(r: Row): StoredTaskTry {
     sourceUpdatedAt: num(r['source_updated_at']),
     readyAt: num(r['ready_at']),
     operator: r['operator'] === null ? null : str(r['operator']),
+    seenRunningAt: num(r['seen_running_at']),
+    endEstimated: bool(r['end_estimated']),
   };
 }

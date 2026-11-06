@@ -26,10 +26,29 @@ export interface StoredTaskTry extends TaskTry {
   readonly operator: string | null;
   /** Source `updated_at`, used as the incremental watermark (FR-COLL-03). */
   readonly sourceUpdatedAt: number | null;
+  /**
+   * When DCAM last saw the try running (the time of an `af.live` snapshot that listed it): the earliest its
+   * end can be. Absent or `null` for tries read finished.
+   */
+  readonly seenRunningAt?: number | null;
+  /**
+   * `true` when `endAt` is DCAM's estimate, not the source's: the try stopped showing as running (or a later
+   * try of its task instance appeared) before its finished row was read. The finished row replaces it
+   * (FR-COLL-03, HM-003). Absent means `false`.
+   */
+  readonly endEstimated?: boolean;
 }
 
 /** Fact storage for task instance tries (spec §11.7). Upserts are idempotent on the natural key. */
 export interface TaskInstanceStore {
+  /**
+   * Upserts on the natural key; when a batch repeats a key, a row with a true end wins, else the last row.
+   * A row without `endAt` never replaces a stored try whose end is true (not estimated): a running row read
+   * before the try finished must not undo its finished row. Afterwards, a stored try still open while a
+   * later try of its task instance exists ends at that try's earliest known time (ready, queued or
+   * start), estimated: a failed try rescheduled before its own row was read would otherwise run forever.
+   * A row without `readyAt` takes the recorded first-seen ready time, else keeps the stored one.
+   */
   upsertTaskTries(rows: readonly StoredTaskTry[]): Promise<void>;
   /** Tries of one environment whose running interval overlaps [from, to), or that are still running. */
   taskTries(envId: string, from: number, to: number): Promise<StoredTaskTry[]>;

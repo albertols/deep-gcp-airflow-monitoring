@@ -84,7 +84,7 @@ describe('HM-006 af.live snapshot', () => {
     await live.collect(ctx);
     expect(store.snaps[1]?.scheduled.find((x) => x.taskId === 'wait_a')?.since).toBe(T0);
     expect(store.snaps[1]?.queued.find((x) => x.taskId === 'queued_a')?.since).toBe(T0 - 2 * MIN);
-    const key = (taskId: string) => ['acme_orders_daily', RUN, taskId, -1, 1].join('|');
+    const key = (taskId: string) => ['acme-prod', 'acme_orders_daily', RUN, taskId, -1, 1].join('|');
     expect(store.ready.get(key('wait_a'))).toBe(T0);
     expect(store.ready.get(key('wait_b'))).toBe(T0);
     expect(store.ready.has(key('queued_a'))).toBe(false);

@@ -27,6 +27,13 @@ export interface CollectionStore extends TaskInstanceStore, EnvironmentModelSour
   /** Upserts by `at` (one sample per minute; a re-read trailing window replaces its points). */
   saveWorkerSamples(envId: string, samples: readonly WorkerSample[]): Promise<void>;
   /**
+   * `running` is every try running at `at`, from a live snapshot that read all of them. Every other stored
+   * try of the environment still open in state `running` has finished: it ends when DCAM last saw it
+   * running (`seenRunningAt`, else `at`), estimated and with state `null`, until `af.facts` stores its
+   * finished row (FR-COLL-03, HM-003).
+   */
+  closeRunningTries(envId: string, running: readonly TryKey[], at: number): Promise<void>;
+  /**
    * Records when tries were first seen ready (`scheduled`), keeping the earliest time per try. Tries
    * stored later get this as `readyAt` (Airflow 2.11 records no scheduled timestamp, HM-001/HM-006).
    */

@@ -40,6 +40,17 @@ const NO_HEALTH: PlatformHealth = {
 };
 
 const tryKey = (k: TryKey) => `${k.dagId}|${k.runId}|${k.taskId}|${k.mapIndex}|${k.tryNumber}`;
+/** Keys of {@link MemoryStore.tries} and {@link MemoryStore.ready}: per environment, as DuckDB keys them. */
+export const storeKey = (envId: string, k: TryKey) => `${envId}|${tryKey(k)}`;
+const instanceKey = (t: StoredTaskTry) => `${t.envId}|${t.dagId}|${t.runId}|${t.taskId}|${t.mapIndex}`;
+/** A true end: the source's, not DCAM's estimate. */
+const trueEnd = (t: StoredTaskTry) => t.endAt !== null && t.endEstimated !== true;
+const known = (xs: ReadonlyArray<number | null | undefined>) =>
+  xs.filter((x): x is number => typeof x === 'number');
+/** `least` and `greatest` as DuckDB has them: nulls are skipped, and none known is `null`. */
+const least = (...xs: Array<number | null | undefined>) => (known(xs).length ? Math.min(...known(xs)) : null);
+const greatest = (...xs: Array<number | null | undefined>) =>
+  known(xs).length ? Math.max(...known(xs)) : null;
 
 export class MemoryStore implements CollectionStore {
   readonly configs = new Map<string, EnvironmentConfig>();
@@ -53,10 +64,50 @@ export class MemoryStore implements CollectionStore {
   /** Every commitFacts call, for transaction assertions. */
   readonly commits: Array<{ rows: number; watermark: number }> = [];
 
+  /** The DuckDB store's rules (`TaskInstanceStore.upsertTaskTries`); `store-contract.ts` checks both. */
   async upsertTaskTries(rows: readonly StoredTaskTry[]): Promise<void> {
+    const batch = new Map<string, StoredTaskTry>();
     for (const r of rows) {
-      const k = tryKey(r);
-      this.tries.set(k, { ...r, readyAt: this.ready.get(k) ?? r.readyAt });
+      const k = storeKey(r.envId, r);
+      const earlier = batch.get(k);
+      if (!earlier || trueEnd(r) || !trueEnd(earlier)) batch.set(k, r);
+    }
+    for (const [k, r] of batch) {
+      const stored = this.tries.get(k);
+      if (r.endAt === null && stored && trueEnd(stored)) continue;
+      this.tries.set(k, {
+        ...r,
+        readyAt: r.readyAt ?? this.ready.get(k) ?? stored?.readyAt ?? null,
+        seenRunningAt: r.seenRunningAt ?? null,
+        endEstimated: r.endEstimated ?? false,
+      });
+    }
+    const touched = new Set([...batch.values()].map(instanceKey));
+    for (const [k, t] of this.tries) {
+      if (t.endAt !== null || !touched.has(instanceKey(t))) continue;
+      const later = [...this.tries.values()].filter(
+        (n) => instanceKey(n) === instanceKey(t) && n.tryNumber > t.tryNumber,
+      );
+      const next = least(...later.map((n) => least(n.readyAt, n.queuedAt, n.startAt, n.endAt)));
+      if (next === null) continue;
+      this.tries.set(k, {
+        ...t,
+        endAt: greatest(t.startAt, t.seenRunningAt, next),
+        endEstimated: true,
+        state: t.state === 'running' ? null : t.state,
+      });
+    }
+  }
+  async closeRunningTries(envId: string, running: readonly TryKey[], at: number): Promise<void> {
+    const still = new Set(running.map((k) => storeKey(envId, k)));
+    for (const [k, t] of this.tries) {
+      if (t.envId !== envId || t.endAt !== null || t.state !== 'running' || still.has(k)) continue;
+      this.tries.set(k, {
+        ...t,
+        endAt: greatest(t.startAt, t.seenRunningAt ?? at),
+        endEstimated: true,
+        state: null,
+      });
     }
   }
   async taskTries(envId: string, from: number, to: number): Promise<StoredTaskTry[]> {
@@ -99,10 +150,10 @@ export class MemoryStore implements CollectionStore {
   async saveWorkerSamples(_envId: string, samples: readonly WorkerSample[]): Promise<void> {
     for (const s of samples) this.samples.set(s.at, s);
   }
-  async recordReady(_envId: string, keys: readonly TryKey[], at: number): Promise<void> {
+  async recordReady(envId: string, keys: readonly TryKey[], at: number): Promise<void> {
     for (const k of keys) {
-      const prev = this.ready.get(tryKey(k));
-      this.ready.set(tryKey(k), prev === undefined ? at : Math.min(prev, at));
+      const prev = this.ready.get(storeKey(envId, k));
+      this.ready.set(storeKey(envId, k), prev === undefined ? at : Math.min(prev, at));
     }
   }
   async watermark(envId: string, collectorId: string): Promise<number | null> {
