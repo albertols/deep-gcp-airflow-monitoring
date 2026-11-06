@@ -7,11 +7,17 @@
  * Alerts are local and read-only: nothing here creates Cloud Monitoring policies or notification
  * channels (spec §18.2).
  *
+ * AL-17 "collection stale" checks the time series DCAM keeps: live snapshots (`af.live`) and worker
+ * samples (`mon.core`), each only while its collector is enabled for the environment (the live
+ * collection status says which; demo mode has both). A source without data since collection started
+ * is stale from that start; before DCAM collected anything there is nothing to alert on.
+ *
  * @implements FR-ALRT-01, FR-ALRT-02, FR-ALRT-06
  */
-import type { AlertEvent, AlertRule, Alerts, SourceId } from '@dcam/contracts';
+import type { AlertEvent, AlertRule, Alerts, Collection, SourceId } from '@dcam/contracts';
 import {
   evaluateAlert,
+  observedCadenceMs,
   percentile,
   quantile,
   type AlertCondition,
@@ -31,6 +37,8 @@ export interface AlertDeps {
   readonly store: TaskInstanceStore;
   readonly model: EnvironmentModelSource;
   readonly clock: Clock;
+  /** Live collection status (FR-COLL-11): which collectors run for each environment. Absent in demo mode. */
+  readonly collection?: () => Collection;
 }
 
 export interface AlertQuery {
@@ -48,8 +56,11 @@ export const ALERT_WINDOW_MS = DAY;
 const WARM_UP_MS = HOUR;
 /** One evaluation per minute (spec §16.2 allows at most one per 10 s). */
 export const EVALUATION_STEP_MS = MIN;
-/** `af.live` and worker-sample cadences of the standard profile (spec §7.7). */
-const SNAPSHOT_CADENCE_MS = 30 * SECOND;
+/**
+ * `af.live` cadence of the standard profile (spec §7.7), assumed only while fewer than two snapshots show
+ * the real one (10 s live, 120 s eco); worker samples are one minute apart.
+ */
+const DEFAULT_SNAPSHOT_CADENCE_MS = 30 * SECOND;
 const SAMPLE_CADENCE_MS = MIN;
 /** Staleness guard (spec §16.2): a source older than 3 × its cadence makes the rule unknown. */
 const STALE_AFTER_CADENCES = 3;
@@ -74,6 +85,10 @@ interface Signals {
   readonly samples: readonly WorkerSample[];
   readonly tries: readonly StoredTaskTry[];
   readonly health: PlatformHealth;
+  /** The observed `af.live` cadence, for the staleness guard of snapshot-based rules. */
+  readonly snapshotCadenceMs: number;
+  /** Time series whose collector is enabled for the environment (AL-17). */
+  readonly checked: { readonly snapshots: boolean; readonly samples: boolean };
 }
 
 /** A rule evaluated over a per-minute series. */
@@ -145,15 +160,47 @@ const samplePoints =
 
 const lastSample = (s: Signals) => isFresh(s.samples.at(-1), s.now, SAMPLE_CADENCE_MS);
 const NO_SAMPLE = 'No worker sample in the last 3 min, so DCAM cannot evaluate this rule.';
-const NO_SNAPSHOT = 'No live snapshot in the last 90 s, so DCAM cannot evaluate this rule.';
+const noSnapshot = (s: Signals) =>
+  `No live snapshot in the last ${durationText(STALE_AFTER_CADENCES * s.snapshotCadenceMs)}, so DCAM cannot evaluate this rule.`;
+
+type Times = readonly { readonly at: number }[];
+
+/** The time series AL-17 checks for this environment, oldest first. */
+function checkedTimes(s: Signals): Times[] {
+  const out: Times[] = [];
+  if (s.checked.snapshots) out.push(s.snapshots);
+  if (s.checked.samples) out.push(s.samples);
+  return out;
+}
+
+/** When collection started: the first item of any checked series; `null` before any. */
+function collectionStart(series: readonly Times[]): number | null {
+  const start = series.reduce((m, items) => Math.min(m, items[0]?.at ?? Infinity), Infinity);
+  return Number.isFinite(start) ? start : null;
+}
+
+/**
+ * AL-17 per grid time: minutes since the oldest latest item of the checked time series. A series
+ * without data since collection started (the first item of any checked series) counts from that start;
+ * before it, `null`: DCAM was not collecting, which is not an alert.
+ */
+function collectionAge(s: Signals): Array<number | null> {
+  const series = checkedTimes(s);
+  const start = collectionStart(series);
+  if (start === null) return s.grid.map(() => null);
+  const latest = series.map((items) => latestAt(items, s.grid));
+  return s.grid.map((t, i) =>
+    t < start ? null : round((t - Math.min(...latest.map((l) => l[i]?.at ?? start))) / MIN),
+  );
+}
 
 /** Per snapshot: the pool starved longest (no open slots while tasks wait for it) and for how long. */
-function starvation(snapshots: readonly LiveSnapshot[]) {
+function starvation(snapshots: readonly LiveSnapshot[], cadenceMs: number) {
   const since = new Map<string, number>();
   let previous: number | null = null;
   return snapshots.map((s) => {
     // A gap in collection breaks continuity: DCAM cannot claim the pool stayed starved.
-    if (previous !== null && s.at - previous > STALE_AFTER_CADENCES * SNAPSHOT_CADENCE_MS) since.clear();
+    if (previous !== null && s.at - previous > STALE_AFTER_CADENCES * cadenceMs) since.clear();
     previous = s.at;
     let pool: string | null = null;
     let minutes = 0;
@@ -177,16 +224,11 @@ function starvation(snapshots: readonly LiveSnapshot[]) {
  * wait so far (`t − queued`) of task instances still queued in the latest fresh snapshot. Without the
  * second part a queue where nothing starts would never alert (HM-001 live: now − queued_when).
  */
-function queueWaits(
-  tries: readonly StoredTaskTry[],
-  snapshots: readonly LiveSnapshot[],
-  grid: readonly number[],
-  windowMs: number,
-) {
-  const started = startedWaits(tries, grid, windowMs);
-  const latest = latestAt(snapshots, grid);
+function queueWaits(s: Signals, grid: readonly number[], windowMs: number) {
+  const started = startedWaits(s.tries, grid, windowMs);
+  const latest = latestAt(s.snapshots, grid);
   return grid.map((t, i) => {
-    const snap = isFresh(latest[i], t, SNAPSHOT_CADENCE_MS);
+    const snap = isFresh(latest[i], t, s.snapshotCadenceMs);
     const stillQueued = (snap?.queued ?? []).map((ti) => Math.max(0, t - ti.since) / SECOND);
     return {
       wait: quantile([...(started[i] ?? []), ...stillQueued], 0.95),
@@ -324,12 +366,12 @@ const DEFINITIONS: Readonly<Record<AlertRuleId, RuleDefinition>> = {
     unit: 's',
     rule: { comparator: '>=', threshold: 600, forMs: 0, clearForMs: CLEAR_FOR_MS, noData: 'keep_state' },
     points: (s) =>
-      queueWaits(s.tries, s.snapshots, s.grid, 15 * MIN).map((q, i) => ({
+      queueWaits(s, s.grid, 15 * MIN).map((q, i) => ({
         at: s.grid[i] as number,
         value: q.wait.value === null ? null : round(q.wait.value),
       })),
     summary: (s) => {
-      const q = queueWaits(s.tries, s.snapshots, [s.now], 15 * MIN)[0];
+      const q = queueWaits(s, [s.now], 15 * MIN)[0];
       if (!q || q.wait.value === null) return 'No task started in the last 15 min, and none is queued.';
       const low = q.wait.lowSample ? '; fewer than 20 waits, so this is the max' : '';
       const queued =
@@ -439,16 +481,16 @@ const DEFINITIONS: Readonly<Record<AlertRuleId, RuleDefinition>> = {
     // The value is the longest current starvation of one pool, so `for` is in the threshold.
     rule: { comparator: '>=', threshold: 30, forMs: 0, clearForMs: CLEAR_FOR_MS, noData: 'keep_state' },
     points: (s) => {
-      const streaks = starvation(s.snapshots);
+      const streaks = starvation(s.snapshots, s.snapshotCadenceMs);
       const latest = latestAt(streaks, s.grid);
       return s.grid.map((t, i) => {
-        const x = isFresh(latest[i], t, SNAPSHOT_CADENCE_MS);
+        const x = isFresh(latest[i], t, s.snapshotCadenceMs);
         return x ? { at: t, value: x.minutes } : { at: t, ...STALE };
       });
     },
     summary: (s) => {
-      const x = isFresh(starvation(s.snapshots).at(-1), s.now, SNAPSHOT_CADENCE_MS);
-      if (!x) return NO_SNAPSHOT;
+      const x = isFresh(starvation(s.snapshots, s.snapshotCadenceMs).at(-1), s.now, s.snapshotCadenceMs);
+      if (!x) return noSnapshot(s);
       return x.pool
         ? `Pool ${x.pool} has had no open slots while tasks waited for it for ${durationText(x.minutes * MIN)}.`
         : 'Every pool had open slots, or no work waiting for it, in the latest snapshot.';
@@ -466,21 +508,29 @@ const DEFINITIONS: Readonly<Record<AlertRuleId, RuleDefinition>> = {
     kind: 'series',
     condition: 'A collector has had no successful cycle for 10 min',
     unit: 'min',
-    rule: { comparator: '>=', threshold: 10, forMs: 0, clearForMs: CLEAR_FOR_MS, noData: 'alerting' },
-    points: (s) => {
-      const snap = latestAt(s.snapshots, s.grid);
-      const sample = latestAt(s.samples, s.grid);
-      return s.grid.map((t, i) => {
-        const a = snap[i];
-        const b = sample[i];
-        return { at: t, value: a && b ? round((t - Math.min(a.at, b.at)) / MIN) : null };
-      });
-    },
+    // Before DCAM collected anything there is no data, which is not staleness (keep_state, §16.2).
+    rule: { comparator: '>=', threshold: 10, forMs: 0, clearForMs: CLEAR_FOR_MS, noData: 'keep_state' },
+    points: (s) => collectionAge(s).map((value, i) => ({ at: s.grid[i] as number, value })),
     summary: (s) => {
-      const a = s.snapshots.at(-1);
-      const b = s.samples.at(-1);
-      if (!a || !b) return 'A collector has not completed a cycle in the last 25 hours.';
-      return `Latest live snapshot ${durationText(s.now - a.at)} ago; latest worker sample ${durationText(s.now - b.at)} ago.`;
+      const start = collectionStart(checkedTimes(s));
+      if (start === null) return 'DCAM has not collected live snapshots or worker samples yet.';
+      const part = (on: boolean, items: Times, what: string, off: string) => {
+        if (!on) return off;
+        const last = items.at(-1);
+        return last
+          ? `latest ${what} ${durationText(s.now - last.at)} ago`
+          : `no ${what} since collection started ${durationText(s.now - start)} ago`;
+      };
+      const text = [
+        part(s.checked.snapshots, s.snapshots, 'live snapshot', 'live snapshots are not collected'),
+        part(
+          s.checked.samples,
+          s.samples,
+          'worker sample',
+          'Cloud Monitoring is not collected for this environment, so worker samples are not checked',
+        ),
+      ].join('; ');
+      return `${text.charAt(0).toUpperCase()}${text.slice(1)}.`;
     },
   },
   'AL-18': {
@@ -605,6 +655,16 @@ function evaluateRule(pack: PackRule, s: Signals, from: number): Evaluated {
   };
 }
 
+/** Which time series AL-17 checks: those whose collector is enabled (both without a live status). */
+function checkedSeries(deps: AlertDeps, envId: string): Signals['checked'] {
+  const env = deps.collection?.().environments.find((e) => e.env_id === envId);
+  const enabled = (id: string) => {
+    const c = env?.collectors.find((x) => x.id === id);
+    return c === undefined || c.state !== 'disabled';
+  };
+  return { snapshots: enabled('af.live'), samples: enabled('mon.core') };
+}
+
 async function environmentAlerts(deps: AlertDeps, envId: string, now: number) {
   const from = now - ALERT_WINDOW_MS;
   const start = from - WARM_UP_MS;
@@ -628,7 +688,17 @@ async function environmentAlerts(deps: AlertDeps, envId: string, now: number) {
   ]);
   const grid: number[] = [];
   for (let t = start; t <= now; t += EVALUATION_STEP_MS) grid.push(t);
-  const signals: Signals = { config, now, grid, snapshots, samples, tries, health };
+  const signals: Signals = {
+    config,
+    now,
+    grid,
+    snapshots,
+    samples,
+    tries,
+    health,
+    snapshotCadenceMs: observedCadenceMs(snapshots.slice(-20)) ?? DEFAULT_SNAPSHOT_CADENCE_MS,
+    checked: checkedSeries(deps, envId),
+  };
   const latest = Math.max(snapshots.at(-1)?.at ?? -Infinity, samples.at(-1)?.at ?? -Infinity);
   return {
     asOf: Number.isFinite(latest) ? latest : null,

@@ -152,8 +152,8 @@ const alertsFor = (envId?: string): Alerts => ({
 });
 
 const reject = () => Promise.reject(new Error('not in this test'));
-function renderPage() {
-  const getAlerts = vi.fn(async (envId?: string) => alertsFor(envId));
+function renderPage(data?: Alerts) {
+  const getAlerts = vi.fn(async (envId?: string) => data ?? alertsFor(envId));
   const api: DcamApi = {
     getMeta: async () => meta,
     getOverview: reject,
@@ -314,5 +314,19 @@ describe('S-24 alerts page (FR-ALRT-01/02/06)', () => {
     renderPage();
     await rulesTable();
     expect(screen.getByRole('contentinfo')).toHaveTextContent(/Data as of .* Source: demo data/);
+  });
+
+  it('FR-ALRT-06: "Fired in 24 h" explains firing alerts whose start is before the window or not known', async () => {
+    const reading = rules.find((r) => r.id === 'AL-19') as AlertRule;
+    renderPage({
+      data_as_of: T(11, 59),
+      sources: ['DEMO'],
+      rules: [{ ...reading, since: null, fired_count_24h: 0 }],
+      events: [],
+    });
+    const heading = await screen.findByRole('heading', { name: 'Fired in 24 h' });
+    const card = heading.closest('.MuiPaper-root') as HTMLElement;
+    expect(card).toHaveTextContent('0');
+    expect(card).toHaveTextContent('1 firing alert started before the last 24 h or has no known start');
   });
 });

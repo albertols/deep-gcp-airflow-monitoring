@@ -132,6 +132,13 @@ export function AlertsPage({ api, envId, linkTo }: PageProps) {
       sorted: sortRules(a.rules),
       counts: Object.fromEntries(STATES.map((s) => [s, count(s)])) as Record<AlertState, number>,
       fired: a.events.filter((e) => e.kind === 'fired').length,
+      // Firing now without a "fired" event in the window: it fired earlier, or is a health reading
+      // that carries no start time (§16.7). Counted apart, so "firing now" and "fired" agree.
+      firingWithoutEvent: a.rules.filter(
+        (r) =>
+          r.state === 'firing' &&
+          !a.events.some((e) => e.kind === 'fired' && e.rule_id === r.id && e.env_id === r.env_id),
+      ).length,
       mttr: meanTimeToResolve(a.events),
       unitOf: (e: AlertEvent) => units.get(`${e.env_id}\u0000${e.rule_id}`) ?? '',
     };
@@ -178,7 +185,18 @@ export function AlertsPage({ api, envId, linkTo }: PageProps) {
           <KpiRow>
             <Kpi explanation={X['alerts-firing']} value={formatInt(view.counts.firing)} />
             <Kpi explanation={X['alerts-pending']} value={formatInt(view.counts.pending)} />
-            <Kpi explanation={X['alerts-fired-24h']} value={formatInt(view.fired)} unit="times" />
+            <Kpi
+              explanation={X['alerts-fired-24h']}
+              value={formatInt(view.fired)}
+              unit="times"
+              hint={
+                view.firingWithoutEvent === 0
+                  ? undefined
+                  : `${formatInt(view.firingWithoutEvent)} firing ${
+                      view.firingWithoutEvent === 1 ? 'alert started' : 'alerts started'
+                    } before the last 24 h or ${view.firingWithoutEvent === 1 ? 'has' : 'have'} no known start`
+              }
+            />
             <Kpi
               explanation={X['alerts-mttr']}
               value={formatDuration(view.mttr.seconds)}

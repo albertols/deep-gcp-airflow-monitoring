@@ -58,8 +58,8 @@ export function Kpi({
 }: {
   explanation: Explanation;
   value: string;
-  unit?: string;
-  hint?: string;
+  unit?: string | undefined;
+  hint?: string | undefined;
 }) {
   return (
     <Paper sx={{ p: 4, flex: '1 1 200px', minWidth: 0 }}>

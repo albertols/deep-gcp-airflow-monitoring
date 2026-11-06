@@ -38,6 +38,8 @@ export const ALERT_EXPLANATIONS = {
     summary: 'How many times rules fired in the last 24 hours (spec §16.7).',
     whyItMatters: 'A rule that fires often and resolves on its own is noise: tune or remove it.',
     formula: 'count of "fired" events in the last 24 h',
+    howToRead:
+      'An alert firing now that fired before the last 24 h, or comes from a health reading without a start time, is listed below the count instead.',
     sources: ['SRC-AF-API', 'SRC-MON', 'SRC-COMPOSER'],
   },
   'alerts-mttr': {

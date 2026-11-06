@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AlertRule } from '@dcam/contracts';
+import type { AlertRule, Collection, CollectorStatus } from '@dcam/contracts';
 import type {
   EnvironmentConfig,
   LiveSnapshot,
@@ -277,6 +277,71 @@ describe('getAlerts use case (FR-ALRT-01/02/06)', () => {
     expect(rule(a.rules, 'AL-17')).toMatchObject({ state: 'firing', since: iso(NOW - 5 * MIN), value: 15 });
     expect(rule(a.rules, 'AL-15').state).toBe('unknown');
     expect(rule(a.rules, 'AL-05').state).toBe('resolved');
+  });
+
+  /** Live collection status of acme-prod with the given collector states (FR-COLL-11). */
+  const statusOf =
+    (states: Record<string, CollectorStatus['state']>): (() => Collection) =>
+    () => ({
+      mode: 'live',
+      generated_at: iso(NOW),
+      environments: [
+        {
+          env_id: 'acme-prod',
+          profile: 'live',
+          reduced_fidelity: false,
+          failing: Object.values(states).includes('failing'),
+          collectors: Object.entries(states).map(([id, state]) => ({
+            id,
+            source: id.startsWith('mon.') ? 'SRC-MON' : 'SRC-AF-API',
+            state,
+            cadence_seconds: state === 'disabled' ? 0 : 60,
+            last_attempt_at: null,
+            last_success_at: null,
+            next_run_at: null,
+            lag_seconds: null,
+            consecutive_failures: state === 'failing' ? 3 : 0,
+            error_rate_1h: null,
+            last_error: null,
+          })),
+          footprint: [],
+          series_24h: null,
+        },
+      ],
+    });
+
+  it('AL-17: a disabled source is ignored: fresh live snapshots without Cloud Monitoring are not stale', async () => {
+    const a = await getAlerts(
+      deps({
+        model: modelOf({ samples: [] }),
+        collection: statusOf({ 'af.live': 'ok', 'af.facts': 'ok', 'mon.core': 'disabled' }),
+      }),
+      query,
+    );
+    expect(rule(a.rules, 'AL-17')).toMatchObject({ state: 'inactive', value: 0 });
+    expect(rule(a.rules, 'AL-17').summary).toMatch(/Cloud Monitoring is not collected/);
+  });
+
+  it('AL-17: an enabled collector that produces no data is stale from the start of collection', async () => {
+    const recent = snapshots.filter((s) => s.at >= NOW - 2 * HOUR);
+    const a = await getAlerts(
+      deps({
+        model: modelOf({ snapshots: recent, samples: [] }),
+        collection: statusOf({ 'af.live': 'ok', 'mon.core': 'failing' }),
+      }),
+      query,
+    );
+    expect(rule(a.rules, 'AL-17')).toMatchObject({
+      state: 'firing',
+      since: iso(NOW - 2 * HOUR + 10 * MIN),
+      value: 120,
+    });
+    expect(rule(a.rules, 'AL-17').summary).toMatch(/no worker sample since collection started/i);
+  });
+
+  it('AL-17: before DCAM has collected anything it does not fire', async () => {
+    const a = await getAlerts(deps({ model: modelOf({ snapshots: [], samples: [] }) }), query);
+    expect(rule(a.rules, 'AL-17').state).not.toBe('firing');
   });
 
   it('FR-ALRT-06: events of the last 24 h, newest first, with unique ids; data as of the latest collection', async () => {
