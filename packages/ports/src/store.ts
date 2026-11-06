@@ -24,7 +24,10 @@ export interface StoredTaskTry extends TaskTry {
   readonly readyAt: number | null;
   /** Operator class name, for example `PythonOperator` (sensor detection, HM-008). */
   readonly operator: string | null;
-  /** Source `updated_at`, used as the incremental watermark (FR-COLL-03). */
+  /**
+   * Source `updated_at`, used as the incremental watermark (FR-COLL-03); `null` when the source does not
+   * return it (the Airflow 2 API v1 task instance has no such field).
+   */
   readonly sourceUpdatedAt: number | null;
   /**
    * When DCAM last saw the try running (the time of an `af.live` snapshot that listed it): the earliest its

@@ -214,8 +214,14 @@ export const keyString = (t: TryKey) =>
 
 /**
  * A task instance row as a stored try. `readyAt` is left to the store, which fills it from the ready
- * times `af.live` recorded (HM-001, HM-006). The v1 row carries no `updated_at` through the port, so
- * the source watermark is the try's end (or start while running), as in demo mode.
+ * times `af.live` recorded (HM-001, HM-006). `sourceUpdatedAt` is `null`: the Airflow 2.11.1 API v1
+ * task instance has no `updated_at` field, although the list filters on it (`updated_at_gte`,
+ * `updated_at_lte`). Checked 2026-11-07 in `components.schemas.TaskInstance` of
+ * `airflow/api_connexion/openapi/v1.yaml` and `TaskInstanceSchema` of
+ * `airflow/api_connexion/schemas/task_instance_schema.py`, both at tag 2.11.1
+ * (https://github.com/apache/airflow/blob/2.11.1/airflow/api_connexion/openapi/v1.yaml). The try's end
+ * or start is not its `updated_at` (marking a task again changes only the latter), so DCAM does not
+ * pretend it is; `af.facts` keeps its watermark per collector (`commitFacts`).
  */
 export function storedTryOf(envId: string, t: AirflowTaskInstance): StoredTaskTry {
   return {
@@ -229,7 +235,7 @@ export function storedTryOf(envId: string, t: AirflowTaskInstance): StoredTaskTr
     queuedAt: t.queuedAt,
     readyAt: null,
     operator: t.operator,
-    sourceUpdatedAt: t.endAt ?? t.startAt,
+    sourceUpdatedAt: null,
   };
 }
 

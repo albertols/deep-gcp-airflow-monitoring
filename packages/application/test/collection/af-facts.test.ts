@@ -82,6 +82,25 @@ describe('FR-COLL-03 af.facts: watermark, overlap and idempotent upserts', () =>
     expect(store.tries.size).toBe(20);
   });
 
+  it('FR-COLL-03: stored tries have no source updated_at, which the Airflow 2.11.1 API v1 row does not carry', async () => {
+    const airflow = new FakeAirflow({
+      tis: [
+        ti({ taskId: 'finished', updatedAt: T0 - 5 * MIN }),
+        ti({ taskId: 'running', state: 'running', endAt: null, updatedAt: T0 - 2 * MIN }),
+      ],
+      pools: [pool()],
+    });
+    const store = new MemoryStore();
+    const ctx = fakeContext({ airflow, store, shared });
+    await afFactsCollector().collect(ctx);
+    await afLiveCollector().collect(ctx);
+    const tries = [...store.tries.values()];
+    expect(tries.map((t) => [t.taskId, t.sourceUpdatedAt])).toEqual([
+      ['finished', null],
+      ['running', null],
+    ]);
+  });
+
   it('FR-COLL-03: a failed try waiting for its retry is stored under its own try number', async () => {
     const airflow = new FakeAirflow({
       tis: [ti({ taskId: 'flaky', state: 'up_for_retry', tryNumber: 1, updatedAt: T0 - 5 * MIN })],
