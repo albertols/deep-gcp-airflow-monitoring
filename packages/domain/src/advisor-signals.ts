@@ -18,6 +18,7 @@ import {
 } from './model';
 import { slotSeconds, type TaskTry } from './occupancy';
 import { collisionDensity, type CollisionDensity } from './schedule';
+import { snapshotSpans } from './snapshot-time';
 import { quantile } from './stats';
 
 const MINUTE = 60_000;
@@ -47,8 +48,11 @@ export interface AdvisorInput {
   readonly tries: readonly ObservedTry[];
   readonly from: number;
   readonly to: number;
-  /** Time each snapshot stands for (the `af.live` cadence). */
-  readonly snapshotIntervalMs: number;
+  /**
+   * The `af.live` cadence to assume while fewer than two snapshots show the real one. Otherwise each
+   * snapshot stands for the real gap to the next one, capped at two cadences (`snapshot-time.ts`).
+   */
+  readonly fallbackCadenceMs: number;
   /** Share of the window for which task-instance history is complete, 0–1. */
   readonly triesCoverage: number;
   /** Worker size, for the documented `worker_concurrency` guidance (REC-CAP-08); `null` when unknown. */
@@ -100,8 +104,12 @@ export interface DagLimitSignal {
   readonly limitIsDefault: boolean;
   /** Snapshots in which the DAG had running, queued or ready task instances. */
   readonly activeObservations: number;
+  /** Time those snapshots stand for. */
+  readonly activeMs: number;
   /** Snapshots at `max_active_tasks` with ready task instances of its own (HM-005). */
   readonly atLimitObservations: number;
+  /** Time those snapshots stand for. */
+  readonly atLimitMs: number;
   /** Task-time its own ready task instances waited while it was at the limit. */
   readonly ownWaitingMs: number;
   /** Highest running + queued + ready task instances of the DAG at the limit. */
@@ -135,8 +143,8 @@ export interface EnvironmentSignals {
   readonly to: number;
   readonly coverage: { readonly snapshots: number; readonly samples: number; readonly tries: number };
   readonly snapshotCount: number;
-  /** Time each snapshot stands for. */
-  readonly snapshotIntervalMs: number;
+  /** The `af.live` cadence observed in the window (the fallback with fewer than two snapshots). */
+  readonly snapshotCadenceMs: number;
   readonly sampleCount: number;
   readonly waiting: {
     readonly totalsMs: ReadonlyMap<WaitReasonId, number>;
@@ -290,20 +298,23 @@ interface MutablePool {
 
 interface MutableDagLimit {
   activeObservations: number;
+  activeMs: number;
   atLimitObservations: number;
+  atLimitMs: number;
   ownWaitingMs: number;
   peakDemand: number;
   headroomObservations: number | null;
   lastAtLimit: number | null;
 }
 
-/** Pool starvation and DAG self-throttling, read straight from the snapshots. */
+/** Pool starvation and DAG self-throttling, read straight from the snapshots (`spans`: time each stands for). */
 function snapshotSignals(
   input: AdvisorInput,
   snapshots: readonly LiveSnapshot[],
+  spans: readonly number[],
   limits: Map<string, number>,
 ) {
-  const { config, snapshotIntervalMs: interval } = input;
+  const { config } = input;
   const pools = new Map<string, MutablePool>(
     config.pools.map((p) => [
       p.name,
@@ -319,7 +330,8 @@ function snapshotSignals(
   const dags = new Map<string, MutableDagLimit>();
   const slotsKnown = limitKnown(config, 'workerConcurrency');
 
-  for (const s of snapshots) {
+  snapshots.forEach((s, i) => {
+    const interval = spans[i] ?? 0;
     const readySlots = new Map<string, number>();
     const readyByDag = new Map<string, number>();
     for (const ti of s.scheduled) {
@@ -345,7 +357,9 @@ function snapshotSignals(
     for (const dagId of new Set([...Object.keys(s.dagActive), ...readyByDag.keys()])) {
       const d = dags.get(dagId) ?? {
         activeObservations: 0,
+        activeMs: 0,
         atLimitObservations: 0,
+        atLimitMs: 0,
         ownWaitingMs: 0,
         peakDemand: 0,
         headroomObservations: slotsKnown ? 0 : null,
@@ -353,16 +367,18 @@ function snapshotSignals(
       };
       dags.set(dagId, d);
       d.activeObservations++;
+      d.activeMs += interval;
       const active = s.dagActive[dagId] ?? 0;
       const ready = readyByDag.get(dagId) ?? 0;
       if (active < (limits.get(dagId) ?? config.maxActiveTasksPerDag) || ready === 0) continue;
       d.atLimitObservations++;
+      d.atLimitMs += interval;
       d.ownWaitingMs += ready * interval;
       d.peakDemand = Math.max(d.peakDemand, active + ready);
       if (freeSlots && d.headroomObservations !== null) d.headroomObservations++;
       d.lastAtLimit = s.at;
     }
-  }
+  });
   return { pools, dags };
 }
 
@@ -406,8 +422,14 @@ export function environmentSignals(input: AdvisorInput): EnvironmentSignals {
   const a = attributeWaiting(
     snapshots,
     { config, dagMaxActiveTasks: limits },
-    { from: Math.floor(from / MINUTE) * MINUTE, to, bucketMs: MINUTE, intervalMs: input.snapshotIntervalMs },
+    {
+      from: Math.floor(from / MINUTE) * MINUTE,
+      to,
+      bucketMs: MINUTE,
+      fallbackCadenceMs: input.fallbackCadenceMs,
+    },
   );
+  const cadenceMs = a.cadenceMs ?? input.fallbackCadenceMs;
   const minutes = new Map<WaitReasonId, number>();
   const lastSeen = new Map<WaitReasonId, number>();
   const hourWaiting = new Array<number>(60).fill(0);
@@ -429,7 +451,7 @@ export function environmentSignals(input: AdvisorInput): EnvironmentSignals {
   }
   const platformMs = [...a.totals].reduce((s, [r, ms]) => (r === 'normal-latency' ? s : s + ms), 0);
 
-  const raw = snapshotSignals(input, snapshots, limits);
+  const raw = snapshotSignals(input, snapshots, snapshotSpans(snapshots, cadenceMs, to), limits);
   const occupancy = slotSeconds(input.tries, { from, to, now: to });
 
   return {
@@ -438,12 +460,13 @@ export function environmentSignals(input: AdvisorInput): EnvironmentSignals {
     from,
     to,
     coverage: {
-      snapshots: share(snapshots.length * input.snapshotIntervalMs, windowMs),
+      // The time the snapshots stand for: a collection gap is not covered (§13.2).
+      snapshots: share(a.coveredMs, windowMs),
       samples: share(samples.length * SAMPLE_INTERVAL_MS, windowMs),
       tries: Math.min(1, Math.max(0, input.triesCoverage)),
     },
     snapshotCount: snapshots.length,
-    snapshotIntervalMs: input.snapshotIntervalMs,
+    snapshotCadenceMs: cadenceMs,
     sampleCount: samples.length,
     waiting: {
       totalsMs: a.totals,

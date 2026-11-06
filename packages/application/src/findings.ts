@@ -8,7 +8,7 @@
 import type { Finding, Findings, SourceId } from '@dcam/contracts';
 import { ADVISOR_RULES, environmentSignals, evaluateAdvisor, type AdvisorFinding } from '@dcam/domain';
 import type { Clock, EnvironmentModelSource, TaskInstanceStore } from '@dcam/ports';
-import { SNAPSHOT_INTERVAL_MS } from './bottlenecks';
+import { DEFAULT_SNAPSHOT_CADENCE_MS } from './bottlenecks';
 import { RANGE_MS } from './range';
 
 /** Findings cover the last 24 hours (the contract's window). */
@@ -88,7 +88,7 @@ export async function getFindings(deps: FindingsDeps, q: FindingsQuery): Promise
     tries,
     from,
     to: now,
-    snapshotIntervalMs: SNAPSHOT_INTERVAL_MS,
+    fallbackCadenceMs: DEFAULT_SNAPSHOT_CADENCE_MS,
     // ⚠️ Until the M1 collectors report their own coverage, stored task history counts as complete.
     triesCoverage: 1,
     // Worker CPU and memory sizes come with the composer.config collector (M1); REC-CAP-08 waits for them.

@@ -10,6 +10,7 @@ import type { EnvironmentSignals, PoolSignal } from './advisor-signals';
 import { limitKnown } from './model';
 import {
   DOCS,
+  fmtCadence,
   fmtHours,
   fmtHoursOf,
   fmtInt,
@@ -24,7 +25,8 @@ import {
 const HOUR = 3_600_000;
 const DEFAULT_POOL = 'default_pool';
 const SNAPSHOTS = (s: EnvironmentSignals) =>
-  `live snapshots every 30 s of pools and ready task instances (${fmtPct(s.coverage.snapshots)} of the window)`;
+  `live snapshots every ${fmtCadence(s.snapshotCadenceMs)} of pools and ready task instances ` +
+  `(${fmtPct(s.coverage.snapshots)} of the window)`;
 const topDags = (m: ReadonlyMap<string, number>, n = 3) =>
   [...m]
     .slice(0, n)

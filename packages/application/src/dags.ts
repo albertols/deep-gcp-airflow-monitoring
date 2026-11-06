@@ -7,11 +7,13 @@
  */
 import type { DagDetail, DagLeague, FindingRef, Quantile, Range, SourceId } from '@dcam/contracts';
 import {
+  SNAPSHOT_GAP_CADENCES,
   dagLeague,
   dagRuns,
   dagWindowStats,
   emptyDagStats,
   limitKnown,
+  observedCadenceMs,
   runGantt,
   runKey,
   selfThrottledRatio,
@@ -24,6 +26,7 @@ import {
   type SweepWindow,
 } from '@dcam/domain';
 import type { Clock, EnvironmentModelSource, StoredTaskTry, TaskInstanceStore } from '@dcam/ports';
+import { DEFAULT_SNAPSHOT_CADENCE_MS } from './bottlenecks';
 import { paretoCount } from './overview';
 
 const RANGE_MS: Record<Range, number> = {
@@ -32,8 +35,8 @@ const RANGE_MS: Record<Range, number> = {
   '24h': 24 * 3_600_000,
 };
 
-/** A snapshot older than this cannot tell whether a run still has work waiting (cadence is 30 s). */
-const FRESH_SNAPSHOT_MS = 2 * 60_000;
+/** How far back the league looks for the latest live snapshot: five eco-profile cadences (120 s). */
+const RECENT_SNAPSHOTS_MS = 10 * 60_000;
 /** Team shown for DAGs that have tries but no metadata (for example deleted DAGs). */
 export const UNASSIGNED_TEAM = 'unassigned';
 
@@ -59,9 +62,15 @@ function windowsFor(now: number, range: Range): { current: SweepWindow; previous
   };
 }
 
+/**
+ * The latest live snapshot while it can still tell whether a run has work waiting: within two observed
+ * `af.live` cadences (10 s live, 30 s standard, 120 s eco by default); older means collection stopped.
+ */
 function freshLatest(snapshots: readonly LiveSnapshot[], now: number): LiveSnapshot | null {
   const latest = snapshots.at(-1);
-  return latest && latest.at >= now - FRESH_SNAPSHOT_MS ? latest : null;
+  if (!latest) return null;
+  const cadenceMs = observedCadenceMs(snapshots.slice(-10)) ?? DEFAULT_SNAPSHOT_CADENCE_MS;
+  return now - latest.at <= SNAPSHOT_GAP_CADENCES * cadenceMs ? latest : null;
 }
 
 /** Runs with task instances still waiting in the latest live snapshot. */
@@ -86,7 +95,7 @@ export async function getDagLeague(deps: DagsDeps, q: DagLeagueQuery): Promise<D
   const [tries, dags, recent] = await Promise.all([
     deps.store.taskTries(q.envId, previous.from, now),
     deps.model.dags(q.envId),
-    deps.model.snapshots(q.envId, now - FRESH_SNAPSHOT_MS, now + 1),
+    deps.model.snapshots(q.envId, now - RECENT_SNAPSHOTS_MS, now + 1),
   ]);
   const league = dagLeague({
     tries,

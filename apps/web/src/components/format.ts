@@ -41,6 +41,12 @@ export function formatDuration(seconds: number | null): string {
   return m ? `${h}h ${m}m` : `${h}h`;
 }
 
+/** A collection cadence: `10 s`, `2 min`. */
+export function formatCadence(seconds: number): string {
+  const s = Math.max(1, Math.round(seconds));
+  return s < 60 || s % 60 !== 0 ? `${intFmt.format(s)} s` : `${intFmt.format(s / 60)} min`;
+}
+
 /** A tail percentile; with fewer than 20 samples it is the max, shown as an upper bound (§8.9). */
 export function formatQuantile(q: Quantile): string {
   if (q.value_seconds === null) return '—';

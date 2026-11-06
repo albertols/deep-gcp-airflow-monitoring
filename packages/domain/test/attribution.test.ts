@@ -54,7 +54,7 @@ describe('HM-006 attribution over time (FR-BOTL-01)', () => {
     from: T0,
     to: T0 + 2 * MIN,
     bucketMs: MIN,
-    intervalMs: 30_000,
+    fallbackCadenceMs: 30_000,
   });
 
   it('FR-BOTL-01: each waiting task instance in a snapshot counts one snapshot interval of waiting', () => {
@@ -90,7 +90,7 @@ describe('HM-006 attribution over time (FR-BOTL-01)', () => {
       from: T0 + 10 * MIN,
       to: T0 + 11 * MIN,
       bucketMs: MIN,
-      intervalMs: 30_000,
+      fallbackCadenceMs: 30_000,
     });
     expect(none.totals.size).toBe(0);
     expect(none.latest).toBeNull();
@@ -157,7 +157,7 @@ describe('HM-011 / HM-012 worker capacity', () => {
         from: T0,
         to: T0 + 2 * MIN,
         bucketMs: MIN,
-        intervalMs: 30_000,
+        fallbackCadenceMs: 30_000,
       },
     );
     expect(a.buckets.map((b) => b.slotsUsed)).toEqual([null, null]);

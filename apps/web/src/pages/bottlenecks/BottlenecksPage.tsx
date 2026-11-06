@@ -21,7 +21,7 @@ import Typography from '@mui/material/Typography';
 import type { Bottlenecks, Range, WaitReasonId } from '@dcam/contracts';
 import { InfoPopover } from '@dcam/ui-kit';
 import { Legend, StackedBars, ValueBars } from '../../components/charts';
-import { formatDuration, formatInt, formatShare } from '../../components/format';
+import { formatCadence, formatDuration, formatInt, formatShare } from '../../components/format';
 import { PageHeader } from '../../components/PageHeader';
 import { Kpi, KpiRow, Panel, ProvenanceFooter, QueryState } from '../../components/Panel';
 import type { PageProps } from '../types';
@@ -340,7 +340,11 @@ export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
           <ProvenanceFooter
             dataAsOf={b.data_as_of}
             sources={b.sources}
-            note={`live snapshots every ${b.snapshot_interval_seconds} s; pre-queue reasons only from DCAM's own collection`}
+            note={`${
+              b.snapshot_interval_seconds === null
+                ? 'fewer than two live snapshots in this range, so their cadence is not known yet'
+                : `live snapshots every ${formatCadence(b.snapshot_interval_seconds)}`
+            }; pre-queue reasons only from DCAM's own collection`}
           />
         </>
       )}

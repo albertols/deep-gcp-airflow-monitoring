@@ -1,8 +1,8 @@
 /**
  * Environment model shared by the signals (spec §7, §8): the configuration that can throttle work, DAG
- * metadata, live snapshots of waiting work (what the `af.live` collector captures every 30 s), worker
- * samples and platform-health inputs. Times are epoch milliseconds; durations are milliseconds unless
- * a field name says otherwise.
+ * metadata, live snapshots of waiting work (what the `af.live` collector captures every 10 s to 120 s,
+ * by profile), worker samples and platform-health inputs. Times are epoch milliseconds; durations are
+ * milliseconds unless a field name says otherwise.
  */
 
 export type Tier = 'dev' | 'test' | 'uat' | 'prod' | 'other';

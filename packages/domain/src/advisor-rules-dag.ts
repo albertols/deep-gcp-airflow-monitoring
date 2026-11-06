@@ -7,7 +7,7 @@
 import type { RuleMeasurement } from './advisor-rule';
 import { RULE_THRESHOLDS, evaluated, perDay, type RuleDefinition } from './advisor-rule';
 import type { DagLimitSignal, EnvironmentSignals, SensorSignal } from './advisor-signals';
-import { DOCS, fmtHours, fmtHoursOf, fmtInt, fmtMinutes, fmtPct, plural } from './advisor-text';
+import { DOCS, fmtCadence, fmtHours, fmtHoursOf, fmtInt, fmtMinutes, fmtPct, plural } from './advisor-text';
 import { dailyStartsByMinute, withStartMinute } from './schedule';
 
 const HOUR = 3_600_000;
@@ -19,8 +19,6 @@ const STAGGER_MAX_DAGS = 10;
 const STAGGER_SPREAD = 4;
 
 const fileOf = (s: EnvironmentSignals, dagId: string) => s.dags.get(dagId)?.fileloc ?? `${dagId}.py`;
-const minutesOf = (s: EnvironmentSignals, observations: number) =>
-  (observations * s.snapshotIntervalMs) / 60_000;
 const pyName = (taskId: string) => {
   const name = taskId.replace(/[^A-Za-z0-9_]/g, '_');
   return /^[0-9]/.test(name) ? `task_${name}` : name;
@@ -28,7 +26,7 @@ const pyName = (taskId: string) => {
 
 function throttled(s: EnvironmentSignals, d: DagLimitSignal): RuleMeasurement {
   const t = RULE_THRESHOLDS['REC-DAG-01'];
-  const share = d.atLimitObservations / d.activeObservations;
+  const share = d.activeMs > 0 ? d.atLimitMs / d.activeMs : 0;
   // `null` while worker_concurrency is unknown (HM-032): DCAM cannot tell free worker slots from full ones.
   const headroom = d.headroomObservations === null ? null : d.headroomObservations / d.atLimitObservations;
   const proposed = Math.max(d.limit + 1, d.peakDemand);
@@ -44,7 +42,7 @@ function throttled(s: EnvironmentSignals, d: DagLimitSignal): RuleMeasurement {
     effort: 3,
     observation:
       `${d.dagId} was at its max_active_tasks limit of ${d.limit} in ${fmtPct(share)} of its active time ` +
-      `(${fmtMinutes(minutesOf(s, d.atLimitObservations))} of ${fmtMinutes(minutesOf(s, d.activeObservations))}) ` +
+      `(${fmtMinutes(d.atLimitMs / 60_000)} of ${fmtMinutes(d.activeMs / 60_000)}) ` +
       `with its own ready tasks waiting; up to ${fmtInt(d.peakDemand)} of its tasks were ready, queued or running at once.`,
     impactText: `Its tasks waited ${fmtHoursOf(ownHours, 'task-hour')} for the DAG's own limit, which stretches its runs.`,
     action:
@@ -64,7 +62,8 @@ function throttled(s: EnvironmentSignals, d: DagLimitSignal): RuleMeasurement {
       (d.limitIsDefault
         ? `The DAG does not set max_active_tasks, so it uses core.max_active_tasks_per_dag (${s.config.maxActiveTasksPerDag}). `
         : '') +
-      'Data used: live snapshots every 30 s of running, queued and ready task instances per DAG.',
+      `Data used: live snapshots every ${fmtCadence(s.snapshotCadenceMs)} of running, queued and ready task ` +
+      'instances per DAG.',
     evidence: [
       {
         label: 'Share of active time at max_active_tasks',
@@ -125,10 +124,7 @@ export const REC_DAG_01: RuleDefinition = {
     const t = RULE_THRESHOLDS['REC-DAG-01'];
     return evaluated(
       s.dagLimits
-        .filter(
-          (d) =>
-            d.activeObservations > 0 && d.atLimitObservations / d.activeObservations >= t.minAtLimitShare,
-        )
+        .filter((d) => d.activeMs > 0 && d.atLimitMs / d.activeMs >= t.minAtLimitShare)
         .map((d) => throttled(s, d)),
     );
   },
@@ -332,7 +328,7 @@ export const REC_SCHED_01: RuleDefinition = {
           `${t.windowMinutes} minutes from that minute (⚠️ the spec does not quantify "coinciding"). Here the ` +
           `collision index was ${fmtPct(d.collisionIndex)} and the share ${fmtPct(share)}. Data used: schedules of ` +
           `unpaused DAGs (${plural(d.unscheduled.length, 'DAG')} without a fixed start minute not counted) and live ` +
-          'snapshots every 30 s.',
+          `snapshots every ${fmtCadence(s.snapshotCadenceMs)}.`,
         evidence: [
           {
             label: `Share of daily starts in minute ${m}`,

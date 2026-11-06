@@ -159,4 +159,31 @@ describe('getBottlenecks use case (FR-BOTL-01/02/07/09)', () => {
     expect(b.current.at).toBeNull();
     expect(b.series.every((s) => s.workers === null)).toBe(true);
   });
+
+  it('FR-BOTL-01: weighs each snapshot by the real af.live cadence (10 s on the live profile) and reports it', async () => {
+    // 30 minutes of snapshots 10 s apart, then a 30-minute collection gap.
+    const live = Array.from({ length: 180 }, (_, i) => ({
+      ...(snapshots[0] as LiveSnapshot),
+      at: NOW - 3_600_000 + i * 10_000,
+    }));
+    const b = await getBottlenecks(
+      {
+        ...deps,
+        model: {
+          ...model,
+          snapshots: async (_id, from, to) => live.filter((s) => s.at >= from && s.at < to),
+        },
+      },
+      { envId: 'acme-prod', range: '1h', sources: ['DEMO'] },
+    );
+    expect(b.snapshot_interval_seconds).toBe(10);
+    // Four waiting task instances for 30 minutes; the gap is unknown, not waiting.
+    expect(b.waiting_task_seconds).toBe(180 * 4 * 10);
+  });
+
+  it('FR-BOTL-01: the snapshot cadence is unknown, not 30 s, before two snapshots exist', async () => {
+    const empty = { ...deps, model: { ...model, snapshots: async () => [] } };
+    const b = await getBottlenecks(empty, { envId: 'acme-prod', range: '1h', sources: ['DEMO'] });
+    expect(b.snapshot_interval_seconds).toBeNull();
+  });
 });

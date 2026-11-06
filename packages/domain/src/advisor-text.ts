@@ -37,6 +37,12 @@ export function fmtDuration(ms: number | null): string {
   return m ? `${Math.floor(s / 3600)}h ${m}m` : `${Math.floor(s / 3600)}h`;
 }
 
+/** A collection cadence: `10 s`, `2 min`. */
+export function fmtCadence(ms: number): string {
+  const s = Math.max(1, Math.round(ms / 1000));
+  return s < 60 || s % 60 !== 0 ? `${fmtInt(s)} s` : `${fmtInt(s / 60)} min`;
+}
+
 export const plural = (n: number, one: string, many = `${one}s`) => `${fmtInt(n)} ${n === 1 ? one : many}`;
 
 /** Official documentation cited by the rules (spec Appendix H). */

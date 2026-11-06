@@ -23,7 +23,7 @@ export const FLEET_EXPLANATIONS = {
     title: 'Running and queued',
     summary: 'Task instances running and queued in the executor in the latest live snapshot.',
     sources: ['SRC-AF-API'],
-    freshness: '30 s',
+    freshness: 'The live snapshot cadence (10 s, 30 s or 120 s by collection profile)',
   },
   'fleet-workers': {
     id: 'fleet-workers',

@@ -168,4 +168,14 @@ describe('S-16 bottlenecks page (FR-BOTL-01)', () => {
     expect(card).toHaveTextContent(/worker_concurrency is not known/);
     expect(card).not.toHaveTextContent(/\d+\s*min/);
   });
+
+  it('FR-BOTL-01: the footer names the af.live cadence DCAM observed, and says when it has none', async () => {
+    const { unmount } = renderPage({ ...fixture, snapshot_interval_seconds: 10 });
+    expect(await screen.findByRole('contentinfo')).toHaveTextContent('live snapshots every 10 s');
+    unmount();
+    renderPage({ ...fixture, snapshot_interval_seconds: null });
+    const footer = await screen.findByRole('contentinfo');
+    expect(footer).toHaveTextContent('fewer than two live snapshots in this range');
+    expect(footer).not.toHaveTextContent(/every \d+ s/);
+  });
 });

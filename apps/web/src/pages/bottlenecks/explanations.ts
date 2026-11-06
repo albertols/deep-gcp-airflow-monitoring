@@ -17,7 +17,9 @@ const SCALING_DOC = {
   url: 'https://docs.cloud.google.com/composer/docs/composer-3/optimize-environments',
 };
 const SNAPSHOT_CAVEAT =
-  'Airflow 2.11 does not record when a task became ready, so pre-queue reasons come only from DCAM’s live snapshots (every 30 s). History older than DCAM’s collection is not observed.';
+  'Airflow 2.11 does not record when a task became ready, so pre-queue reasons come only from DCAM’s live snapshots (every 10 s, 30 s or 120 s, by collection profile; the footer shows the cadence observed). History older than DCAM’s collection is not observed.';
+const GAP_CAVEAT =
+  'Each snapshot stands for the time until the next one, at most two cadences: a longer gap in collection is unknown, not waiting.';
 
 export const BOTTLENECK_EXPLANATIONS = {
   'botl-answer': {
@@ -29,7 +31,7 @@ export const BOTTLENECK_EXPLANATIONS = {
     formula:
       'share = waiting task-time attributed to the reason ÷ all waiting task-time attributed to platform limits',
     sources: ['SRC-AF-API', 'SRC-MON', 'SRC-COMPOSER'],
-    freshness: '≤ 2 × the live snapshot cadence (30 s)',
+    freshness: '≤ 2 × the live snapshot cadence',
     caveats: [SNAPSHOT_CAVEAT],
   },
   'botl-waiting-total': {
@@ -38,11 +40,13 @@ export const BOTTLENECK_EXPLANATIONS = {
     title: 'Waiting task-hours',
     summary:
       'Time ready task instances spent not running because a platform limit bound, summed over all of them.',
-    formula: 'Σ over snapshots of (waiting task instances × 30 s), excluding normal latency',
+    formula:
+      'Σ over snapshots of (waiting task instances × time to the next snapshot, at most 2 × the cadence), excluding normal latency',
     howToRead: 'Ten tasks waiting six minutes each is one task-hour.',
     sources: ['SRC-AF-API'],
     caveats: [
       SNAPSHOT_CAVEAT,
+      GAP_CAVEAT,
       'Dependency wait (upstream, sensors, depends_on_past) is not a platform limit and is not counted.',
     ],
   },
@@ -52,7 +56,7 @@ export const BOTTLENECK_EXPLANATIONS = {
     title: 'Binding now',
     summary: 'The reason most waiting task instances are held by in the latest snapshot.',
     sources: ['SRC-AF-API', 'SRC-MON'],
-    freshness: '30 s',
+    freshness: 'The live snapshot cadence (10 s, 30 s or 120 s by collection profile)',
   },
   'botl-at-max': {
     id: 'botl-at-max',

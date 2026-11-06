@@ -1,7 +1,7 @@
 /**
  * Waiting attribution over time (FR-BOTL-01) and worker capacity (HM-011, HM-012). Each waiting task
- * instance in a live snapshot stands for one snapshot interval of waiting, attributed to its HM-006
- * reason.
+ * instance in a live snapshot stands for the time that snapshot stands for (the real gap to the next
+ * snapshot, capped at two cadences: `snapshot-time.ts`), attributed to its HM-006 reason.
  *
  * @implements FR-BOTL-01, HM-006, HM-011, HM-012
  */
@@ -12,6 +12,7 @@ import {
   type WaitReasonId,
   type WorkerSample,
 } from './model';
+import { observedCadenceMs, snapshotSpans } from './snapshot-time';
 import { quantile, type Quantile } from './stats';
 import { classifySnapshot, type ClassifiedWait, type ClassifierContext } from './waiting';
 
@@ -19,8 +20,8 @@ export interface AttributionOptions {
   readonly from: number;
   readonly to: number;
   readonly bucketMs: number;
-  /** Time each snapshot stands for (the `af.live` cadence). */
-  readonly intervalMs: number;
+  /** The `af.live` cadence to assume while fewer than two snapshots in the window show the real one. */
+  readonly fallbackCadenceMs: number;
 }
 
 export interface AttributionBucket {
@@ -51,6 +52,10 @@ export interface Attribution {
   /** Per reason: waiting ms while workers were at `max_count`. */
   readonly atMaxWorkersMs: ReadonlyMap<WaitReasonId, number>;
   readonly latest: { readonly snapshot: LiveSnapshot; readonly classified: readonly ClassifiedWait[] } | null;
+  /** The observed `af.live` cadence in the window; `null` with fewer than two snapshots. */
+  readonly cadenceMs: number | null;
+  /** Time the snapshots stand for together: the observed part of the window (coverage, §13.2). */
+  readonly coveredMs: number;
 }
 
 const add = <K>(m: Map<K, number>, k: K, d: number) => m.set(k, (m.get(k) ?? 0) + d);
@@ -78,29 +83,34 @@ export function attributeWaiting(
     n: 0,
   }));
   let latest: Attribution['latest'] = null;
+  const inWindow = snapshots.filter((s) => s.at >= opts.from && s.at < opts.to);
+  const cadenceMs = observedCadenceMs(inWindow);
+  const spans = snapshotSpans(inWindow, cadenceMs ?? opts.fallbackCadenceMs, opts.to);
+  let coveredMs = 0;
 
-  for (const s of snapshots) {
-    if (s.at < opts.from || s.at >= opts.to) continue;
+  inWindow.forEach((s, i) => {
+    const span = spans[i] ?? 0;
+    coveredMs += span;
     const classified = classifySnapshot(s, ctx);
     const bucket = buckets[Math.floor((s.at - opts.from) / opts.bucketMs)];
     const workersAtMax = s.workers.current >= config.maxWorkers;
     for (const c of classified) {
-      add(totals, c.reason, opts.intervalMs);
-      if (bucket) add(bucket.byReason, c.reason, opts.intervalMs);
+      add(totals, c.reason, span);
+      if (bucket) add(bucket.byReason, c.reason, span);
       const dags = byReasonDag.get(c.reason) ?? new Map<string, number>();
-      add(dags, c.ti.dagId, opts.intervalMs);
+      add(dags, c.ti.dagId, span);
       byReasonDag.set(c.reason, dags);
-      if (workersAtMax) add(atMax, c.reason, opts.intervalMs);
+      if (workersAtMax) add(atMax, c.reason, span);
       if (c.reason === 'pool-exhausted') {
         const p = pools.get(c.ti.pool);
-        if (p) p.waitingMs += opts.intervalMs;
+        if (p) p.waitingMs += span;
       }
     }
     for (const p of s.pools) {
       const pressure = pools.get(p.name);
       if (!pressure) continue;
       pressure.utilisation.push(p.slots > 0 ? (p.running + p.queued) / p.slots : 0);
-      if (p.open === 0 && s.scheduled.some((ti) => ti.pool === p.name)) pressure.starvedMs += opts.intervalMs;
+      if (p.open === 0 && s.scheduled.some((ti) => ti.pool === p.name)) pressure.starvedMs += span;
     }
     if (bucket) {
       const slots = s.workers.current * config.workerConcurrency;
@@ -109,7 +119,7 @@ export function attributeWaiting(
       bucket.n++;
     }
     latest = { snapshot: s, classified };
-  }
+  });
 
   const sortDesc = (m: Map<string, number>) =>
     new Map([...m].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)));
@@ -125,6 +135,8 @@ export function attributeWaiting(
     pools,
     atMaxWorkersMs: atMax,
     latest,
+    cadenceMs,
+    coveredMs,
   };
 }
 

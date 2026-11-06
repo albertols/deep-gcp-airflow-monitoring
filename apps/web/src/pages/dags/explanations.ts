@@ -188,7 +188,7 @@ export const DAG_EXPLANATIONS = {
       'The "Late starters" preset lists DAGs at 5 minutes or more. The Bottlenecks page says which limit held them.',
     sources: API,
     caveats: [
-      'Airflow 2.11 does not record when a try became ready; DCAM sees it in its live snapshots (every 30 s), so older history has no samples.',
+      'Airflow 2.11 does not record when a try became ready; DCAM sees it in its live snapshots (every 10 s, 30 s or 120 s, by collection profile), so older history has no samples.',
       LOW_SAMPLE,
     ],
     docs: [OPTIMIZE_DOC],
@@ -264,7 +264,7 @@ export const DAG_EXPLANATIONS = {
     howToRead:
       'Above 10 % the DAG is often its own bottleneck: raising max_active_tasks may shorten its runs.',
     sources: API,
-    freshness: 'Live snapshots every 30 s while DCAM runs',
+    freshness: 'Live snapshots while DCAM runs (every 10 s, 30 s or 120 s, by collection profile)',
     caveats: [
       "Measured only from DCAM's own live snapshots; history before DCAM started is not covered.",
       '"—" means DCAM saw no work of this DAG in the range.',

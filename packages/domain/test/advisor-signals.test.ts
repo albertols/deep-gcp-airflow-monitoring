@@ -124,7 +124,7 @@ const input: AdvisorInput = {
   tries,
   from: T0,
   to: T0 + 10 * MIN,
-  snapshotIntervalMs: 30_000,
+  fallbackCadenceMs: 30_000,
   triesCoverage: 1,
   workerResources: null,
 };
@@ -233,5 +233,23 @@ describe('advisor signals over the window', () => {
     expect(s.capacity.capacityBoundMinutes).toBeNull();
     // Worker counts do not depend on worker_concurrency.
     expect(s.capacity.minutesAtMax).toBe(10);
+  });
+
+  it('FR-BOTL-01 / §13.2: snapshots weigh by the real gap to the next one; coverage is the time they stand for', () => {
+    // The same 20 snapshots, 10 s apart (live profile): they stand for 200 s of the 10-minute window.
+    const live = snapshots.map((x, i) => ({ ...x, at: T0 + i * 10_000 }));
+    const s = environmentSignals({ ...input, snapshots: live });
+    expect(s.snapshotCadenceMs).toBe(10_000);
+    expect(s.coverage.snapshots).toBeCloseTo(200 / 600);
+    expect(s.waiting.totalsMs.get('dag-max-active-tasks')).toBe(20 * 2 * 10_000);
+    expect(s.dagLimits.find((d) => d.dagId === 'wide_dag')).toMatchObject({
+      activeMs: 200_000,
+      atLimitMs: 200_000,
+      ownWaitingMs: 20 * 2 * 10_000,
+    });
+    expect(s.pools.find((p) => p.name === 'tiny')).toMatchObject({
+      waitingWhileStarvedMs: 10 * 10_000,
+      starvedMinutes: 100 / 60,
+    });
   });
 });

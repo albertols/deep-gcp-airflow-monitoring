@@ -197,6 +197,32 @@ describe('FR-DAGX-01..03 DAG league use case', () => {
   });
 });
 
+describe('FR-DAGX-02 live snapshot freshness follows the af.live cadence', () => {
+  const rows = [tryOf('light', runAt(NOW - 2 * H), 'a', NOW - 2 * H, NOW - H)];
+  const waiting = tryOf('light', runAt(NOW - 2 * H), 'b', NOW, null);
+  const leagueWith = async (snapshots: LiveSnapshot[]) =>
+    getDagLeague(
+      { store: storeOf(rows).store, model: modelOf([dag('light', 'customer')], snapshots), clock },
+      { envId: 'acme-prod', range: '24h', sources: [] },
+    );
+
+  it('FR-DAGX-02: on the eco profile (every 120 s) a snapshot 3 min old still shows work waiting', async () => {
+    const league = await leagueWith([
+      snapshotAt(NOW - 5 * M, {}, [waiting]),
+      snapshotAt(NOW - 3 * M, {}, [waiting]),
+    ]);
+    expect(league.rows.find((r) => r.dag_id === 'light')).toMatchObject({ success_rate: null });
+  });
+
+  it('FR-DAGX-02: on the live profile (every 10 s) a snapshot 3 min old is stale: collection stopped', async () => {
+    const league = await leagueWith([
+      snapshotAt(NOW - 3 * M - 10_000, {}, [waiting]),
+      snapshotAt(NOW - 3 * M, {}, [waiting]),
+    ]);
+    expect(league.rows.find((r) => r.dag_id === 'light')).toMatchObject({ success_rate: 1 });
+  });
+});
+
 describe('FR-DAGD-01..04 DAG detail use case', () => {
   const r1 = runAt(NOW - 3 * H);
   const r2 = runAt(NOW - 2 * H);

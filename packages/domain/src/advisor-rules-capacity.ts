@@ -13,6 +13,7 @@ import { BOUND_MIN_QUEUED, BOUND_QUEUED_RATIO, type EnvironmentSignals } from '.
 import { limitKnown } from './model';
 import {
   DOCS,
+  fmtCadence,
   fmtDuration,
   fmtHours,
   fmtHoursOf,
@@ -114,7 +115,8 @@ export const REC_CAP_01: RuleDefinition = {
           `${t.minMinutesPerDay} min in 24 h (${t.devMinMinutesPerDay} min on development tiers); it becomes ` +
           `critical at ${t.criticalMinutes} min. Here that held for ${fmtMinutes(b.minutes)}, and HM-006 attributed ` +
           `${fmtHoursOf(exhaustedHours, 'task-hour')} of waiting to "executor slots exhausted". Data used: one-minute ` +
-          `worker samples (${fmtPct(s.coverage.samples)} of the last ${w}), live snapshots every 30 s and the ` +
+          `worker samples (${fmtPct(s.coverage.samples)} of the last ${w}), live snapshots every ` +
+          `${fmtCadence(s.snapshotCadenceMs)} and the ` +
           `environment's worker settings.`,
         evidence: [
           {

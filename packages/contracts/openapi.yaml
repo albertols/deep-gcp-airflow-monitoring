@@ -629,7 +629,12 @@ components:
         data_as_of: { type: string, format: date-time }
         sources: { type: array, items: { $ref: '#/components/schemas/SourceId' } }
         bucket_seconds: { type: integer, minimum: 1 }
-        snapshot_interval_seconds: { type: integer, minimum: 1 }
+        snapshot_interval_seconds:
+          {
+            type: ['integer', 'null'],
+            minimum: 1,
+            description: 'The af.live cadence observed in the range (median gap between snapshots); null with fewer than two snapshots. Each snapshot stands for the gap to the next one, at most twice this.',
+          }
         waiting_task_seconds:
           {
             type: number,

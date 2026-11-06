@@ -2,6 +2,7 @@ export * from './occupancy';
 export * from './stats';
 export * from './model';
 export * from './waiting';
+export * from './snapshot-time';
 export * from './attribution';
 export * from './health';
 export * from './dag-runs';

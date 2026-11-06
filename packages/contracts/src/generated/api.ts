@@ -417,7 +417,8 @@ export interface components {
             data_as_of: string;
             sources: components["schemas"]["SourceId"][];
             bucket_seconds: number;
-            snapshot_interval_seconds: number;
+            /** @description The af.live cadence observed in the range (median gap between snapshots); null with fewer than two snapshots. Each snapshot stands for the gap to the next one, at most twice this. */
+            snapshot_interval_seconds: number | null;
             /** @description Waiting attributed to platform limits; excludes normal latency. */
             waiting_task_seconds: number;
             normal_latency_task_seconds: number;
