@@ -8,7 +8,14 @@
  * @implements HM-005, HM-008, HM-011, HM-027
  */
 import { attributeWaiting, capacityStats } from './attribution';
-import type { DagMeta, EnvironmentConfig, LiveSnapshot, WaitReasonId, WorkerSample } from './model';
+import {
+  limitKnown,
+  type DagMeta,
+  type EnvironmentConfig,
+  type LiveSnapshot,
+  type WaitReasonId,
+  type WorkerSample,
+} from './model';
 import { slotSeconds, type TaskTry } from './occupancy';
 import { collisionDensity, type CollisionDensity } from './schedule';
 import { quantile } from './stats';
@@ -99,8 +106,11 @@ export interface DagLimitSignal {
   readonly ownWaitingMs: number;
   /** Highest running + queued + ready task instances of the DAG at the limit. */
   readonly peakDemand: number;
-  /** At-limit snapshots with free worker slots in the environment. */
-  readonly headroomObservations: number;
+  /**
+   * At-limit snapshots with free worker slots in the environment; `null` while `worker_concurrency` is
+   * unknown (HM-032), because free slots cannot be told from full ones.
+   */
+  readonly headroomObservations: number | null;
   readonly lastAtLimit: number | null;
 }
 
@@ -146,8 +156,8 @@ export interface EnvironmentSignals {
   };
   readonly capacity: {
     readonly minutesAtMax: number;
-    /** HM-011 capacity-bound minutes (as on the bottlenecks page). */
-    readonly capacityBoundMinutes: number;
+    /** HM-011 capacity-bound minutes (as on the bottlenecks page); `null` while slots are unknown. */
+    readonly capacityBoundMinutes: number | null;
     readonly bound: WorkerMinutes & {
       readonly episodes: readonly Episode[];
       /** p95 of running + queued task instances while bound. */
@@ -214,6 +224,9 @@ class WorkerMinutesBuilder {
 
 function workerSignals(input: AdvisorInput, samples: readonly WorkerSample[]) {
   const { config } = input;
+  // Without worker_concurrency, "slots full" and "queued ≥ 20 % of slots" cannot be checked (HM-032):
+  // the minutes below stay empty and the rules that read them report insufficient data.
+  const slotsKnown = limitKnown(config, 'workerConcurrency');
   const bound = new WorkerMinutesBuilder();
   const full = new WorkerMinutesBuilder();
   const suppressed = new WorkerMinutesBuilder();
@@ -227,6 +240,7 @@ function workerSignals(input: AdvisorInput, samples: readonly WorkerSample[]) {
       Math.min((samples[i + 1]?.at ?? s.at + SAMPLE_INTERVAL_MS) - s.at, SAMPLE_INTERVAL_MS) / MINUTE;
     const slots = s.workers * config.workerConcurrency;
     const atMax = s.workers >= config.maxWorkers;
+    if (!slotsKnown) return;
     const isBound = atMax && s.queued >= Math.max(BOUND_MIN_QUEUED, BOUND_QUEUED_RATIO * slots);
     if (isBound) {
       bound.add(s, span, slots);
@@ -279,7 +293,7 @@ interface MutableDagLimit {
   atLimitObservations: number;
   ownWaitingMs: number;
   peakDemand: number;
-  headroomObservations: number;
+  headroomObservations: number | null;
   lastAtLimit: number | null;
 }
 
@@ -303,6 +317,7 @@ function snapshotSignals(
     ]),
   );
   const dags = new Map<string, MutableDagLimit>();
+  const slotsKnown = limitKnown(config, 'workerConcurrency');
 
   for (const s of snapshots) {
     const readySlots = new Map<string, number>();
@@ -325,14 +340,15 @@ function snapshotSignals(
         add(pool.dagWaitingMs, ti.dagId, interval);
       }
     }
-    const freeSlots = s.executor.running < s.workers.current * config.workerConcurrency;
+    // Free worker slots are unknown without worker_concurrency (HM-032), never "free" by the placeholder.
+    const freeSlots = slotsKnown && s.executor.running < s.workers.current * config.workerConcurrency;
     for (const dagId of new Set([...Object.keys(s.dagActive), ...readyByDag.keys()])) {
       const d = dags.get(dagId) ?? {
         activeObservations: 0,
         atLimitObservations: 0,
         ownWaitingMs: 0,
         peakDemand: 0,
-        headroomObservations: 0,
+        headroomObservations: slotsKnown ? 0 : null,
         lastAtLimit: null,
       };
       dags.set(dagId, d);
@@ -343,7 +359,7 @@ function snapshotSignals(
       d.atLimitObservations++;
       d.ownWaitingMs += ready * interval;
       d.peakDemand = Math.max(d.peakDemand, active + ready);
-      if (freeSlots) d.headroomObservations++;
+      if (freeSlots && d.headroomObservations !== null) d.headroomObservations++;
       d.lastAtLimit = s.at;
     }
   }

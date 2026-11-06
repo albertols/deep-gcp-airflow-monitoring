@@ -466,6 +466,53 @@ describe('REC-DAG-01 DAG throttled by max_active_tasks', () => {
   });
 });
 
+describe('HM-032 worker_concurrency not known', () => {
+  const unknown: Partial<EnvironmentConfig> = {
+    workerConcurrency: UNKNOWN_LIMIT,
+    limitSources: { workerConcurrency: 'unknown' },
+  };
+
+  it('HM-032 / REC-CAP-01 / REC-CAP-05 / REC-CAP-08: report insufficient data, not "evaluated, no finding"', () => {
+    const result = run(
+      signals({
+        config: unknown,
+        capacity: { ...bound(0), capacityBoundMinutes: null },
+        workerResources: { cpu: 2, memoryGb: 7.5 },
+      }),
+    );
+    for (const ruleId of ['REC-CAP-01', 'REC-CAP-05', 'REC-CAP-08'] as const) {
+      expect(result.findings.some((f) => f.ruleId === ruleId)).toBe(false);
+      expect(result.insufficient).toContainEqual({
+        ruleId,
+        reason: expect.stringMatching(/worker_concurrency is not known/),
+      });
+    }
+  });
+
+  it('HM-032 / REC-DAG-01: unknown headroom gives a neutral action, never an invented share of free slots', () => {
+    const limited: DagLimitSignal = {
+      dagId: 'customer_360_rebuild',
+      limit: 4,
+      limitIsDefault: false,
+      activeObservations: 1000,
+      atLimitObservations: 400,
+      ownWaitingMs: 30 * HOUR,
+      peakDemand: 12,
+      headroomObservations: null,
+      lastAtLimit: NOW - MIN,
+    };
+    const f = one(
+      signals({ config: unknown, dags: [dag('customer_360_rebuild', '0 * * * *', 4)], dagLimits: [limited] }),
+      'REC-DAG-01',
+    );
+    expect(f.action).not.toMatch(/\d+%/);
+    expect(f.action).toMatch(/worker_concurrency is not known/);
+    expect(f.evidence).toContainEqual(
+      expect.objectContaining({ label: 'At-limit time with free worker slots', value: 'Not known' }),
+    );
+  });
+});
+
 describe('REC-DAG-05 sensor slot waste', () => {
   const sensor = (slotSeconds: number, mode: SensorSignal['mode'] = 'poke'): SensorSignal => ({
     dagId: 'partner_feed_wait',

@@ -746,9 +746,9 @@ components:
           properties:
             capacity_bound_minutes:
               {
-                type: number,
+                type: ['number', 'null'],
                 minimum: 0,
-                description: 'HM-011: workers at max_count and queued ≥ max(10, 20 % of slots).',
+                description: 'HM-011: workers at max_count and queued ≥ max(10, 20 % of slots). Null when DCAM does not know [celery] worker_concurrency (HM-032), so the slots are unknown.',
               }
             minutes_at_max_workers: { type: number, minimum: 0 }
             scale_up_lag_p95_seconds:

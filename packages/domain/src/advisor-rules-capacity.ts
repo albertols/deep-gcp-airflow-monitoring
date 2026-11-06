@@ -8,8 +8,9 @@
  *
  * @implements REC-CAP-01, REC-CAP-05, REC-CAP-08, HM-011, HM-027
  */
-import { RULE_THRESHOLDS, evaluated, perDay, type RuleDefinition } from './advisor-rule';
+import { RULE_THRESHOLDS, evaluated, perDay, type RuleDefinition, type RuleOutcome } from './advisor-rule';
 import { BOUND_MIN_QUEUED, BOUND_QUEUED_RATIO, type EnvironmentSignals } from './advisor-signals';
+import { limitKnown } from './model';
 import {
   DOCS,
   fmtDuration,
@@ -28,7 +29,22 @@ import {
 const HOUR = 3_600_000;
 const windowLabel = (s: EnvironmentSignals) => `${fmtInt((s.to - s.from) / HOUR)} h`;
 const workerSettings = (s: EnvironmentSignals) =>
-  `min_count ${s.config.minWorkers}, max_count ${s.config.maxWorkers}, worker_concurrency ${s.config.workerConcurrency}`;
+  `min_count ${s.config.minWorkers}, max_count ${s.config.maxWorkers}, worker_concurrency ` +
+  (limitKnown(s.config, 'workerConcurrency') ? `${s.config.workerConcurrency}` : 'not known');
+/**
+ * HM-032: every capacity rule compares work with worker slots (workers × worker_concurrency). With
+ * worker_concurrency unknown (Composer 3 without an override) none can be evaluated: say so, never
+ * "evaluated, no finding" from the placeholder.
+ */
+const slotsUnknown = (s: EnvironmentSignals): RuleOutcome | null =>
+  limitKnown(s.config, 'workerConcurrency')
+    ? null
+    : {
+        kind: 'insufficient',
+        reason:
+          'worker_concurrency is not known (no override in the Composer configuration), so DCAM cannot tell ' +
+          'when worker slots are full (HM-032).',
+      };
 const dagsFor = (s: EnvironmentSignals, reason: 'executor-slots-exhausted' | 'unknown') => [
   ...(s.waiting.byReasonDag.get(reason) ?? new Map<string, number>()).keys(),
 ];
@@ -42,6 +58,8 @@ export const REC_CAP_01: RuleDefinition = {
   wiki: 'worker-capacity-and-autoscaling',
   inhibits: ['REC-CAP-05'],
   evaluate(s) {
+    const unknown = slotsUnknown(s);
+    if (unknown) return unknown;
     const t = RULE_THRESHOLDS['REC-CAP-01'];
     const { config } = s;
     const b = s.capacity.bound;
@@ -182,6 +200,8 @@ export const REC_CAP_05: RuleDefinition = {
   inputs: ['samples'],
   wiki: 'worker-capacity-and-autoscaling',
   evaluate(s) {
+    const unknown = slotsUnknown(s);
+    if (unknown) return unknown;
     const t = CAP05;
     const f = s.capacity.slotsFullAtMax;
     const { config } = s;
@@ -263,6 +283,8 @@ export const REC_CAP_08: RuleDefinition = {
   inputs: ['samples'],
   wiki: 'worker-capacity-and-autoscaling',
   evaluate(s) {
+    const unknown = slotsUnknown(s);
+    if (unknown) return unknown;
     const t = RULE_THRESHOLDS['REC-CAP-08'];
     const x = s.capacity.scaleOutSuppressed;
     const { config } = s;

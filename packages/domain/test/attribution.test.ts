@@ -139,7 +139,7 @@ describe('HM-011 / HM-012 worker capacity', () => {
     expect(c.capacityBoundMinutes).toBe(1);
   });
 
-  it('HM-011: with an unknown worker_concurrency slot utilisation is unknown, never a placeholder ratio', () => {
+  it('HM-011 / HM-032: with an unknown worker_concurrency slot utilisation and capacity-bound minutes are unknown', () => {
     const unknown: EnvironmentConfig = {
       ...config,
       workerConcurrency: UNKNOWN_LIMIT,
@@ -148,6 +148,8 @@ describe('HM-011 / HM-012 worker capacity', () => {
     const c = capacityStats(samples, unknown);
     expect(c.utilisation).toEqual({ value: null, samples: 0, lowSample: true });
     expect(c.minutesAtMax).toBe(2);
+    // HM-032: "queued ≥ 20 % of slots" cannot be checked, so capacity-bound minutes are unknown, not 0.
+    expect(c.capacityBoundMinutes).toBeNull();
     const a = attributeWaiting(
       snapshots,
       { config: unknown, dagMaxActiveTasks: new Map() },

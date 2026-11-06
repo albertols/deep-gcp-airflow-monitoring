@@ -107,11 +107,20 @@ export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
               unit="min"
               hint={`Workers ${b.current.workers.current} of ${b.current.workers.max} max`}
             />
-            <Kpi
-              explanation={X['botl-capacity-bound']}
-              value={formatInt(Math.round(b.capacity.capacity_bound_minutes))}
-              unit="min"
-            />
+            {b.capacity.capacity_bound_minutes === null ? (
+              // HM-032: without worker_concurrency the slots, and so "queued ≥ 20 % of slots", are unknown.
+              <Kpi
+                explanation={X['botl-capacity-bound']}
+                value="Not known yet"
+                hint="worker_concurrency is not known (no override in the Composer configuration)"
+              />
+            ) : (
+              <Kpi
+                explanation={X['botl-capacity-bound']}
+                value={formatInt(Math.round(b.capacity.capacity_bound_minutes))}
+                unit="min"
+              />
+            )}
             <Kpi
               explanation={X['botl-scale-lag']}
               value={formatDuration(b.capacity.scale_up_lag_p95_seconds)}

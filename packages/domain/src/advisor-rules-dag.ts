@@ -29,7 +29,8 @@ const pyName = (taskId: string) => {
 function throttled(s: EnvironmentSignals, d: DagLimitSignal): RuleMeasurement {
   const t = RULE_THRESHOLDS['REC-DAG-01'];
   const share = d.atLimitObservations / d.activeObservations;
-  const headroom = d.headroomObservations / d.atLimitObservations;
+  // `null` while worker_concurrency is unknown (HM-032): DCAM cannot tell free worker slots from full ones.
+  const headroom = d.headroomObservations === null ? null : d.headroomObservations / d.atLimitObservations;
   const proposed = Math.max(d.limit + 1, d.peakDemand);
   const ownHours = d.ownWaitingMs / HOUR;
   const header = `# ${d.dagId} (${fileOf(s, d.dagId)}): in the DAG(...) arguments`;
@@ -47,11 +48,15 @@ function throttled(s: EnvironmentSignals, d: DagLimitSignal): RuleMeasurement {
       `with its own ready tasks waiting; up to ${fmtInt(d.peakDemand)} of its tasks were ready, queued or running at once.`,
     impactText: `Its tasks waited ${fmtHoursOf(ownHours, 'task-hour')} for the DAG's own limit, which stretches its runs.`,
     action:
-      headroom >= HEADROOM_SHARE
-        ? `Raise max_active_tasks from ${d.limit} to ${proposed}: the environment had free worker slots in ` +
-          `${fmtPct(headroom)} of those minutes.`
-        : `Raise max_active_tasks from ${d.limit} to ${proposed} only once the environment has headroom: worker ` +
-          `slots were free in only ${fmtPct(headroom)} of those minutes, so address worker capacity first (REC-CAP-01).`,
+      headroom === null
+        ? `Raise max_active_tasks from ${d.limit} to ${proposed} if the environment has free worker slots while ` +
+          'the DAG is at its limit. DCAM cannot tell yet: worker_concurrency is not known (no override in the ' +
+          'Composer configuration), so check worker load first.'
+        : headroom >= HEADROOM_SHARE
+          ? `Raise max_active_tasks from ${d.limit} to ${proposed}: the environment had free worker slots in ` +
+            `${fmtPct(headroom)} of those minutes.`
+          : `Raise max_active_tasks from ${d.limit} to ${proposed} only once the environment has headroom: worker ` +
+            `slots were free in only ${fmtPct(headroom)} of those minutes, so address worker capacity first (REC-CAP-01).`,
     why:
       `This rule fires when a DAG is at its max_active_tasks limit for at least ${fmtPct(t.minAtLimitShare)} of ` +
       `its active time with its own tasks waiting (HM-005). Here it was ${fmtPct(share)}. On Airflow ` +
@@ -82,7 +87,7 @@ function throttled(s: EnvironmentSignals, d: DagLimitSignal): RuleMeasurement {
       },
       {
         label: 'At-limit time with free worker slots',
-        value: fmtPct(headroom),
+        value: headroom === null ? 'Not known' : fmtPct(headroom),
         threshold: `≥ ${fmtPct(HEADROOM_SHARE)} counts as headroom`,
         source: 'SRC-AF-API',
       },

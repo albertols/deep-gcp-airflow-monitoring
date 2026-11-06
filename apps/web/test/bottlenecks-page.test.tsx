@@ -76,19 +76,28 @@ const fixture: Bottlenecks = {
 };
 
 const reject = () => Promise.reject(new Error('not in this test'));
-const api: DcamApi = {
+const apiFor = (data: Bottlenecks): DcamApi => ({
   getMeta: reject,
   getOverview: reject,
   getDagLeague: reject,
   getDagDetail: reject,
-  getBottlenecks: async () => fixture,
+  getBottlenecks: async () => data,
   getFindings: reject,
   getAlerts: reject,
   getFleet: reject,
   getCollection: reject,
+});
+
+/** The KPI card whose (i) title is `title`. */
+const kpi = async (title: string) => {
+  const heading = await screen.findByRole('heading', { name: title });
+  const card = heading.closest('.MuiPaper-root');
+  if (!(card instanceof HTMLElement)) throw new Error(`No KPI card for ${title}`);
+  return card;
 };
 
-function renderPage() {
+function renderPage(data: Bottlenecks = fixture) {
+  const api = apiFor(data);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ThemeProvider theme={createDcamTheme('dark')}>
@@ -146,5 +155,17 @@ describe('S-16 bottlenecks page (FR-BOTL-01)', () => {
   it('FR-UI-05: every panel and reason has an explanation', () => {
     for (const id of BOTTLENECK_PANELS) expect(BOTTLENECK_EXPLANATIONS[id]).toBeDefined();
     for (const r of Object.values(REASONS)) expect(r.description.length).toBeGreaterThan(20);
+  });
+
+  it('HM-032: capacity-bound minutes show "Not known yet" while worker_concurrency is unknown, not 0 min', async () => {
+    renderPage({
+      ...fixture,
+      current: { ...fixture.current, worker_slots: null },
+      capacity: { ...fixture.capacity, capacity_bound_minutes: null },
+    });
+    const card = await kpi('Capacity-bound minutes');
+    expect(card).toHaveTextContent('Not known yet');
+    expect(card).toHaveTextContent(/worker_concurrency is not known/);
+    expect(card).not.toHaveTextContent(/\d+\s*min/);
   });
 });

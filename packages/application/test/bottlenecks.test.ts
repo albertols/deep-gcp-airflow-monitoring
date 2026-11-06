@@ -129,7 +129,7 @@ describe('getBottlenecks use case (FR-BOTL-01/02/07/09)', () => {
     expect(b.current).toMatchObject({ binding: 'pool-exhausted', scheduled: 3, queued: 1, worker_slots: 8 });
   });
 
-  it('HM-032: current worker slots are null when worker_concurrency is not known', async () => {
+  it('HM-032: current worker slots and capacity-bound minutes are null when worker_concurrency is not known', async () => {
     const unknown: EnvironmentConfig = {
       ...config,
       workerConcurrency: UNKNOWN_LIMIT,
@@ -140,6 +140,9 @@ describe('getBottlenecks use case (FR-BOTL-01/02/07/09)', () => {
       { envId: 'acme-prod', range: '1h', sources: ['DEMO'] },
     );
     expect(b.current.worker_slots).toBeNull();
+    // 12 queued at max workers is bound at 4 slots per worker, but the slots are unknown: not "0 min".
+    expect(b.capacity.capacity_bound_minutes).toBeNull();
+    expect(b.capacity.minutes_at_max_workers).toBe(60);
   });
 
   it('FR-BOTL-07 / HM-008: ranks poke-mode sensor slot time', async () => {

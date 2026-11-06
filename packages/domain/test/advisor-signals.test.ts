@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  UNKNOWN_LIMIT,
   environmentSignals,
   type AdvisorInput,
   type DagMeta,
@@ -218,5 +219,19 @@ describe('advisor signals over the window', () => {
     expect(s.schedules.busiestMinute).toBe(0);
     expect(s.slotSecondsByDag.get('partner_feed_wait')).toBe(480);
     expect(s.poolSlotSeconds.get('default_pool')).toBeGreaterThan(0);
+  });
+
+  it('HM-032 / HM-011: with worker_concurrency unknown, free-slot headroom and slot-based capacity are unknown', () => {
+    const unknown: EnvironmentConfig = {
+      ...config,
+      workerConcurrency: UNKNOWN_LIMIT,
+      limitSources: { workerConcurrency: 'unknown' },
+    };
+    const s = environmentSignals({ ...input, config: unknown });
+    // Never "free worker slots" or "not capacity-bound" from the placeholder.
+    expect(s.dagLimits.find((d) => d.dagId === 'wide_dag')?.headroomObservations).toBeNull();
+    expect(s.capacity.capacityBoundMinutes).toBeNull();
+    // Worker counts do not depend on worker_concurrency.
+    expect(s.capacity.minutesAtMax).toBe(10);
   });
 });

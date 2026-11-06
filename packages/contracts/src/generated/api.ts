@@ -479,8 +479,8 @@ export interface components {
                 utilisation_p95: number | null;
             }[];
             capacity: {
-                /** @description HM-011: workers at max_count and queued ≥ max(10, 20 % of slots). */
-                capacity_bound_minutes: number;
+                /** @description HM-011: workers at max_count and queued ≥ max(10, 20 % of slots). Null when DCAM does not know [celery] worker_concurrency (HM-032), so the slots are unknown. */
+                capacity_bound_minutes: number | null;
                 minutes_at_max_workers: number;
                 /** @description HM-012: target rises → workers reach it. */
                 scale_up_lag_p95_seconds: number | null;

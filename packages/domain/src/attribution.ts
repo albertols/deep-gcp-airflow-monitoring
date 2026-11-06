@@ -132,8 +132,11 @@ export interface CapacityStats {
   /** Running ÷ (workers × worker_concurrency) per sample (HM-011). */
   readonly utilisation: Quantile;
   readonly minutesAtMax: number;
-  /** HM-011: workers at `max_count` and queued ≥ max(10, 20 % of capacity). */
-  readonly capacityBoundMinutes: number;
+  /**
+   * HM-011: workers at `max_count` and queued ≥ max(10, 20 % of capacity). `null` while
+   * `worker_concurrency` is unknown (HM-032): the capacity, and so the threshold, is unknown too.
+   */
+  readonly capacityBoundMinutes: number | null;
   /** HM-012: seconds from the autoscaler target rising above the workers to the workers reaching it. */
   readonly scaleUpLagsSeconds: readonly number[];
 }
@@ -174,7 +177,7 @@ export function capacityStats(samples: readonly WorkerSample[], config: Environm
   return {
     utilisation: quantile(utilisation, 0.95),
     minutesAtMax,
-    capacityBoundMinutes,
+    capacityBoundMinutes: slotsKnown ? capacityBoundMinutes : null,
     scaleUpLagsSeconds: lags,
   };
 }
