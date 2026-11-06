@@ -12,12 +12,22 @@ import {
   parseCli,
   renderDoctorText,
   runDoctorCommand,
-  unwiredDoctorAdapters,
   type DoctorAdapters,
-  type ExecFileFn,
 } from '../src/index';
+import type { CommandResult, CommandRunner } from '@dcam/gcp';
 
 const NOW = Date.UTC(2026, 10, 5, 12, 0, 0);
+
+/** Adapters for probes whose adapter-backed parts a test does not use. */
+const unusedAdapters: DoctorAdapters = {
+  loadConfig: async () => {
+    throw new Error('not used by this test');
+  },
+  tokens: { accessToken: async () => 'unused', invalidate: () => undefined },
+  environment: () => {
+    throw new Error('not used by this test');
+  },
+};
 /** Start of an ANSI escape sequence. */
 const ANSI = '\u001b[';
 
@@ -271,57 +281,62 @@ describe('FR-AUTH-05 local probes', () => {
     expect((await inspectDataDir(dir, 'win32')).mode).toBeNull();
   });
 
-  const execRecorder = (result: { stdout: string } | Error) => {
-    const calls: Array<[string, readonly string[]]> = [];
-    const exec: ExecFileFn = async (file, args) => {
-      calls.push([file, args]);
+  const runRecorder = (result: Partial<CommandResult> | Error) => {
+    const calls: Array<[string, readonly string[], { timeoutMs: number; env?: unknown }]> = [];
+    const run: CommandRunner = async (file, args, options) => {
+      calls.push([file, args, options]);
       if (result instanceof Error) throw result;
-      return result;
+      return { exitCode: 0, stdout: '', stderr: '', timedOut: false, ...result };
     };
-    return { exec, calls };
+    return { run, calls };
   };
 
   it('FR-AUTH-02: runs gcloud --version with fixed arguments and no shell, and keeps the first line', async () => {
-    const { exec, calls } = execRecorder({
+    const { run, calls } = runRecorder({
       stdout: 'Google Cloud SDK 540.0.0\nbq 2.1.25\ncore 2026.10.31\n',
     });
-    expect(await gcloudVersion('darwin', {}, exec)).toBe('Google Cloud SDK 540.0.0');
-    expect(calls).toEqual([['gcloud', ['--version']]]);
+    expect(await gcloudVersion('darwin', {}, run)).toBe('Google Cloud SDK 540.0.0');
+    expect(calls).toEqual([['gcloud', ['--version'], { timeoutMs: 20_000 }]]);
   });
 
-  it('FR-AUTH-02: on Windows runs gcloud.cmd through cmd.exe with fixed arguments', async () => {
-    const { exec, calls } = execRecorder({ stdout: 'Google Cloud SDK 540.0.0\r\n' });
-    expect(await gcloudVersion('win32', { ComSpec: 'C:\\Windows\\system32\\cmd.exe' }, exec)).toBe(
-      'Google Cloud SDK 540.0.0',
-    );
+  it('FR-AUTH-02: on Windows runs gcloud.cmd as the token source does: system cmd.exe, PATH lookup only', async () => {
+    const { run, calls } = runRecorder({ stdout: 'Google Cloud SDK 540.0.0\r\n' });
+    const env = { ComSpec: 'C:\\Windows\\system32\\cmd.exe', PATH: 'C:\\acme\\bin' };
+    expect(await gcloudVersion('win32', env, run)).toBe('Google Cloud SDK 540.0.0');
     expect(calls).toEqual([
-      ['C:\\Windows\\system32\\cmd.exe', ['/d', '/s', '/c', 'gcloud.cmd', '--version']],
+      [
+        'C:\\Windows\\system32\\cmd.exe',
+        ['/d', '/s', '/c', 'gcloud.cmd', '--version'],
+        { timeoutMs: 20_000, env: { ...env, NoDefaultCurrentDirectoryInExePath: '1' } },
+      ],
     ]);
+    await gcloudVersion('win32', { SystemRoot: 'C:\\Windows' }, run);
+    expect(calls[1]?.[0]).toBe('C:\\Windows\\System32\\cmd.exe');
   });
 
-  it.each<[string, string, Error & { code?: unknown; stderr?: string }]>([
-    ['darwin', 'ENOENT', Object.assign(new Error('spawn gcloud ENOENT'), { code: 'ENOENT' })],
+  it.each<[string, string, Partial<CommandResult> | Error]>([
+    ['darwin', 'ENOENT', Object.assign(new Error('could not run gcloud: ENOENT'), { code: 'ENOENT' })],
     [
       'win32',
       'exit 9009',
-      Object.assign(new Error('Command failed'), {
-        code: 9009,
-        stderr: "'gcloud.cmd' is not recognized as an internal or external command",
-      }),
+      { exitCode: 9009, stderr: "'gcloud.cmd' is not recognized as an internal or external command" },
     ],
-  ])('FR-AUTH-02: gcloud missing on %s (%s) → null', async (platform, _why, error) => {
-    const { exec } = execRecorder(error);
-    expect(await gcloudVersion(platform, {}, exec)).toBeNull();
+  ])('FR-AUTH-02: gcloud missing on %s (%s) → null', async (platform, _why, result) => {
+    const { run } = runRecorder(result);
+    expect(await gcloudVersion(platform, {}, run)).toBeNull();
   });
 
-  it('FR-AUTH-02: other gcloud failures are reported, not hidden', async () => {
-    const { exec } = execRecorder(Object.assign(new Error('gcloud crashed'), { code: 1 }));
-    await expect(gcloudVersion('linux', {}, exec)).rejects.toThrow(/gcloud crashed/);
+  it.each<[string, Partial<CommandResult>, RegExp]>([
+    ['a failing gcloud', { exitCode: 1, stderr: 'gcloud crashed' }, /exit code 1.*gcloud crashed/],
+    ['a timeout', { exitCode: null, timedOut: true }, /did not finish within 20 s/],
+  ])('FR-AUTH-02: %s is reported, not hidden', async (_name, result, message) => {
+    const { run } = runRecorder(result);
+    await expect(gcloudVersion('linux', {}, run)).rejects.toThrow(message);
   });
 
   it('FR-AUTH-07: the probes see only the CA and credential variables', () => {
     const probes = createDoctorProbes({
-      adapters: unwiredDoctorAdapters({ configPath: null }),
+      adapters: unusedAdapters,
       env: {
         HTTPS_PROXY: 'http://proxy.acme.example:3128',
         NODE_EXTRA_CA_CERTS: '/home/acme/acme-root.pem',
@@ -338,17 +353,11 @@ describe('FR-AUTH-05 local probes', () => {
 
   it('FR-AUTH-05: without DCAM_DATA_DIR the data directory is ~/.dcam/data', () => {
     const probes = createDoctorProbes({
-      adapters: unwiredDoctorAdapters({ configPath: null }),
+      adapters: unusedAdapters,
       env: {},
       homeDir: '/home/acme',
     });
     expect(probes.defaultDataDir).toBe(join('/home/acme', '.dcam', 'data'));
-  });
-
-  it('FR-AUTH-05: adapters that are not wired yet fail honestly instead of passing', async () => {
-    const adapters: DoctorAdapters = unwiredDoctorAdapters({ configPath: null });
-    await expect(adapters.loadConfig()).rejects.toThrow(/not wired/);
-    await expect(adapters.tokens.accessToken()).rejects.toThrow(/not wired/);
   });
 });
 
@@ -357,7 +366,7 @@ describe('FR-AUTH-07 proxy probes read the variables as the transport does (http
   const EMULATOR = 'http://127.0.0.1:8080/api/v1/health';
   const COMPOSER = 'https://composer.googleapis.com/v1/projects/acme-prod-123';
   const probesFor = (env: Record<string, string>) =>
-    createDoctorProbes({ adapters: unwiredDoctorAdapters({ configPath: null }), env, homeDir: '/home/acme' });
+    createDoctorProbes({ adapters: unusedAdapters, env, homeDir: '/home/acme' });
 
   it('FR-AUTH-07: a proxy without a scheme is used as http://, as the transport does', () => {
     const probes = probesFor({ HTTPS_PROXY: PROXY });

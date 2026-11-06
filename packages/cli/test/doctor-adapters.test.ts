@@ -7,7 +7,8 @@ import { runDoctor, type DoctorCheck, type DoctorCheckId, type DoctorReport } fr
 import type { Transport } from '@dcam/http-guard';
 import type { AccessTokenSource } from '@dcam/ports';
 import { liveDoctorAdapters } from '../src/doctor/adapters';
-import { createDoctorProbes, type ExecFileFn } from '../src/doctor/probes';
+import type { CommandRunner } from '@dcam/gcp';
+import { createDoctorProbes } from '../src/doctor/probes';
 
 /**
  * Every program the code under test starts goes through this stand-in: nothing real is started. A
@@ -98,12 +99,17 @@ function fakeGoogle() {
 }
 
 /** `gcloud --version` as the doctor's machine check sees it. */
-const gcloudInstalled: ExecFileFn = async () => ({ stdout: 'Google Cloud SDK 540.0.0\n' });
+const gcloudInstalled: CommandRunner = async () => ({
+  exitCode: 0,
+  stdout: 'Google Cloud SDK 540.0.0\n',
+  stderr: '',
+  timedOut: false,
+});
 
 async function doctor(env: Record<string, string>, transport: Transport): Promise<DoctorReport> {
   const wired = liveDoctorAdapters({ configPath: null, env, cwd, homeDir: cwd, transport });
   try {
-    const probes = createDoctorProbes({ adapters: wired, env, homeDir: cwd, exec: gcloudInstalled });
+    const probes = createDoctorProbes({ adapters: wired, env, homeDir: cwd, run: gcloudInstalled });
     return await runDoctor(probes, { now: () => NOW });
   } finally {
     await wired.close();

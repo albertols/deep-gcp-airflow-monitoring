@@ -133,6 +133,35 @@ export const runCommand: CommandRunner = (file, args, options) =>
     }, options.timeoutMs);
   });
 
+/** A command line to give a {@link CommandRunner}: the program, its fixed arguments, and its environment. */
+export interface GcloudCommand {
+  readonly file: string;
+  readonly args: readonly string[];
+  /** The child's whole environment; absent: inherit this process's. */
+  readonly env?: Env;
+}
+
+/**
+ * `gcloud <args>` as DCAM starts it, for the token source and the doctor's `gcloud --version`. On
+ * Windows: the system `cmd.exe` by full path (a bare name would also match one in the current
+ * directory), and `NoDefaultCurrentDirectoryInExePath` so that `cmd.exe` looks up `gcloud.cmd` on PATH
+ * only (https://learn.microsoft.com/windows/win32/api/processenv/nf-processenv-needcurrentdirectoryforexepathw).
+ * `args` must be fixed strings: nothing user-supplied may reach the command line.
+ */
+export function gcloudCommand(
+  args: readonly string[],
+  /** `process.platform`; only `win32` changes the command line. */
+  platform: string,
+  env: Env,
+): GcloudCommand {
+  if (platform !== 'win32') return { file: 'gcloud', args: [...args] };
+  return {
+    file: env['ComSpec'] ?? env['COMSPEC'] ?? win32.join(systemRoot(env), 'System32', 'cmd.exe'),
+    args: ['/d', '/s', '/c', 'gcloud.cmd', ...args],
+    env: { ...env, NoDefaultCurrentDirectoryInExePath: '1' },
+  };
+}
+
 /** Removes anything that looks like a token from CLI diagnostics, and keeps them short. */
 function sanitize(text: string): string {
   return text
@@ -153,17 +182,7 @@ export function createGcloudTokenSource(options: GcloudTokenSourceOptions = {}):
   const ttlMs = options.ttlMs ?? GCLOUD_TOKEN_TTL_MS;
   const timeoutMs = options.timeoutMs ?? GCLOUD_TIMEOUT_MS;
   const env = options.env ?? process.env;
-  // On Windows: the system cmd.exe by full path (a bare name would also match one in the current
-  // directory), and NoDefaultCurrentDirectoryInExePath so that cmd.exe looks up gcloud.cmd on PATH only
-  // (https://learn.microsoft.com/windows/win32/api/processenv/nf-processenv-needcurrentdirectoryforexepathw).
-  const command: { file: string; args: readonly string[]; env?: Env } =
-    platform === 'win32'
-      ? {
-          file: env['ComSpec'] ?? env['COMSPEC'] ?? win32.join(systemRoot(env), 'System32', 'cmd.exe'),
-          args: ['/d', '/s', '/c', 'gcloud.cmd', ...ARGS],
-          env: { ...env, NoDefaultCurrentDirectoryInExePath: '1' },
-        }
-      : { file: 'gcloud', args: [...ARGS] };
+  const command = gcloudCommand(ARGS, platform, env);
 
   let cached: { token: string; until: number } | undefined;
   let inFlight: Promise<string> | undefined;

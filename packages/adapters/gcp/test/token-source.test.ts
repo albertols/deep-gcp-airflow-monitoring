@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SourceError } from '@dcam/ports';
-import { createGcloudTokenSource, type CommandResult, type CommandRunner } from '../src/index';
+import { createGcloudTokenSource, gcloudCommand, type CommandResult, type CommandRunner } from '../src/index';
 
 // A fictitious token shape; real tokens never appear in this repository.
 const TOKEN = 'acme-test-access-token-0001';
@@ -203,5 +203,28 @@ describe('FR-AUTH-01 ADC access tokens from the Google Cloud CLI', () => {
     expect(error).toBeInstanceOf(Error);
     expect(error).toMatchObject({ code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' });
     expect((error as Error).message).not.toContain('acmeleak');
+  });
+});
+
+describe('FR-AUTH-02 the gcloud command line, shared with the doctor', () => {
+  it('FR-AUTH-02: POSIX runs gcloud itself with the fixed arguments and inherits the environment', () => {
+    expect(gcloudCommand(['--version'], 'darwin', { PATH: '/usr/bin' })).toEqual({
+      file: 'gcloud',
+      args: ['--version'],
+    });
+  });
+
+  it('FR-AUTH-02: Windows runs gcloud.cmd through the system cmd.exe, looked up on PATH only', () => {
+    const env = { ComSpec: 'C:\\Windows\\system32\\cmd.exe', PATH: 'C:\\acme\\bin' };
+    expect(gcloudCommand(['--version'], 'win32', env)).toEqual({
+      file: 'C:\\Windows\\system32\\cmd.exe',
+      args: ['/d', '/s', '/c', 'gcloud.cmd', '--version'],
+      env: { ...env, NoDefaultCurrentDirectoryInExePath: '1' },
+    });
+    // Never a bare cmd.exe, which Windows would also look for in the current directory.
+    expect(gcloudCommand(['--version'], 'win32', { SystemRoot: 'D:\\Win' }).file).toBe(
+      'D:\\Win\\System32\\cmd.exe',
+    );
+    expect(gcloudCommand(['--version'], 'win32', {}).file).toBe('C:\\Windows\\System32\\cmd.exe');
   });
 });

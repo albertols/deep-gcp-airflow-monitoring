@@ -7,11 +7,9 @@
  *
  * @implements FR-AUTH-05, FR-AUTH-02, FR-AUTH-07
  */
-import { execFile } from 'node:child_process';
 import { access, constants, readFile, stat, statfs } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { promisify } from 'node:util';
 import type {
   ConfigProbeResult,
   DataDirFacts,
@@ -19,6 +17,13 @@ import type {
   DoctorProbes,
   DoctorProxyRoute,
 } from '@dcam/application';
+import {
+  GCLOUD_TIMEOUT_MS,
+  gcloudCommand,
+  runCommand,
+  type CommandResult,
+  type CommandRunner,
+} from '@dcam/gcp';
 import { networkModeFromEnv, proxyRoute, readProxyEnvironment } from '@dcam/http-guard';
 import type { AccessTokenSource, EnvironmentEntry, WorkspaceConfig } from '@dcam/ports';
 
@@ -34,63 +39,55 @@ export interface DoctorAdapters {
   environment(entry: EnvironmentEntry, config: WorkspaceConfig): DoctorEnvironmentProbes;
 }
 
-/** `execFile` without a shell, as the probes use it. */
-export type ExecFileFn = (
-  file: string,
-  args: readonly string[],
-  options: { readonly timeout: number },
-) => Promise<{ readonly stdout: string }>;
-
 /**
  * The only environment variables the checks see. The proxy variables reach them only through
  * http-guard (`proxySettings`, `proxyRoute`), without credentials.
  */
 export const DOCTOR_ENV_KEYS = ['NODE_EXTRA_CA_CERTS', 'GOOGLE_APPLICATION_CREDENTIALS'] as const;
 
-const GCLOUD_TIMEOUT_MS = 20_000;
-
-const run = promisify(execFile);
-const defaultExec: ExecFileFn = async (file, args, options) => {
-  const { stdout } = await run(file, [...args], {
-    timeout: options.timeout,
-    encoding: 'utf8',
-    shell: false,
-    windowsHide: true,
-  });
-  return { stdout };
-};
-
 /**
- * First line of `gcloud --version`, or `null` when the Google Cloud CLI is not installed. Fixed
- * arguments and no shell. On Windows `gcloud` is `gcloud.cmd`, which Node.js cannot start without a
- * shell since the CVE-2024-27980 fix, so it runs through `cmd.exe /d /s /c` with fixed arguments
- * (`%ComSpec%`, as Node.js itself resolves the shell, so a `cmd.exe` in the working directory is not used).
+ * First line of `gcloud --version`, or `null` when the Google Cloud CLI is not installed. Started exactly
+ * as the ADC token source starts gcloud (`@dcam/gcp`): fixed arguments and no shell; on Windows
+ * `gcloud.cmd` through the system `cmd.exe` with a PATH-only lookup, and on a timeout the whole process
+ * tree is stopped, so no Python is left running.
  */
 export async function gcloudVersion(
   platform: string,
   env: Env,
-  exec: ExecFileFn = defaultExec,
+  run: CommandRunner = runCommand,
 ): Promise<string | null> {
-  const [file, args] =
-    platform === 'win32'
-      ? [env['ComSpec'] ?? 'cmd.exe', ['/d', '/s', '/c', 'gcloud.cmd', '--version']]
-      : ['gcloud', ['--version']];
+  const command = gcloudCommand(['--version'], platform, env);
+  let result: CommandResult;
   try {
-    const { stdout } = await exec(file, args, { timeout: GCLOUD_TIMEOUT_MS });
-    return (
-      stdout
-        .split(/\r?\n/)
-        .find((l) => l.trim())
-        ?.trim() ?? 'gcloud (version not reported)'
-    );
+    result = await run(command.file, command.args, {
+      timeoutMs: GCLOUD_TIMEOUT_MS,
+      ...(command.env === undefined ? {} : { env: command.env }),
+    });
   } catch (error) {
-    const e = error as { code?: unknown; stderr?: unknown };
-    if (e.code === 'ENOENT') return null;
-    // cmd.exe exits with 9009 when a command is not found. ⚠️ VERIFY on the Windows laptop.
-    const stderr = typeof e.stderr === 'string' ? e.stderr : '';
-    if (platform === 'win32' && (e.code === 9009 || /is not recognized/i.test(stderr))) return null;
+    if ((error as { code?: unknown }).code === 'ENOENT') return null;
     throw error;
   }
+  if (result.timedOut)
+    throw new Error(`gcloud --version did not finish within ${GCLOUD_TIMEOUT_MS / 1000} s.`);
+  // cmd.exe exits with 9009 when a command is not found. ⚠️ VERIFY on the Windows laptop.
+  if (result.exitCode === 9009 || (platform === 'win32' && /is not recognized/i.test(result.stderr)))
+    return null;
+  if (result.exitCode !== 0) {
+    const detail = result.stderr
+      .split(/\r?\n/)
+      .find((l) => l.trim())
+      ?.trim()
+      .slice(0, 200);
+    throw new Error(
+      `gcloud --version failed (exit code ${String(result.exitCode)})${detail ? `: ${detail}` : '.'}`,
+    );
+  }
+  return (
+    result.stdout
+      .split(/\r?\n/)
+      .find((l) => l.trim())
+      ?.trim() ?? 'gcloud (version not reported)'
+  );
 }
 
 /** Facts about the data directory, read without creating it (DCAM creates it at first start). */
@@ -148,7 +145,8 @@ export interface CreateDoctorProbesOptions {
   readonly platform?: string;
   readonly nodeVersion?: string;
   readonly homeDir?: string;
-  readonly exec?: ExecFileFn;
+  /** Starts `gcloud --version`; `runCommand` from `@dcam/gcp` by default. */
+  readonly run?: CommandRunner;
 }
 
 export function createDoctorProbes(options: CreateDoctorProbesOptions): DoctorProbes {
@@ -175,29 +173,9 @@ export function createDoctorProbes(options: CreateDoctorProbesOptions): DoctorPr
     loadDuckDb,
     loadConfig: () => adapters.loadConfig(),
     dataDir: (path) => inspectDataDir(path, platform),
-    gcloudVersion: () => gcloudVersion(platform, env, options.exec),
+    gcloudVersion: () => gcloudVersion(platform, env, options.run),
     tokens: adapters.tokens,
     readTextFile: (path) => readFile(path, 'utf8'),
     environment: (entry, config) => adapters.environment(entry, config),
-  };
-}
-
-const NOT_WIRED =
-  'not wired in this build yet: the configuration, Google Cloud and Airflow adapters join the doctor when feature 002 is assembled.';
-
-/**
- * Placeholder until the composition root passes the real adapters: every adapter-backed check fails
- * and says why. It never pretends that a check passed.
- */
-export function unwiredDoctorAdapters(_options: { readonly configPath: string | null }): DoctorAdapters {
-  const fail = async (): Promise<never> => {
-    throw new Error(`Adapters ${NOT_WIRED}`);
-  };
-  return {
-    loadConfig: fail,
-    tokens: { accessToken: fail, invalidate: () => undefined },
-    environment: () => {
-      throw new Error(`Environment adapters ${NOT_WIRED}`);
-    },
   };
 }
