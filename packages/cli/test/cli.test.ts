@@ -1,6 +1,7 @@
 import { createServer } from 'node:net';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { findFreePort, parseCli } from '../src/index';
+import { configFlagPath, findFreePort, parseCli } from '../src/index';
 
 describe('FR-SETUP-01 start command', () => {
   it('FR-SETUP-01: parses start options with defaults', () => {
@@ -51,5 +52,27 @@ describe('FR-SETUP-01 start command', () => {
     } finally {
       blocker.close();
     }
+  });
+});
+
+describe('FR-SETUP-02 --config from a subfolder', () => {
+  const root = resolve('/home/acme/dcam');
+  const sub = join(root, 'configs');
+
+  it('FR-SETUP-02: a relative --config is read from the folder pnpm was started in (INIT_CWD)', () => {
+    expect(configFlagPath('acme.yaml', { INIT_CWD: sub }, root)).toBe(join(sub, 'acme.yaml'));
+    expect(configFlagPath(join('..', 'acme.yaml'), { INIT_CWD: sub }, root)).toBe(join(root, 'acme.yaml'));
+  });
+
+  it('FR-SETUP-02: without INIT_CWD (DCAM started without pnpm) it is read from the working directory', () => {
+    expect(configFlagPath('acme.yaml', {}, root)).toBe(join(root, 'acme.yaml'));
+    expect(configFlagPath('acme.yaml', { INIT_CWD: '' }, root)).toBe(join(root, 'acme.yaml'));
+  });
+
+  it('FR-SETUP-02: absolute and home paths, and no --config, are left as they are', () => {
+    const absolute = join(root, 'acme.yaml');
+    expect(configFlagPath(absolute, { INIT_CWD: sub }, root)).toBe(absolute);
+    expect(configFlagPath('~/acme.yaml', { INIT_CWD: sub }, root)).toBe('~/acme.yaml');
+    expect(configFlagPath(null, { INIT_CWD: sub }, root)).toBeNull();
   });
 });

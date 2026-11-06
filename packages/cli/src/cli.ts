@@ -6,11 +6,12 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { homedir } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CollectionLogEntry } from '@dcam/application';
 import { buildApp, createDemoWorkspace, openConfiguredWorkspace, type Workspace } from '@dcam/server';
 import { DOCTOR_USAGE, parseDoctorArgs, type DoctorCliOptions } from './doctor/command';
+import { createShutdown } from './shutdown';
 
 export interface StartOptions {
   readonly command: 'start';
@@ -67,6 +68,25 @@ export function parseCli(argv: readonly string[]): CliOptions {
   if (demo && config !== null)
     throw new Error('Use either --demo or --config: the demo workspace reads no configuration file.');
   return { command: 'start', demo, port, open, config };
+}
+
+/**
+ * A relative `--config` as the user meant it: against the folder they ran the command in. `pnpm dcam`
+ * runs the script in the repository root, and pnpm passes the folder it was started in as `INIT_CWD`
+ * (checked with pnpm 11.28.0 on macOS: `INIT_CWD` is the invoking subfolder while the working directory
+ * is the package root; npm documents the same variable for `npm run`,
+ * https://docs.npmjs.com/cli/v11/using-npm/scripts#current-working-directory). ⚠️ VERIFY on Windows.
+ * Without `INIT_CWD` (DCAM started directly) the working directory is used. Absolute and `~` paths and
+ * `null` (no `--config`) are returned unchanged; the configuration adapter expands `~`.
+ */
+export function configFlagPath(
+  flag: string | null,
+  env: Readonly<Record<string, string | undefined>>,
+  cwd: string,
+): string | null {
+  if (flag === null || isAbsolute(flag) || flag === '~' || flag.startsWith('~/') || flag.startsWith('~\\'))
+    return flag;
+  return resolve(env['INIT_CWD']?.trim() || cwd, flag);
 }
 
 function isFree(port: number): Promise<boolean> {
@@ -129,7 +149,7 @@ async function listen(workspace: Workspace, requested: number) {
 export async function start(options: StartOptions): Promise<void> {
   if (options.demo) return startDemo(options);
   const { workspace, warnings } = await openConfiguredWorkspace({
-    configPath: options.config ?? undefined,
+    configPath: configFlagPath(options.config, process.env, process.cwd()) ?? undefined,
     env: process.env,
     cwd: process.cwd(),
     homeDir: homedir(),
@@ -147,20 +167,13 @@ export async function start(options: StartOptions): Promise<void> {
   workspace.start();
 
   // Ctrl+C: stop collecting, let running cycles finish, close the database. A second Ctrl+C exits now.
-  let stopping = false;
-  const stop = (signal: NodeJS.Signals) => {
-    if (stopping) process.exit(130);
-    stopping = true;
-    console.log(`\n${signal}: stopping DCAM (press Ctrl+C again to exit at once)...`);
-    void (async () => {
-      await app.close().catch(() => undefined);
-      await workspace.close();
-      process.exit(0);
-    })().catch((error: unknown) => {
-      console.error((error as Error).message);
-      process.exit(1);
-    });
-  };
+  const stop = createShutdown({
+    app,
+    workspace,
+    exit: (code) => process.exit(code),
+    log: (line) => console.log(line),
+    error: (line) => console.error(line),
+  });
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
 
