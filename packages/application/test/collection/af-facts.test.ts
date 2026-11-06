@@ -150,6 +150,50 @@ describe('FR-COLL-06 af.facts: windows that fit in one page, within the budget',
     expect(airflow.tiQueries.some((q) => q.offset === 100)).toBe(true);
   });
 
+  describe('a server that returns pages smaller than 100 (spec §7.5, VC-11 open)', () => {
+    const capped = (tis: ReturnType<typeof ti>[], cap: number) => {
+      const airflow = new FakeAirflow({ tis });
+      airflow.pageCap = cap;
+      return airflow;
+    };
+    const drain = async (airflow: FakeAirflow, cycles: number) => {
+      const store = new MemoryStore();
+      const collector = afFactsCollector();
+      const ctx = fakeContext({ airflow, store, shared });
+      for (let i = 0; i < cycles && store.commits.at(-1)?.watermark !== END; i++)
+        await collector.collect(ctx);
+      return store;
+    };
+
+    it('FR-COLL-06: a window with fewer rows than 100 but more than a page is split to the page the server returns', async () => {
+      const airflow = capped(spread(80, END - H + MIN, END - MIN), 50);
+      const store = await drain(airflow, 4);
+      expect(store.tries.size).toBe(80);
+      expect(store.commits.at(-1)?.watermark).toBe(END);
+      // Never the same window twice in a row: a short page leads to a split, not a retry.
+      const windows = airflow.tiQueries.map((q) => `${q.updatedFrom}-${q.updatedTo}-${q.offset}`);
+      for (let i = 1; i < windows.length; i++) expect(windows[i]).not.toBe(windows[i - 1]);
+    });
+
+    it('FR-COLL-06: a window above 100 rows is split until each part fits the page the server returns', async () => {
+      const airflow = capped(spread(350, END - H + MIN, END - MIN), 40);
+      const store = await drain(airflow, 10);
+      expect(store.tries.size).toBe(350);
+      expect(store.commits.at(-1)?.watermark).toBe(END);
+    });
+
+    it('FR-COLL-06: a dense second is paged by the size of the pages the server returns', async () => {
+      const same = Array.from({ length: 150 }, (_, i) =>
+        ti({ taskId: `burst_${i}`, updatedAt: T0 - 20 * MIN }),
+      );
+      const airflow = capped(same, 50);
+      const store = await drain(airflow, 6);
+      expect(store.tries.size).toBe(150);
+      expect(store.commits.at(-1)?.watermark).toBe(END);
+      expect(airflow.tiQueries.filter((q) => q.offset > 0).map((q) => q.offset)).toEqual([50, 100]);
+    });
+  });
+
   describe('a second with more finished task instances than a cycle can page', () => {
     // A branch skipping 1,500 mapped tasks marks them all in one statement: one `updated_at` second. Six
     // requests a cycle read at most 600 of them; before the fix the collector stalled there for good.

@@ -14,6 +14,11 @@
  *   changing set can skip or repeat rows. Each request is therefore one page of 100 at offset 0; a
  *   window whose `total_entries` exceeds the page is split (at most in half, smaller where the count
  *   says so) until each part fits. Only a window of the minimum width (1 s, B.3) is paged by offset.
+ * - Page size: upstream Airflow 2.11.1 does not cap `limit` on this list, but Composer's cap is not
+ *   documented (spec §7.5 "Pagination and consistency", VC-11 open). A page shorter than both the limit
+ *   and the rows left shows a lower cap: from then on the environment's windows are split to the largest
+ *   page the server returned, and offsets advance by the rows each page returned, so a cap below 100
+ *   neither repeats a window forever nor skips rows.
  * - A dense second (one statement can mark hundreds of mapped task instances skipped) may need more
  *   pages than a cycle allows. Its rows are kept across cycles until every key is seen, and it gets at
  *   most {@link MAX_REQUESTS} − {@link LATER_RESERVE} requests a cycle while later windows wait, so they
@@ -40,8 +45,8 @@ import { assertSupported, keyString, storedTryOf } from './mapping';
 
 export const FACT_STATES = ['success', 'failed', 'upstream_failed', 'skipped', 'up_for_retry'] as const;
 const PAGE_SIZE = 100;
-/** Rows a split part aims at, leaving room for rows that arrive while the window is read. */
-const TARGET_ROWS = 80;
+/** Share of a page a split part aims at, leaving room for rows that arrive while the window is read. */
+const TARGET_SHARE = 0.8;
 export const FACTS_OVERLAP_MS = 10 * 60_000;
 export const FACTS_SETTLE_MS = 60_000;
 export const FIRST_FACTS_WINDOW_MS = 60 * 60_000;
@@ -98,6 +103,8 @@ const copy = (w: Window): Window => {
 
 export function afFactsCollector(): Collector {
   const progress = new Map<string, Progress>();
+  /** Per environment, the largest page the server returned once a short page showed a cap below the limit. */
+  const served = new Map<string, number>();
   return {
     manifest: {
       id: ID,
@@ -139,16 +146,22 @@ export function afFactsCollector(): Collector {
 
       const airflow = ctx.airflow();
       let requests = 0;
+      /** Rows the server returns per page. */
+      const pageRows = () => served.get(envId) ?? PAGE_SIZE;
       const request = async (w: Window, offset: number) => {
         if (requests >= MAX_REQUESTS) throw new Stop();
         requests++;
-        return airflow.taskInstances({
+        const page = await airflow.taskInstances({
           states: FACT_STATES,
           updatedFrom: w.from,
           updatedTo: w.to,
           limit: PAGE_SIZE,
           offset,
         });
+        const n = page.items.length;
+        if (n > 0 && n < PAGE_SIZE && n < page.total - offset)
+          served.set(envId, Math.max(n, served.get(envId) ?? 0));
+        return page;
       };
 
       const rows = new Map<string, StoredTaskTry>();
@@ -199,7 +212,8 @@ export function afFactsCollector(): Collector {
           const page = await request(w, d.offset);
           d.total = page.total;
           for (const [k, t] of stored(page.items)) d.seen.set(k, t);
-          d.offset += PAGE_SIZE;
+          // An empty page before the end: rows left the second while it was paged; the pass ends here.
+          d.offset = page.items.length > 0 ? d.offset + page.items.length : d.total;
         }
       };
 
@@ -222,8 +236,8 @@ export function afFactsCollector(): Collector {
             accept(i, w, d.seen);
             continue;
           }
-          if (w.known && w.known.total > PAGE_SIZE && width > MIN_WINDOW_MS) {
-            const share = Math.min(0.5, TARGET_ROWS / w.known.total);
+          if (w.known && w.known.total > pageRows() && width > MIN_WINDOW_MS) {
+            const share = Math.min(0.5, Math.max(1, Math.floor(pageRows() * TARGET_SHARE)) / w.known.total);
             const mid = w.from + Math.max(MIN_WINDOW_MS, Math.floor(width * share));
             pending.splice(i, 1, { from: w.from, to: mid }, { from: mid, to: w.to, known: w.known });
             continue;
@@ -234,7 +248,7 @@ export function afFactsCollector(): Collector {
           else
             w.dense = {
               seen: new Map(stored(page.items)),
-              offset: PAGE_SIZE,
+              offset: page.items.length > 0 ? page.items.length : page.total,
               total: page.total,
               passes: 0,
               cycles: 0,

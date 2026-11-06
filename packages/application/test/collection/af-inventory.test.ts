@@ -72,6 +72,24 @@ describe('FR-COLL-06 af.inventory: DAG paging within the budget', () => {
     expect((await store.dags('acme-prod')).length).toBe(2_000);
   });
 
+  it('FR-COLL-06: a server that returns pages smaller than 100 skips no DAG (spec §7.5, VC-11 open)', async () => {
+    const airflow = new FakeAirflow({ dags: manyDags(2_000) });
+    airflow.pageCap = 50;
+    const store = new MemoryStore();
+    const collector = afInventoryCollector();
+    const ctx = fakeContext({ airflow, store, shared });
+    // Until the pass is complete, every cycle reports that the listing continues.
+    for (let cycles = 0; cycles < 10; cycles++) {
+      const notes = ctx.fidelity.length;
+      await collector.collect(ctx);
+      ctx.advance(10 * 60_000);
+      if (ctx.fidelity.length === notes) break;
+    }
+    const offsets = airflow.calls.filter((c) => c.startsWith('dags:')).map((c) => Number(c.slice(5)));
+    expect(offsets).toEqual(Array.from({ length: 40 }, (_, i) => i * 50));
+    expect((await store.dags('acme-prod')).length).toBe(2_000);
+  });
+
   it('FR-COLL-06: an exhausted budget mid-listing keeps what was read and reports reduced fidelity', async () => {
     const airflow = new FakeAirflow({ dags: manyDags(450) }, new Budget('airflow', 4));
     const store = new MemoryStore();

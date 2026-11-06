@@ -6,6 +6,10 @@
  * reduced fidelity, and resumes at the same offset next cycle (spec §7.11 budget arithmetic, "DAG
  * inventory trickled across the hour").
  *
+ * Offsets advance by the rows each page returned, not by the limit: a server whose `maximum_page_limit`
+ * is below 100 returns shorter pages, and stepping by 100 would skip the rest of each page and still
+ * count the pass complete (spec §7.5 "Pagination and consistency", VC-11 open).
+ *
  * Until a pass is complete the stored set is the previous set overlaid with the pages read so far; a
  * complete pass replaces it, so deleted and inactive DAGs drop out.
  *
@@ -89,15 +93,16 @@ export function afInventoryCollector(): Collector {
         try {
           while (pass.total === null || pass.offset < pass.total) {
             if (requests >= MAX_REQUESTS) {
-              stopped = `The DAG inventory is read ${PAGE_SIZE} DAGs at a time within the request budget; it continues next cycle at DAG ${pass.offset + 1} of ${pass.total ?? '?'}.`;
+              stopped = `The DAG inventory is read a few pages a cycle within the request budget; it continues next cycle at DAG ${pass.offset + 1} of ${pass.total ?? '?'}.`;
               break;
             }
             requests++;
             const page = await airflow.dags({ limit: PAGE_SIZE, offset: pass.offset });
             pass.total = page.total;
             for (const d of page.items) if (d.active) pass.dags.set(d.dagId, dagMetaOf(d, defaults));
-            pass.offset += PAGE_SIZE;
-            if (page.items.length === 0) break;
+            // An empty page before the end: the listing shrank while it was paged, and it ends here.
+            if (page.items.length === 0) pass.total = pass.offset;
+            pass.offset += page.items.length;
           }
         } finally {
           const complete = pass.total !== null && pass.offset >= pass.total && stopped === null;

@@ -197,6 +197,11 @@ export class FakeAirflow implements AirflowApi {
   readonly calls: string[] = [];
   readonly tiQueries: TaskInstanceQuery[] = [];
   readonly data: FakeAirflowData;
+  /**
+   * Most rows the server returns per page, whatever `limit` asks: `[api] maximum_page_limit` on `/dags`, or
+   * a lower cap Composer may apply to the task instance list (spec §7.5, VC-11 open).
+   */
+  pageCap = Number.POSITIVE_INFINITY;
   constructor(
     data: Partial<FakeAirflowData> = {},
     readonly budget = new Budget('airflow'),
@@ -221,7 +226,7 @@ export class FakeAirflow implements AirflowApi {
     this.calls.push(`dags:${page.offset}`);
     if (page.limit > 100) throw new Error('limit above 100');
     return {
-      items: this.data.dags.slice(page.offset, page.offset + page.limit),
+      items: this.data.dags.slice(page.offset, page.offset + Math.min(page.limit, this.pageCap)),
       total: this.data.dags.length,
     };
   }
@@ -246,7 +251,9 @@ export class FakeAirflow implements AirflowApi {
         (q.updatedFrom === undefined || t.updatedAt >= q.updatedFrom) &&
         (q.updatedTo === undefined || t.updatedAt <= q.updatedTo),
     );
-    const items = rows.slice(q.offset, q.offset + q.limit).map(({ updatedAt: _u, ...ti }) => ti);
+    const items = rows
+      .slice(q.offset, q.offset + Math.min(q.limit, this.pageCap))
+      .map(({ updatedAt: _u, ...ti }) => ti);
     return { items, total: rows.length };
   }
   async canReadProviders() {
