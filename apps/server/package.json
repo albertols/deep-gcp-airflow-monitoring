@@ -13,10 +13,14 @@
     "dev": "tsx watch ../../packages/cli/src/main.ts start --demo --no-open"
   },
   "dependencies": {
+    "@dcam/airflow-v1": "workspace:*",
     "@dcam/application": "workspace:*",
+    "@dcam/config-file": "workspace:*",
     "@dcam/contracts": "workspace:*",
     "@dcam/duckdb-store": "workspace:*",
     "@dcam/fakes": "workspace:*",
+    "@dcam/gcp": "workspace:*",
+    "@dcam/http-guard": "workspace:*",
     "@dcam/ports": "workspace:*",
     "@fastify/static": "10.1.10",
     "fastify": "5.12.8"

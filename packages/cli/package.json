@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "dcam command line: start, doctor (spec \u00a717.4).",
+  "description": "dcam command line: start, doctor (spec §17.4).",
   "bin": {
     "dcam": "./src/main.ts"
   },
@@ -16,6 +16,9 @@
   },
   "dependencies": {
     "@dcam/application": "workspace:*",
+    "@dcam/config-file": "workspace:*",
+    "@dcam/gcp": "workspace:*",
+    "@dcam/http-guard": "workspace:*",
     "@dcam/ports": "workspace:*",
     "@dcam/server": "workspace:*",
     "@duckdb/node-api": "2.0.0-r.1"

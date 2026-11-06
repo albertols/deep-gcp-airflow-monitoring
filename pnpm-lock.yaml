@@ -50,9 +50,15 @@ importers:
 
   apps/server:
     dependencies:
+      '@dcam/airflow-v1':
+        specifier: workspace:*
+        version: link:../../packages/adapters/airflow-v1
       '@dcam/application':
         specifier: workspace:*
         version: link:../../packages/application
+      '@dcam/config-file':
+        specifier: workspace:*
+        version: link:../../packages/adapters/config-file
       '@dcam/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -62,6 +68,12 @@ importers:
       '@dcam/fakes':
         specifier: workspace:*
         version: link:../../packages/adapters/fakes
+      '@dcam/gcp':
+        specifier: workspace:*
+        version: link:../../packages/adapters/gcp
+      '@dcam/http-guard':
+        specifier: workspace:*
+        version: link:../../packages/adapters/http-guard
       '@dcam/ports':
         specifier: workspace:*
         version: link:../../packages/ports
@@ -225,6 +237,15 @@ importers:
       '@dcam/application':
         specifier: workspace:*
         version: link:../application
+      '@dcam/config-file':
+        specifier: workspace:*
+        version: link:../adapters/config-file
+      '@dcam/gcp':
+        specifier: workspace:*
+        version: link:../adapters/gcp
+      '@dcam/http-guard':
+        specifier: workspace:*
+        version: link:../adapters/http-guard
       '@dcam/ports':
         specifier: workspace:*
         version: link:../ports
