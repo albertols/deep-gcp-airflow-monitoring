@@ -51,11 +51,16 @@ export const healthScore: WikiPage = {
       'Weights can be configured per tier.',
     ),
     h2('Labels'),
-    ul('80 or more: healthy.', '50 to 79: degraded.', 'Under 50: unhealthy.'),
+    ul(
+      '80 or more: healthy.',
+      '50 to 79: degraded.',
+      'Under 50: unhealthy.',
+      'Partial: checks with data carry less than 80 % of the total weight, so DCAM shows no score, only "n of 9 checks". A failing critical check still makes the environment unhealthy.',
+    ),
     callout(
       'verify',
       'A call made for feature 001',
-      'The specification does not define label bands. These bands are a DCAM decision recorded in the feature 001 specification. ⚠️ VERIFY',
+      'The specification does not define label bands or a minimum coverage. The bands are a DCAM decision recorded in the feature 001 specification; the 80 % coverage gate reuses the minimum coverage DCAM applies to every signal (§8.9). ⚠️ VERIFY',
     ),
     h2('Good to know'),
     ul(

@@ -74,7 +74,7 @@ const fleet: Fleet = {
   ],
 };
 const reject = () => Promise.reject(new Error('not in this test'));
-const api: DcamApi = {
+const apiFor = (data: Fleet): DcamApi => ({
   getMeta: reject,
   getOverview: reject,
   getDagLeague: reject,
@@ -82,11 +82,12 @@ const api: DcamApi = {
   getBottlenecks: reject,
   getFindings: reject,
   getAlerts: reject,
-  getFleet: async () => fleet,
+  getFleet: async () => data,
   getCollection: reject,
-};
+});
 
-function renderPage() {
+function renderPage(data: Fleet = fleet) {
+  const api = apiFor(data);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ThemeProvider theme={createDcamTheme('dark')}>
@@ -144,5 +145,27 @@ describe('S-02 fleet page (FR-FLEET-01/02)', () => {
 
   it('FR-UI-05: every panel has an explanation', () => {
     for (const id of FLEET_PANELS) expect(FLEET_EXPLANATIONS[id]).toBeDefined();
+  });
+
+  it('HM-028: with too few checks the chip is a neutral "Partial: n of 9 checks", never "Healthy"', async () => {
+    const importErrors = {
+      id: 'import-errors',
+      label: 'DAG import errors',
+      state: 'fail',
+      critical: false,
+      weight: 5,
+      threshold: '0 for 15 min',
+      value: '1',
+    } as const;
+    renderPage({
+      ...fleet,
+      environments: [
+        card({ health: { score: null, label: 'partial', evaluated: 1, total: 9, checks: [importErrors] } }),
+      ],
+    });
+    const prod = await screen.findByRole('region', { name: 'acme-prod' });
+    expect(within(prod).getByText('Partial: 1 of 9 checks')).toBeInTheDocument();
+    expect(within(prod).queryByText('Healthy')).toBeNull();
+    expect(within(prod).queryByText('95')).toBeNull();
   });
 });

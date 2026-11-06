@@ -630,8 +630,11 @@ export interface components {
             airflow_version: string;
             health: {
                 score: number | null;
-                /** @enum {string} */
-                label: "healthy" | "degraded" | "unhealthy" | "unknown";
+                /**
+                 * @description partial: fewer than 80 % of the check weight has data, so there is no score (HM-028 coverage gate); a failing critical check is still unhealthy.
+                 * @enum {string}
+                 */
+                label: "healthy" | "degraded" | "unhealthy" | "partial" | "unknown";
                 evaluated: number;
                 total: number;
                 checks: components["schemas"]["HealthCheck"][];

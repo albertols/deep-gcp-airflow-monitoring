@@ -12,7 +12,7 @@ export const FLEET_EXPLANATIONS = {
     summary: 'An explainable score out of 100 from nine platform checks (HM-028).',
     formula: '100 − Σ weights of failing checks; capped at 40 when a critical check fails',
     howToRead:
-      '80 or more is healthy, 50–79 degraded, under 50 unhealthy. Checks without data are unknown and excluded; coverage shows how many were evaluated.',
+      '80 or more is healthy, 50–79 degraded, under 50 unhealthy. Checks without data are unknown and excluded; coverage shows how many were evaluated. With data for less than 80 % of the check weight there is no score: the card says "Partial: n of 9 checks", unless a critical check fails.',
     sources: ['SRC-MON', 'SRC-COMPOSER'],
     caveats: [
       'The label bands are DCAM’s choice; the specification leaves them open. Thresholds are defaults to verify per environment.',

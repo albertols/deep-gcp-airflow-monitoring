@@ -35,6 +35,8 @@ const LABEL = {
   healthy: { text: 'Healthy', color: 'success', Icon: CheckCircleOutlined },
   degraded: { text: 'Degraded', color: 'warning', Icon: WarningAmberOutlined },
   unhealthy: { text: 'Unhealthy', color: 'error', Icon: ErrorOutlined },
+  // HM-028 coverage gate: too few checks have data for a score; neutral, never "healthy".
+  partial: { text: 'Partial', color: 'default', Icon: HelpOutlineOutlined },
   unknown: { text: 'Unknown', color: 'default', Icon: HelpOutlineOutlined },
 } as const;
 
@@ -91,7 +93,11 @@ function EnvironmentCard({ env }: { env: FleetCard }) {
             size="small"
             color={status.color}
             icon={<status.Icon fontSize="small" />}
-            label={status.text}
+            label={
+              env.health.label === 'partial'
+                ? `Partial: ${env.health.evaluated} of ${env.health.total} checks`
+                : status.text
+            }
           />
         </Stack>
         <Typography variant="caption" color="text.secondary">

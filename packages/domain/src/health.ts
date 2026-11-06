@@ -3,12 +3,18 @@
  * checks, capped at 40 when a critical check fails. Checks without data are "unknown": excluded from
  * the score and shown as coverage. Thresholds are the spec's defaults (marked ⚠️ VERIFY there).
  *
+ * Coverage gate (a DCAM call; the spec sets none): a score needs data for at least
+ * {@link HEALTH_MIN_WEIGHT_COVERAGE} of the check weight, the 80 % minimum coverage DCAM applies to
+ * every signal (§8.9 item 6, §13.2). Below it the label is `partial` and there is no score, so one
+ * passing check cannot read as "healthy". A failing critical check is still `unhealthy`: the cap holds
+ * whatever the other checks would say.
+ *
  * @implements HM-028, FR-FLEET-02
  */
 import type { PlatformHealth } from './model';
 
 export type CheckState = 'pass' | 'fail' | 'unknown';
-export type HealthLabel = 'healthy' | 'degraded' | 'unhealthy' | 'unknown';
+export type HealthLabel = 'healthy' | 'degraded' | 'unhealthy' | 'partial' | 'unknown';
 
 export interface HealthCheckResult {
   readonly id: string;
@@ -30,6 +36,8 @@ export interface HealthScore {
 
 /** Cap applied when any critical check fails. */
 export const CRITICAL_CAP = 40;
+/** Share of the total check weight that needs data before the score is labelled (see the module comment). */
+export const HEALTH_MIN_WEIGHT_COVERAGE = 0.8;
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
@@ -155,6 +163,12 @@ export function healthScore(h: PlatformHealth): HealthScore {
     return { score: null, label: 'unknown', evaluated: 0, total: checks.length, checks };
   const failing = evaluated.filter((c) => c.state === 'fail');
   let score = 100 - failing.reduce((s, c) => s + c.weight, 0);
-  if (failing.some((c) => c.critical)) score = Math.min(score, CRITICAL_CAP);
-  return { score, label: healthLabel(score), evaluated: evaluated.length, total: checks.length, checks };
+  const criticalFails = failing.some((c) => c.critical);
+  if (criticalFails) score = Math.min(score, CRITICAL_CAP);
+  const weight = (list: readonly HealthCheckResult[]) => list.reduce((s, c) => s + c.weight, 0);
+  const covered = weight(evaluated) / weight(checks);
+  const coverage = { evaluated: evaluated.length, total: checks.length, checks };
+  if (covered + 1e-9 < HEALTH_MIN_WEIGHT_COVERAGE && !criticalFails)
+    return { score: null, label: 'partial', ...coverage };
+  return { score, label: healthLabel(score), ...coverage };
 }

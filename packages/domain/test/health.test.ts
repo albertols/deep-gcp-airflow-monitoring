@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { healthScore, type PlatformHealth } from '../src/index';
+import { HEALTH_MIN_WEIGHT_COVERAGE, healthScore, type PlatformHealth } from '../src/index';
 
 const healthy: PlatformHealth = {
   envHealthyRatio: 1,
@@ -57,5 +57,34 @@ describe('HM-028 explainable health score (spec L1370–1391)', () => {
       importErrors: 1,
     });
     expect(h).toMatchObject({ score: 75, label: 'degraded' });
+  });
+
+  it('HM-028: below 80 % of the check weight with data the label is "partial" and there is no score', () => {
+    expect(HEALTH_MIN_WEIGHT_COVERAGE).toBe(0.8);
+    const none = Object.fromEntries(Object.keys(healthy).map((k) => [k, null])) as unknown as PlatformHealth;
+    // One check of weight 5 with data, and it fails: not "healthy, 95".
+    const h = healthScore({ ...none, importErrors: 1 });
+    expect(h).toMatchObject({ score: null, label: 'partial', evaluated: 1, total: 9 });
+    expect(h.checks.find((c) => c.id === 'import-errors')?.state).toBe('fail');
+  });
+
+  it('HM-028: at 80 % of the weight the score is labelled as usual', () => {
+    // Without database CPU (10), web server (5) and parse loop (5): 80 of 100.
+    const h = healthScore({
+      ...healthy,
+      dbCpuMemoryMax: null,
+      webServerHealthyRatio: null,
+      parseLoopP95Seconds: null,
+    });
+    expect(h).toMatchObject({ score: 100, label: 'healthy', evaluated: 6 });
+  });
+
+  it('HM-028: a failing critical check is unhealthy even at low coverage (the cap is definitive)', () => {
+    const none = Object.fromEntries(Object.keys(healthy).map((k) => [k, null])) as unknown as PlatformHealth;
+    expect(healthScore({ ...none, heartbeatCompleteness: 0.5 })).toMatchObject({
+      score: 40,
+      label: 'unhealthy',
+      evaluated: 1,
+    });
   });
 });
