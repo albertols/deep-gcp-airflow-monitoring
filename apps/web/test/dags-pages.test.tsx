@@ -100,6 +100,19 @@ describe('S-11 DAG league table page', { timeout: UI_TIMEOUT_MS }, () => {
     expect(within(partner).getByText('≤ 25m')).toBeInTheDocument(); // low-sample p95 shows the max
   });
 
+  it('FR-DAGX-02: a DAG absent from the previous period is "new" only where DCAM has data for it', async () => {
+    const absent = LEAGUE.rows.map((r) => ({ ...r, previous_share: null }));
+    renderPage(
+      DagsPage,
+      fakeApi({ getDagLeague: async () => ({ ...LEAGUE, previous_coverage: 0, rows: absent }) }),
+      { page: 'dags' },
+    );
+    const table = await screen.findByRole('table', { name: 'DAG league table' });
+    expect(within(table).getAllByTitle('No data for the previous period').length).toBeGreaterThan(0);
+    expect(within(table).queryByTitle('Did not run in the previous period')).toBeNull();
+    expect(within(table).queryByText('new')).toBeNull();
+  });
+
   it('FR-DAGX-01: sorting by a column header reorders the rows', async () => {
     renderPage(DagsPage, fakeApi(), { page: 'dags' });
     await screen.findByRole('table', { name: 'DAG league table' });

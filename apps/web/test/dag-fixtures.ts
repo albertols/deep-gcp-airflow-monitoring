@@ -88,6 +88,7 @@ export const LEAGUE: DagLeague = {
   env_id: 'acme-prod',
   range: { from: '2026-11-04T12:00:00.000Z', to: '2026-11-05T12:00:00.000Z' },
   previous_range: { from: '2026-11-03T12:00:00.000Z', to: '2026-11-04T12:00:00.000Z' },
+  previous_coverage: 1,
   data_as_of: '2026-11-05T12:00:00.000Z',
   sources: ['DEMO'],
   total_executor_slot_seconds: 120_000,

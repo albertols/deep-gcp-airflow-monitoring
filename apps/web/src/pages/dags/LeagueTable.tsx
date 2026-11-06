@@ -59,22 +59,30 @@ const COLUMNS: readonly Column[] = [
   { key: 'open_findings', explanation: 'dagx-col-findings', numeric: true, width: '7%' },
 ];
 
-/** Change of share in percentage points, with a text label so colour is never the only cue. */
-function ShareChange({ row }: { row: DagLeagueRow }) {
+/**
+ * Change of share in percentage points, with a text label so colour is never the only cue. A DAG
+ * absent from the previous period is "new" only where DCAM has history for that period: no data is not
+ * "did not run".
+ */
+function ShareChange({ row, previousCoverage }: { row: DagLeagueRow; previousCoverage: number }) {
   const change = shareChangePoints(row);
-  const text = change === null ? 'new' : `${points.format(Math.abs(change) < 0.05 ? 0 : change)} pp`;
+  let text: string;
+  let title: string;
+  if (change !== null) {
+    text = `${points.format(Math.abs(change) < 0.05 ? 0 : change)} pp`;
+    title = `Previous period: ${formatShare(row.previous_share)}`;
+  } else if (previousCoverage <= 0) {
+    text = '—';
+    title = 'No data for the previous period';
+  } else {
+    text = 'new';
+    title =
+      previousCoverage >= 1
+        ? 'Did not run in the previous period'
+        : `Did not run in the ${formatShare(previousCoverage)} of the previous period with data`;
+  }
   return (
-    <Typography
-      component="span"
-      variant="caption"
-      color="text.secondary"
-      title={
-        change === null
-          ? 'Did not run in the previous period'
-          : `Previous period: ${formatShare(row.previous_share)}`
-      }
-      sx={{ ml: 1 }}
-    >
+    <Typography component="span" variant="caption" color="text.secondary" title={title} sx={{ ml: 1 }}>
       {text}
     </Typography>
   );
@@ -92,10 +100,12 @@ const LeagueRow = memo(function LeagueRow({
   row,
   index,
   linkTo,
+  previousCoverage,
 }: {
   row: DagLeagueRow;
   index: number;
   linkTo: (route: Route) => string;
+  previousCoverage: number;
 }) {
   return (
     <TableRow hover aria-rowindex={index + 2}>
@@ -126,7 +136,7 @@ const LeagueRow = memo(function LeagueRow({
       </TableCell>
       <TableCell sx={cellSx} align="right">
         {formatShare(row.share)}
-        <ShareChange row={row} />
+        <ShareChange row={row} previousCoverage={previousCoverage} />
       </TableCell>
       <TableCell sx={cellSx} align="right" title={describeQuantile(row.queue_wait_p95)}>
         {formatQuantile(row.queue_wait_p95)}
@@ -150,11 +160,14 @@ export function LeagueTable({
   onSort,
   linkTo,
   resetKey,
+  previousCoverage,
 }: {
   rows: readonly DagLeagueRow[];
   sort: SortState;
   onSort: (key: SortKey) => void;
   linkTo: (route: Route) => string;
+  /** Share of the previous period with collected history (0–1). */
+  previousCoverage: number;
   /** Changes when the user sorts or filters; a background refresh keeps the scroll position. */
   resetKey: string;
 }) {
@@ -229,7 +242,15 @@ export function LeagueTable({
           )}
           {items.map((v) => {
             const row = rows[v.index];
-            return row ? <LeagueRow key={row.dag_id} row={row} index={v.index} linkTo={linkTo} /> : null;
+            return row ? (
+              <LeagueRow
+                key={row.dag_id}
+                row={row}
+                index={v.index}
+                linkTo={linkTo}
+                previousCoverage={previousCoverage}
+              />
+            ) : null;
           })}
           {paddingBottom > 0 && (
             <tr aria-hidden="true">

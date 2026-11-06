@@ -272,6 +272,8 @@ export interface components {
             env_id: string;
             range: components["schemas"]["TimeRange"];
             previous_range: components["schemas"]["TimeRange"];
+            /** @description Share of the previous range with collected task history (from the earliest stored try). Below 1, a DAG absent then may have run before DCAM collected; 0 means no data for the previous range. */
+            previous_coverage: number;
             /** Format: date-time */
             data_as_of: string;
             sources: components["schemas"]["SourceId"][];

@@ -163,7 +163,7 @@ export const DAG_EXPLANATIONS = {
       "The DAG's share of the environment's executor slot-seconds, and the change against the previous period.",
     formula: 'slot-seconds of the DAG ÷ slot-seconds of every DAG',
     howToRead:
-      'The change is in percentage points against the previous period of equal length; "new" means the DAG did not run then.',
+      'The change is in percentage points against the previous period of equal length; "new" means the DAG did not run then, and "—" that DCAM has no data for that period.',
     sources: API,
   },
   'dagx-col-queue': {

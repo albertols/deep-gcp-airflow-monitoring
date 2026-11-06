@@ -228,6 +228,7 @@ export function DagsPage({ api, envId, linkTo }: PageProps) {
                     onSort={(key) => setSort((s) => nextSort(s, key))}
                     linkTo={linkTo}
                     resetKey={JSON.stringify([sort, deferredSearch, team, tag, preset])}
+                    previousCoverage={data.previous_coverage}
                   />
                 )}
                 {filtering && filtered.length > 0 && (

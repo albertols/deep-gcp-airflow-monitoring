@@ -185,6 +185,21 @@ describe('FR-DAGX-01..03 DAG league use case', () => {
     });
   });
 
+  it('FR-DAGX-02: reports how much of the previous period has task history, so "new" is not claimed without data', async () => {
+    const league = async (tries: StoredTaskTry[]) =>
+      getDagLeague(
+        { store: storeOf(tries).store, model: modelOf([dag('heavy', 'finance-data')]), clock },
+        { envId: 'acme-prod', range: '24h', sources: [] },
+      );
+    // History starts 30 h ago: 6 of the previous 24 hours are covered.
+    expect((await league(rows)).previous_coverage).toBeCloseTo(0.25, 12);
+    // History only from the current period: no data for the previous one.
+    expect((await league(rows.slice(0, 3))).previous_coverage).toBe(0);
+    // A try running across the start of the previous period: history covers all of it.
+    const old = tryOf('heavy', runAt(NOW - 50 * H), 'a', NOW - 49 * H, NOW - 47 * H);
+    expect((await league([...rows, old])).previous_coverage).toBe(1);
+  });
+
   it('FR-DAGX-02: a run with work waiting in the latest live snapshot is still running', async () => {
     const { store } = storeOf(rows);
     const waiting = tryOf('light', runAt(NOW - 2 * H), 'b', NOW, null);

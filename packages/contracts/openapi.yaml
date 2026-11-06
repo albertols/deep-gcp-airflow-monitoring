@@ -325,6 +325,7 @@ components:
           env_id,
           range,
           previous_range,
+          previous_coverage,
           data_as_of,
           sources,
           total_executor_slot_seconds,
@@ -338,6 +339,13 @@ components:
         env_id: { type: string }
         range: { $ref: '#/components/schemas/TimeRange' }
         previous_range: { $ref: '#/components/schemas/TimeRange' }
+        previous_coverage:
+          {
+            type: number,
+            minimum: 0,
+            maximum: 1,
+            description: 'Share of the previous range with collected task history (from the earliest stored try). Below 1, a DAG absent then may have run before DCAM collected; 0 means no data for the previous range.',
+          }
         data_as_of: { type: string, format: date-time }
         sources: { type: array, items: { $ref: '#/components/schemas/SourceId' } }
         total_executor_slot_seconds: { type: number, minimum: 0 }

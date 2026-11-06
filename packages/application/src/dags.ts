@@ -89,6 +89,17 @@ export interface DagLeagueQuery {
   readonly openFindings?: ReadonlyMap<string, number>;
 }
 
+/**
+ * Share of the previous window with collected task history. History starts at the earliest stored try:
+ * `af.facts` reads one hour before DCAM's first cycle and backfill is FR-COLL-04 (M2). A quiet start of
+ * the window reads as uncovered, so DCAM says "no data" rather than claim a DAG did not run.
+ */
+function historyCoverage(tries: readonly StoredTaskTry[], w: SweepWindow): number {
+  const earliest = tries.reduce((m, t) => Math.min(m, t.startAt ?? t.queuedAt ?? Infinity), Infinity);
+  if (!Number.isFinite(earliest)) return 0;
+  return Math.min(1, Math.max(0, (w.to - Math.max(w.from, earliest)) / (w.to - w.from)));
+}
+
 export async function getDagLeague(deps: DagsDeps, q: DagLeagueQuery): Promise<DagLeague> {
   const now = deps.clock.now();
   const { current, previous } = windowsFor(now, q.range);
@@ -136,6 +147,7 @@ export async function getDagLeague(deps: DagsDeps, q: DagLeagueQuery): Promise<D
     env_id: q.envId,
     range: { from: iso(current.from), to: iso(current.to) },
     previous_range: { from: iso(previous.from), to: iso(previous.to) },
+    previous_coverage: historyCoverage(tries, previous),
     data_as_of: iso(now),
     sources: [...q.sources],
     total_executor_slot_seconds: league.totalExecutorSlotSeconds,
