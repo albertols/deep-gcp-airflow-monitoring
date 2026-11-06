@@ -613,6 +613,13 @@ describe('§13.2 data quality gates and §13.4 ranking', () => {
     expect(result.insufficient).toContainEqual(expect.objectContaining({ ruleId: 'REC-CAP-01' }));
   });
 
+  it('§13.2: a source with no data at all says which source it needs, not "only 0%"', () => {
+    const s = { ...signals({ coverage: { samples: 0 } }), sampleCount: 0 };
+    const reason = run(s).insufficient.find((i) => i.ruleId === 'REC-CAP-01')?.reason ?? '';
+    expect(reason).toMatch(/^No data: needs Cloud Monitoring/);
+    expect(reason).not.toMatch(/0%/);
+  });
+
   it('FR-ADV-04: findings come back ranked, critical first, then by priority score', () => {
     const result = run(
       signals({

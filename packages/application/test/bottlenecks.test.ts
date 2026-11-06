@@ -152,6 +152,18 @@ describe('getBottlenecks use case (FR-BOTL-01/02/07/09)', () => {
     ]);
   });
 
+  it('HM-011: without worker samples (no Cloud Monitoring data) the capacity minutes are null, not 0', async () => {
+    const noMon = { ...deps, model: { ...model, workerSamples: async () => [] } };
+    const b = await getBottlenecks(noMon, { envId: 'acme-prod', range: '1h', sources: ['DEMO'] });
+    expect(b.capacity).toMatchObject({
+      minutes_at_max_workers: null,
+      capacity_bound_minutes: null,
+      worker_samples: 0,
+    });
+    const withMon = await getBottlenecks(deps, { envId: 'acme-prod', range: '1h', sources: ['DEMO'] });
+    expect(withMon.capacity.worker_samples).toBe(60);
+  });
+
   it('returns an empty analysis, not an error, when nothing was collected', async () => {
     const empty = { ...deps, model: { ...model, snapshots: async () => [], workerSamples: async () => [] } };
     const b = await getBottlenecks(empty, { envId: 'acme-prod', range: '1h', sources: ['DEMO'] });

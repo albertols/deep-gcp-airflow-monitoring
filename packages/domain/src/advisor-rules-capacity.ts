@@ -133,7 +133,10 @@ export const REC_CAP_01: RuleDefinition = {
           },
           {
             label: 'Minutes at max_count',
-            value: `${fmtMinutes(s.capacity.minutesAtMax)} at ${config.maxWorkers} workers`,
+            value:
+              s.capacity.minutesAtMax === null
+                ? 'No data'
+                : `${fmtMinutes(s.capacity.minutesAtMax)} at ${config.maxWorkers} workers`,
             threshold: null,
             source: 'SRC-MON',
           },

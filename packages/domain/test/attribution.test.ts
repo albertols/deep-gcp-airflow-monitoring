@@ -128,6 +128,12 @@ describe('HM-011 / HM-012 worker capacity', () => {
     expect(c.utilisation.samples).toBe(5);
   });
 
+  it('HM-011: without worker samples (no Cloud Monitoring data) the minutes are unknown, not 0', () => {
+    const c = capacityStats([], config);
+    expect(c.minutesAtMax).toBeNull();
+    expect(c.capacityBoundMinutes).toBeNull();
+  });
+
   it('HM-012: scale-up lag from the target rising to the workers reaching it', () => {
     expect(capacityStats(samples, config).scaleUpLagsSeconds).toEqual([120]);
   });

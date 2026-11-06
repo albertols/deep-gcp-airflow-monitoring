@@ -54,13 +54,23 @@ const INPUT_NAMES: Readonly<Record<RuleInput, string>> = {
   tries: 'task instance history',
 };
 
+/** Where each input comes from, for a source that has no data at all (spec §8.1: no data is not 0 %). */
+const NO_DATA: Readonly<Record<RuleInput, string>> = {
+  snapshots:
+    'No data: needs live snapshots from the Airflow REST API, and none were collected in the window.',
+  samples: 'No data: needs Cloud Monitoring worker samples, and none were collected in the window.',
+  tries:
+    'No data: needs task instance history from the Airflow REST API, and none was collected in the window.',
+};
+
 /** §13.2 data quality gate: the reason a rule cannot be evaluated, or `null`. */
 function dataGap(s: EnvironmentSignals, inputs: readonly RuleInput[]): string | null {
   for (const input of inputs) {
     const coverage = s.coverage[input];
+    const count = input === 'snapshots' ? s.snapshotCount : input === 'samples' ? s.sampleCount : Infinity;
+    if (coverage === 0 || count === 0) return NO_DATA[input];
     if (coverage < MIN_COVERAGE)
       return `Only ${Math.round(coverage * 100)}% of the window has ${INPUT_NAMES[input]}; the rule needs ${MIN_COVERAGE * 100}%.`;
-    const count = input === 'snapshots' ? s.snapshotCount : input === 'samples' ? s.sampleCount : Infinity;
     if (count < MIN_SAMPLES)
       return `Only ${count} ${INPUT_NAMES[input]} in the window; the rule needs at least ${MIN_SAMPLES}.`;
   }

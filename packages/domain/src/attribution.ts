@@ -143,10 +143,12 @@ export function attributeWaiting(
 export interface CapacityStats {
   /** Running ÷ (workers × worker_concurrency) per sample (HM-011). */
   readonly utilisation: Quantile;
-  readonly minutesAtMax: number;
+  /** Minutes with workers at `max_count`; `null` without worker samples (no Cloud Monitoring data). */
+  readonly minutesAtMax: number | null;
   /**
-   * HM-011: workers at `max_count` and queued ≥ max(10, 20 % of capacity). `null` while
-   * `worker_concurrency` is unknown (HM-032): the capacity, and so the threshold, is unknown too.
+   * HM-011: workers at `max_count` and queued ≥ max(10, 20 % of capacity). `null` without worker
+   * samples, or while `worker_concurrency` is unknown (HM-032): the capacity, and so the threshold, is
+   * unknown too.
    */
   readonly capacityBoundMinutes: number | null;
   /** HM-012: seconds from the autoscaler target rising above the workers to the workers reaching it. */
@@ -188,8 +190,9 @@ export function capacityStats(samples: readonly WorkerSample[], config: Environm
 
   return {
     utilisation: quantile(utilisation, 0.95),
-    minutesAtMax,
-    capacityBoundMinutes: slotsKnown ? capacityBoundMinutes : null,
+    // No samples is no data, never "0 minutes" (spec §8.1).
+    minutesAtMax: samples.length ? minutesAtMax : null,
+    capacityBoundMinutes: samples.length && slotsKnown ? capacityBoundMinutes : null,
     scaleUpLagsSeconds: lags,
   };
 }

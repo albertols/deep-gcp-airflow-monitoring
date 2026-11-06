@@ -747,7 +747,13 @@ components:
           type: object
           additionalProperties: false
           required:
-            [capacity_bound_minutes, minutes_at_max_workers, scale_up_lag_p95_seconds, utilisation_p95]
+            [
+              capacity_bound_minutes,
+              minutes_at_max_workers,
+              scale_up_lag_p95_seconds,
+              utilisation_p95,
+              worker_samples,
+            ]
           properties:
             capacity_bound_minutes:
               {
@@ -755,7 +761,12 @@ components:
                 minimum: 0,
                 description: 'HM-011: workers at max_count and queued ≥ max(10, 20 % of slots). Null when DCAM does not know [celery] worker_concurrency (HM-032), so the slots are unknown.',
               }
-            minutes_at_max_workers: { type: number, minimum: 0 }
+            minutes_at_max_workers:
+              {
+                type: ['number', 'null'],
+                minimum: 0,
+                description: 'Minutes with workers at max_count; null without Cloud Monitoring worker samples in the range.',
+              }
             scale_up_lag_p95_seconds:
               {
                 type: ['number', 'null'],
@@ -763,6 +774,12 @@ components:
                 description: 'HM-012: target rises → workers reach it.',
               }
             utilisation_p95: { type: ['number', 'null'], minimum: 0, maximum: 1 }
+            worker_samples:
+              {
+                type: integer,
+                minimum: 0,
+                description: 'One-minute Cloud Monitoring worker samples in the range; 0 means the capacity figures have no data.',
+              }
         sensors:
           type: array
           maxItems: 20

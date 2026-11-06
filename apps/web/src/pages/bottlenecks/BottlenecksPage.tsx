@@ -35,6 +35,21 @@ const taskHours = (seconds: number) =>
     seconds / 3600,
   );
 
+const NO_SAMPLES = 'Needs Cloud Monitoring worker samples; none arrived in this range';
+
+/**
+ * A capacity KPI in minutes. `null` is never shown as 0 (spec §8.1): without worker samples there is
+ * no data; with samples, a null capacity-bound figure means worker_concurrency is not known (HM-032).
+ */
+function capacityMinutes(b: Bottlenecks, minutes: number | null) {
+  if (minutes !== null) return { value: formatInt(Math.round(minutes)), unit: 'min' };
+  if (b.capacity.worker_samples === 0) return { value: 'No data', hint: NO_SAMPLES };
+  return {
+    value: 'Not known yet',
+    hint: 'worker_concurrency is not known (no override in the Composer configuration)',
+  };
+}
+
 /** "15-minute" for 900 s. */
 const bucketName = (seconds: number) => (seconds % 60 === 0 ? `${seconds / 60}-minute` : `${seconds}-second`);
 
@@ -103,27 +118,21 @@ export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
             />
             <Kpi
               explanation={X['botl-at-max']}
-              value={formatInt(Math.round(b.capacity.minutes_at_max_workers))}
-              unit="min"
-              hint={`Workers ${b.current.workers.current} of ${b.current.workers.max} max`}
+              {...capacityMinutes(b, b.capacity.minutes_at_max_workers)}
+              hint={
+                b.capacity.minutes_at_max_workers === null
+                  ? NO_SAMPLES
+                  : `Workers ${b.current.workers.current} of ${b.current.workers.max} max`
+              }
             />
-            {b.capacity.capacity_bound_minutes === null ? (
-              // HM-032: without worker_concurrency the slots, and so "queued ≥ 20 % of slots", are unknown.
-              <Kpi
-                explanation={X['botl-capacity-bound']}
-                value="Not known yet"
-                hint="worker_concurrency is not known (no override in the Composer configuration)"
-              />
-            ) : (
-              <Kpi
-                explanation={X['botl-capacity-bound']}
-                value={formatInt(Math.round(b.capacity.capacity_bound_minutes))}
-                unit="min"
-              />
-            )}
+            <Kpi
+              explanation={X['botl-capacity-bound']}
+              {...capacityMinutes(b, b.capacity.capacity_bound_minutes)}
+            />
             <Kpi
               explanation={X['botl-scale-lag']}
               value={formatDuration(b.capacity.scale_up_lag_p95_seconds)}
+              hint={b.capacity.worker_samples === 0 ? NO_SAMPLES : undefined}
             />
           </KpiRow>
 

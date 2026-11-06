@@ -71,6 +71,7 @@ const fixture: Bottlenecks = {
     minutes_at_max_workers: 60,
     scale_up_lag_p95_seconds: 120,
     utilisation_p95: 1,
+    worker_samples: 60,
   },
   sensors: [{ dag_id: 'partner_feed_wait', task_id: 'wait_for_1_1', slot_seconds: 1_200 }],
 };
@@ -177,5 +178,26 @@ describe('S-16 bottlenecks page (FR-BOTL-01)', () => {
     const footer = await screen.findByRole('contentinfo');
     expect(footer).toHaveTextContent('fewer than two live snapshots in this range');
     expect(footer).not.toHaveTextContent(/every \d+ s/);
+  });
+
+  it('§8.1: without Cloud Monitoring worker samples the capacity KPIs say "No data", never 0 min', async () => {
+    renderPage({
+      ...fixture,
+      capacity: {
+        ...fixture.capacity,
+        minutes_at_max_workers: null,
+        capacity_bound_minutes: null,
+        scale_up_lag_p95_seconds: null,
+        utilisation_p95: null,
+        worker_samples: 0,
+      },
+    });
+    for (const title of ['Minutes at max workers', 'Capacity-bound minutes']) {
+      const card = await kpi(title);
+      expect(card).toHaveTextContent('No data');
+      expect(card).toHaveTextContent('Needs Cloud Monitoring worker samples');
+      expect(card).not.toHaveTextContent(/\d+\s*min/);
+    }
+    expect(await kpi('Scale-up lag (p95)')).toHaveTextContent('Needs Cloud Monitoring worker samples');
   });
 });

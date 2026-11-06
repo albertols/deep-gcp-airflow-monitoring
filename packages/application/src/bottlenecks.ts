@@ -157,6 +157,7 @@ export async function getBottlenecks(deps: BottleneckDeps, q: BottleneckQuery): 
       minutes_at_max_workers: capacity.minutesAtMax,
       scale_up_lag_p95_seconds: quantile(capacity.scaleUpLagsSeconds, 0.95).value,
       utilisation_p95: capacity.utilisation.value,
+      worker_samples: samples.length,
     },
     sensors: [...sensors.values()].sort((x, y) => y.slot_seconds - x.slot_seconds).slice(0, 20),
   };

@@ -163,7 +163,8 @@ export interface EnvironmentSignals {
     };
   };
   readonly capacity: {
-    readonly minutesAtMax: number;
+    /** Minutes at `max_count`; `null` without worker samples. */
+    readonly minutesAtMax: number | null;
     /** HM-011 capacity-bound minutes (as on the bottlenecks page); `null` while slots are unknown. */
     readonly capacityBoundMinutes: number | null;
     readonly bound: WorkerMinutes & {
