@@ -61,6 +61,7 @@ export function InfoPopover({ explanation }: { explanation: Explanation }) {
               {explanation.formula}
             </Typography>
           )}
+          {explanation.howToRead && <Typography variant="body2">{explanation.howToRead}</Typography>}
           {explanation.caveats?.map((c) => (
             <Typography key={c} variant="caption" color="text.secondary">
               {c}

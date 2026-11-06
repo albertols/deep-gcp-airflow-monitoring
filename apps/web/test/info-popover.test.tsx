@@ -48,4 +48,11 @@ describe('(i) explanation to wiki link', () => {
       '_blank',
     );
   });
+
+  it('FR-UI-05: shows how to read the value when the explanation says it', async () => {
+    const dialog = await open({ ...base, howToRead: 'Ten tasks waiting six minutes each is one task-hour.' });
+    expect(
+      within(dialog).getByText(/Ten tasks waiting six minutes each is one task-hour/),
+    ).toBeInTheDocument();
+  });
 });
