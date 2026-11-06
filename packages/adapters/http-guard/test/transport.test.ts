@@ -15,6 +15,7 @@ import {
   GuardError,
   TransportError,
   createGuardedClient,
+  proxyRoute,
   trustedCaCertificates,
   type GuardedClient,
   type GuardedClientOptions,
@@ -271,6 +272,37 @@ describe('FR-AUTH-07 proxy variables', () => {
       }),
     ).rejects.toMatchObject({ name: 'GuardError', code: 'non-loopback' });
     expect(proxy.seen).toEqual([]);
+  });
+});
+
+describe('FR-AUTH-07 proxyRoute agrees with the transport', () => {
+  it('FR-AUTH-07: for every variable combination, proxyRoute says "proxy" exactly when the proxy saw the request', async () => {
+    const via = () => `http://127.0.0.1:${proxyPort}`;
+    const cases: Array<[Record<string, string>, string]> = [
+      [{ HTTP_PROXY: via() }, httpUrl()],
+      [{ http_proxy: `127.0.0.1:${proxyPort}` }, httpUrl()],
+      [{ http_proxy: '', HTTP_PROXY: via() }, httpUrl()],
+      [{ HTTP_PROXY: via(), NO_PROXY: '127.0.0.1' }, httpUrl()],
+      [{ HTTP_PROXY: via(), NO_PROXY: `127.0.0.1:${closedPort}` }, httpUrl()],
+      [{ HTTP_PROXY: via(), NO_PROXY: `127.0.0.1:${targetPort}` }, httpUrl()],
+      [{ HTTP_PROXY: via(), NO_PROXY: '*' }, httpUrl()],
+      [{ HTTP_PROXY: via(), NO_PROXY: '.0.0.1' }, httpUrl()],
+      [{ HTTP_PROXY: via(), NO_PROXY: 'localhost' }, httpUrl()],
+      [{ HTTP_PROXY: via(), no_proxy: '', NO_PROXY: '127.0.0.1' }, httpUrl()],
+      [{ HTTPS_PROXY: via() }, httpUrl()],
+      [{ HTTP_PROXY: via() }, httpsUrl()],
+      [{ HTTPS_PROXY: via(), NO_PROXY: `127.0.0.1:${tlsPort}` }, httpsUrl()],
+    ];
+    const proxied: boolean[] = [];
+    for (const [env, url] of cases) {
+      proxy.reset();
+      await body(client({ proxyEnv: env, caBundlePath: CA_FILE }), url);
+      const expected = proxyRoute(env, url, { loopbackOnly: true }).via === 'proxy';
+      expect(proxy.seen.length > 0, JSON.stringify({ env, url })).toBe(expected);
+      proxied.push(expected);
+    }
+    // Both routes occur, so the comparison means something.
+    expect(new Set(proxied)).toEqual(new Set([true, false]));
   });
 });
 
