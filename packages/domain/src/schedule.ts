@@ -6,7 +6,18 @@
  * Minute-of-hour does not depend on whole-hour time-zone offsets; DAGs in time zones with half-hour
  * offsets shift by 30 minutes, which this version does not model.
  *
- * @implements HM-009
+ * Also the data interval of a scheduled run (HM-002). In Airflow 2 the logical date is the start of the
+ * data interval, and a run is usually created after its interval has ended ("Data Interval" in DAG Runs,
+ * https://airflow.apache.org/docs/apache-airflow/2.11.0/core-concepts/dag-run.html#data-interval). A cron
+ * string uses `CronDataIntervalTimetable` (the interval ends at the next cron time) and a timedelta
+ * `DeltaDataIntervalTimetable` (it ends one delta later)
+ * (https://airflow.apache.org/docs/apache-airflow/2.11.0/authoring-and-scheduling/timetable.html).
+ * ⚠️ VERIFY: `[scheduler] create_cron_data_intervals = False` switches cron strings to
+ * `CronTriggerTimetable` (no interval); the start-delay logic detects that from the run itself.
+ * Cron times are evaluated in UTC, so a logical date the cron does not produce in UTC (a DAG in another
+ * time zone) gives no interval rather than a wrong one.
+ *
+ * @implements HM-009, HM-002
  */
 import type { DagMeta } from './model';
 
@@ -92,6 +103,95 @@ export function dailyStartsByMinute(schedule: string): number[] | null {
   const out = new Array<number>(60).fill(0);
   for (const m of minutes) out[m] = perDay;
   return out;
+}
+
+const MIN_MS = 60_000;
+const DAY_MS = 24 * 60 * MIN_MS;
+
+interface Cron {
+  readonly minutes: ReadonlySet<number>;
+  readonly hours: ReadonlySet<number>;
+  readonly days: ReadonlySet<number>;
+  readonly months: ReadonlySet<number>;
+  readonly weekdays: ReadonlySet<number>;
+  /** Day-of-month and day-of-week restrictions combine with OR when both are set (Vixie cron). */
+  readonly domAny: boolean;
+  readonly dowAny: boolean;
+}
+
+function parseCron(schedule: string): Cron | null {
+  const cron = PRESETS[schedule.trim()] ?? schedule.trim();
+  const fields = cron.split(/\s+/);
+  if (fields.length !== 5) return null;
+  const [min, hour, dom, month, dow] = fields as [string, string, string, string, string];
+  const minutes = expand(min, MINUTE);
+  const hours = expand(hour, HOUR);
+  const days = expand(dom, DAY_OF_MONTH);
+  const months = expand(month, MONTH);
+  const weekdays = expand(dow, DAY_OF_WEEK);
+  if (!minutes || !hours || !days || !months || !weekdays) return null;
+  if (weekdays.delete(7)) weekdays.add(0);
+  return { minutes, hours, days, months, weekdays, domAny: dom.startsWith('*'), dowAny: dow.startsWith('*') };
+}
+
+function dayMatches(c: Cron, d: Date): boolean {
+  const dom = c.days.has(d.getUTCDate());
+  const dow = c.weekdays.has(d.getUTCDay());
+  if (c.domAny && c.dowAny) return true;
+  if (c.domAny) return dow;
+  if (c.dowAny) return dom;
+  return dom || dow;
+}
+
+const cronMatches = (c: Cron, at: number) => {
+  const d = new Date(at);
+  return (
+    at % MIN_MS === 0 &&
+    c.minutes.has(d.getUTCMinutes()) &&
+    c.hours.has(d.getUTCHours()) &&
+    c.months.has(d.getUTCMonth() + 1) &&
+    dayMatches(c, d)
+  );
+};
+
+/** The first cron time strictly after `after` (UTC), within five years; `null` if none. */
+function nextCronTime(c: Cron, after: number): number | null {
+  let t = Math.floor(after / MIN_MS) * MIN_MS + MIN_MS;
+  const limit = after + 5 * 366 * DAY_MS;
+  while (t <= limit) {
+    const d = new Date(t);
+    const [y, mo, da, h] = [d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours()];
+    if (!c.months.has(mo + 1)) t = Date.UTC(y, mo + 1, 1);
+    else if (!dayMatches(c, d)) t = Date.UTC(y, mo, da + 1);
+    else if (!c.hours.has(h)) t = Date.UTC(y, mo, da, h + 1);
+    else if (!c.minutes.has(d.getUTCMinutes())) t += MIN_MS;
+    else return t;
+  }
+  return null;
+}
+
+/** Python's `str(timedelta)` as the Airflow API adapter prints it (`0:07:00`, `1 day, 0:00:00`), in ms. */
+function timedeltaMs(schedule: string): number | null {
+  const m = /^(?:(\d+) days?, )?(\d+):(\d{2}):(\d{2})(?:\.(\d{6}))?$/.exec(schedule.trim());
+  if (!m) return null;
+  const [, days, h, min, s, us] = m;
+  const ms =
+    ((Number(days ?? 0) * 24 + Number(h)) * 3600 + Number(min) * 60 + Number(s)) * 1000 +
+    Math.floor(Number(us ?? 0) / 1000);
+  return ms > 0 ? ms : null;
+}
+
+/**
+ * HM-002: the end of the data interval that starts at `logicalDate`, for a cron (or preset) or
+ * timedelta schedule; `null` when DCAM cannot derive it (no schedule, `@once`, assets, custom
+ * timetables, relativedelta, or a cron the logical date does not match in UTC).
+ */
+export function dataIntervalEnd(schedule: string, logicalDate: number): number | null {
+  const delta = timedeltaMs(schedule);
+  if (delta !== null) return logicalDate + delta;
+  const cron = parseCron(schedule);
+  if (!cron || !cronMatches(cron, logicalDate)) return null;
+  return nextCronTime(cron, logicalDate);
 }
 
 /**

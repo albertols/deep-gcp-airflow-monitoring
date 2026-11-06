@@ -274,6 +274,19 @@ describe('S-12 DAG detail page', { timeout: UI_TIMEOUT_MS }, () => {
     );
   });
 
+  it('HM-002: the runs table labels a start delay not measured from the data interval end', async () => {
+    const [first, second] = DETAIL.runs as [DagDetail['runs'][number], DagDetail['runs'][number]];
+    const runs: DagDetail['runs'] = [
+      { ...first, start_delay_seconds: 602, start_delay_basis: 'logical_date' },
+      { ...second, start_delay_seconds: null, start_delay_basis: 'not_scheduled' },
+    ];
+    renderPage(DagDetailPage, fakeApi({ getDagDetail: async () => ({ ...DETAIL, runs }) }), route);
+    await userEvent.click(await screen.findByRole('button', { name: 'View runs as table' }));
+    const table = screen.getByRole('table', { name: 'Runs' });
+    expect(within(table).getByRole('row', { name: /10:00/ })).toHaveTextContent('10m 2s from logical date');
+    expect(within(table).getByRole('row', { name: /11:02/ })).toHaveTextContent('Not a scheduled run');
+  });
+
   it('FR-DAGD-03: the Gantt draws pre-queue wait, queue wait and running in distinct styles with a legend', async () => {
     renderPage(DagDetailPage, fakeApi(), route);
     const gantt = await screen.findByRole('img', {

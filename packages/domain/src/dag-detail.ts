@@ -3,7 +3,7 @@
  * statistics and how often the DAG's own `max_active_tasks` holds back its ready work. Pure; times are
  * epoch ms, durations in the results are seconds.
  *
- * @implements FR-DAGD-02, FR-DAGD-03, FR-DAGD-04, HM-005
+ * @implements FR-DAGD-02, FR-DAGD-03, FR-DAGD-04, HM-002, HM-005
  */
 import {
   groupBy,
@@ -18,28 +18,72 @@ import {
 import { MIN_SAMPLES_FOR_RATE, queueWaitsSeconds, runsInWindow } from './dag-league';
 import type { LiveSnapshot, SnapshotTaskInstance } from './model';
 import { slotSeconds, type SweepWindow } from './occupancy';
+import { dataIntervalEnd } from './schedule';
 import { quantile, type Quantile } from './stats';
 
 const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
+/**
+ * What a run's start delay (HM-002) is measured from:
+ * - `data_interval_end`: the end of its data interval, from the schedule (the HM-002 method);
+ * - `trigger_time`: the logical date, because the run started before its computed interval ended, so
+ *   its timetable triggers at the logical date (for example `CronTriggerTimetable`);
+ * - `logical_date`: the logical date, because DCAM cannot derive the data interval from the schedule;
+ *   for an interval schedule the delay then includes one interval;
+ * - `not_scheduled`: a manual, backfill or asset-triggered run, or a custom run ID: no delay (HM-002
+ *   counts scheduled runs only).
+ */
+export type StartDelayBasis = 'data_interval_end' | 'trigger_time' | 'logical_date' | 'not_scheduled';
+
 export interface DagRunRow extends RunSummary {
   /** Logical date from the run ID; `null` for custom run IDs. */
   readonly logicalDate: number | null;
-  /**
-   * First task start − logical date, seconds; `null` without a logical date. ⚠️ VERIFY in M1: for
-   * interval schedules Airflow's logical date is the start of the data interval, so this includes the
-   * interval; HM-002 measures the delay from the end of the data interval instead.
-   */
+  /** First task start − the expected start ({@link startDelayBasis}), seconds; `null` when not measured. */
   readonly startDelaySeconds: number | null;
+  readonly startDelayBasis: StartDelayBasis;
 }
 
-/** FR-DAGD-02: runs of one DAG with a try starting in the window, oldest first. */
-export function dagRuns(tries: readonly DagTaskTry[], w: SweepWindow, options: RunOptions = {}): DagRunRow[] {
+/**
+ * Airflow 2 names scheduler-created runs `scheduled__<logical date>` (`DagRunType.SCHEDULED`,
+ * airflow/utils/types.py; `DagRun.generate_run_id`).
+ */
+const SCHEDULED_PREFIX = 'scheduled__';
+
+function startDelay(
+  run: RunSummary,
+  logicalDate: number | null,
+  schedule: string | null,
+): Pick<DagRunRow, 'startDelaySeconds' | 'startDelayBasis'> {
+  if (logicalDate === null || !run.runId.startsWith(SCHEDULED_PREFIX))
+    return { startDelaySeconds: null, startDelayBasis: 'not_scheduled' };
+  const end = schedule === null ? null : dataIntervalEnd(schedule, logicalDate);
+  const seconds = (from: number) => {
+    const s = (run.startAt - from) / 1000;
+    return s >= 0 ? s : null;
+  };
+  if (end !== null && run.startAt >= end)
+    return { startDelaySeconds: seconds(end), startDelayBasis: 'data_interval_end' };
+  return {
+    startDelaySeconds: seconds(logicalDate),
+    startDelayBasis: end !== null ? 'trigger_time' : 'logical_date',
+  };
+}
+
+/**
+ * FR-DAGD-02: runs of one DAG with a try starting in the window, oldest first, with their start delay
+ * (HM-002) measured from the end of the data interval of `schedule` where DCAM can derive it. The start
+ * is the first task start, which follows the run's own start by the time to queue its first task.
+ */
+export function dagRuns(
+  tries: readonly DagTaskTry[],
+  w: SweepWindow,
+  options: RunOptions = {},
+  schedule: string | null = null,
+): DagRunRow[] {
   return runsInWindow(tries, w, options)
     .map((r): DagRunRow => {
       const logicalDate = logicalDateFromRunId(r.runId);
-      const delay = logicalDate === null ? null : (r.startAt - logicalDate) / 1000;
-      return { ...r, logicalDate, startDelaySeconds: delay !== null && delay >= 0 ? delay : null };
+      return { ...r, logicalDate, ...startDelay(r, logicalDate, schedule) };
     })
     .sort((a, b) => a.startAt - b.startAt || byId(a.runId, b.runId));
 }

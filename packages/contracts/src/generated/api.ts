@@ -369,8 +369,18 @@ export interface components {
                 /** Format: date-time */
                 end: string | null;
                 duration_seconds: number | null;
-                /** @description First task start − logical date. */
+                /** @description HM-002: first task start − the expected start named by start_delay_basis; null for runs that are not scheduled. */
                 start_delay_seconds: number | null;
+                /**
+                 * @description What the start delay is measured from. data_interval_end: the end of the data interval, derived
+                 *     from the schedule (the HM-002 method). trigger_time: the logical date, because the run started
+                 *     before that interval ended, so its timetable triggers at the logical date. logical_date: the
+                 *     logical date, because DCAM cannot derive the data interval (custom timetable, relativedelta, a
+                 *     cron in another time zone); for interval schedules the delay then includes one interval.
+                 *     not_scheduled: manual, backfill or asset-triggered run, or a custom run ID; no delay.
+                 * @enum {string}
+                 */
+                start_delay_basis: "data_interval_end" | "trigger_time" | "logical_date" | "not_scheduled";
                 tries: number;
             }[];
             gantt: {

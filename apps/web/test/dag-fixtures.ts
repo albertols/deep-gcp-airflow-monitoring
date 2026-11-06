@@ -141,6 +141,7 @@ export const DETAIL: DagDetail = {
       end: '2026-11-05T10:40:05.000Z',
       duration_seconds: 2_400,
       start_delay_seconds: 5,
+      start_delay_basis: 'data_interval_end',
       tries: 3,
     },
     {
@@ -151,6 +152,7 @@ export const DETAIL: DagDetail = {
       end: '2026-11-05T11:20:00.000Z',
       duration_seconds: 1_080,
       start_delay_seconds: 120,
+      start_delay_basis: 'data_interval_end',
       tries: 2,
     },
   ],

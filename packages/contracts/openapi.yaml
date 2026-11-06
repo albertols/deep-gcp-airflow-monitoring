@@ -511,7 +511,18 @@ components:
           items:
             type: object
             additionalProperties: false
-            required: [run_id, state, logical_date, start, end, duration_seconds, start_delay_seconds, tries]
+            required:
+              [
+                run_id,
+                state,
+                logical_date,
+                start,
+                end,
+                duration_seconds,
+                start_delay_seconds,
+                start_delay_basis,
+                tries,
+              ]
             properties:
               run_id: { type: string }
               state: { type: string, enum: [success, failed, running] }
@@ -520,7 +531,21 @@ components:
               end: { type: ['string', 'null'], format: date-time }
               duration_seconds: { type: ['number', 'null'], minimum: 0 }
               start_delay_seconds:
-                { type: ['number', 'null'], minimum: 0, description: 'First task start − logical date.' }
+                {
+                  type: ['number', 'null'],
+                  minimum: 0,
+                  description: 'HM-002: first task start − the expected start named by start_delay_basis; null for runs that are not scheduled.',
+                }
+              start_delay_basis:
+                type: string
+                enum: [data_interval_end, trigger_time, logical_date, not_scheduled]
+                description: |
+                  What the start delay is measured from. data_interval_end: the end of the data interval, derived
+                  from the schedule (the HM-002 method). trigger_time: the logical date, because the run started
+                  before that interval ended, so its timetable triggers at the logical date. logical_date: the
+                  logical date, because DCAM cannot derive the data interval (custom timetable, relativedelta, a
+                  cron in another time zone); for interval schedules the delay then includes one interval.
+                  not_scheduled: manual, backfill or asset-triggered run, or a custom run ID; no delay.
               tries: { type: integer, minimum: 0 }
         gantt:
           type: object

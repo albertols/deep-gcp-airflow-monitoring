@@ -306,6 +306,8 @@ describe('FR-DAGD-01..04 DAG detail use case', () => {
         end: iso(NOW - 3 * H + 42 * M),
         duration_seconds: 41 * 60,
         start_delay_seconds: 60,
+        // An hourly run that starts 1 min after its logical date triggers at the logical date.
+        start_delay_basis: 'trigger_time',
         tries: 2,
       },
       {
@@ -316,9 +318,23 @@ describe('FR-DAGD-01..04 DAG detail use case', () => {
         end: iso(NOW - 2 * H + 12 * M),
         duration_seconds: 10 * 60,
         start_delay_seconds: 120,
+        start_delay_basis: 'trigger_time',
         tries: 1,
       },
     ]);
+  });
+
+  it('HM-002: the start delay is measured from the end of the data interval of the DAG schedule', async () => {
+    const late = tryOf('etl_daily', runAt(NOW - 3 * H), 'extract', NOW - 2 * H + 30_000, NOW - 2 * H + M);
+    const result = await getDagDetail(
+      { store: storeOf([late]).store, model: modelOf([dag('etl_daily', 'finance-data')]), clock },
+      query,
+    );
+    if (result.kind !== 'ok') throw new Error(result.kind);
+    expect(result.detail.runs[0]).toMatchObject({
+      start_delay_seconds: 30,
+      start_delay_basis: 'data_interval_end',
+    });
   });
 
   it('FR-DAGD-03: the Gantt shows the latest run by default, or the requested run', async () => {

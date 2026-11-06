@@ -212,7 +212,7 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
   const options = { inProgress: waitingIn(latest) };
   const stats = dagWindowStats(dagTries, current, options).get(q.dagId) ?? emptyDagStats(q.dagId);
   const environmentSeconds = slotSeconds(tries, current).totalExecutorSlotSeconds;
-  const runs = dagRuns(dagTries, current, options);
+  const runs = dagRuns(dagTries, current, options, meta.schedule);
   // Default to the latest finished run: the newest one is often still starting and shows little.
   const ganttRunId =
     q.runId ?? [...runs].reverse().find((r) => r.state !== 'running')?.runId ?? runs.at(-1)?.runId ?? null;
@@ -255,6 +255,7 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
         end: isoOrNull(r.endAt),
         duration_seconds: r.durationSeconds,
         start_delay_seconds: r.startDelaySeconds,
+        start_delay_basis: r.startDelayBasis,
         tries: r.tries,
       })),
       gantt: {

@@ -279,7 +279,7 @@ export const DAG_EXPLANATIONS = {
     howToRead: 'Click a bar to show that run in the Gantt chart. Running runs have no final duration yet.',
     sources: API,
     caveats: [
-      'Start delay is the first task start − the logical date read from the run ID. For interval schedules the logical date is the start of the data interval, so the delay includes the interval.',
+      'Start delay (HM-002) is the first task start − the end of the run’s data interval, which DCAM derives from the schedule (cron or timedelta): in Airflow 2 the logical date is the start of the data interval and a scheduled run starts after the interval ends. Where DCAM cannot derive the interval, the delay is from the logical date and says so; manual runs have none.',
     ],
     docs: [DAG_RUN_DOC],
   },

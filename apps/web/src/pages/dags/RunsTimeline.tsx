@@ -3,7 +3,10 @@
  * shown by colour and a mark. The bars form a radio group (arrow keys move) that picks the run shown
  * in the Gantt chart; a table view lists every run.
  *
- * @implements FR-DAGD-02
+ * Start delay (HM-002) is measured from the end of the data interval where DCAM can derive it; any
+ * other basis is named next to the value.
+ *
+ * @implements FR-DAGD-02, HM-002
  */
 import { useId, useRef, useState, type KeyboardEvent } from 'react';
 import Box from '@mui/material/Box';
@@ -34,6 +37,24 @@ function niceMax(seconds: number): { max: number; step: number } {
   const step = STEPS.find((s) => seconds / s <= 4) ?? Math.ceil(seconds / 4 / 86_400) * 86_400;
   return { max: Math.max(step, Math.ceil(seconds / step) * step), step };
 }
+
+/** HM-002: the start delay with what it is measured from, when that is not the data interval end. */
+export function formatStartDelay(r: Pick<Run, 'start_delay_seconds' | 'start_delay_basis'>): string {
+  if (r.start_delay_basis === 'not_scheduled') return 'Not a scheduled run';
+  const value = formatDuration(r.start_delay_seconds);
+  if (r.start_delay_seconds === null) return value;
+  return r.start_delay_basis === 'logical_date' ? `${value} from logical date` : value;
+}
+
+/** Tooltip for the start delay: what it is measured from. */
+export const START_DELAY_BASIS: Record<Run['start_delay_basis'], string> = {
+  data_interval_end: 'First task start − the end of the data interval, from the DAG schedule.',
+  trigger_time:
+    'First task start − the logical date: the run started before its interval ended, so the timetable triggers at the logical date.',
+  logical_date:
+    'First task start − the logical date: DCAM cannot derive the data interval from this schedule, so the delay may include one interval.',
+  not_scheduled: 'Manual, backfill or asset-triggered run: start delay counts scheduled runs only.',
+};
 
 export const STATE_LABEL: Record<Run['state'], string> = {
   success: 'Succeeded',
@@ -85,7 +106,7 @@ export function RunsTimeline({
       r.duration_seconds === null
         ? `running for ${formatDuration(seconds(r))}`
         : formatDuration(r.duration_seconds)
-    }, start delay ${formatDuration(r.start_delay_seconds)}`;
+    }, start delay ${formatStartDelay(r)}`;
 
   const move = (index: number) => {
     const run = runs[index];
@@ -181,7 +202,9 @@ export function RunsTimeline({
                   <TableCell title={r.run_id}>{formatUtc(r.start)}</TableCell>
                   <TableCell>{STATE_LABEL[r.state]}</TableCell>
                   <TableCell align="right">{formatDuration(r.duration_seconds)}</TableCell>
-                  <TableCell align="right">{formatDuration(r.start_delay_seconds)}</TableCell>
+                  <TableCell align="right" title={START_DELAY_BASIS[r.start_delay_basis]}>
+                    {formatStartDelay(r)}
+                  </TableCell>
                   <TableCell align="right">{formatInt(r.tries)}</TableCell>
                   <TableCell align="right">
                     <Button
