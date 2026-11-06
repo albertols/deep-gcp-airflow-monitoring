@@ -9,7 +9,8 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:emulator": "vitest run --config vitest.emulator.config.ts"
   },
   "dependencies": {
     "@dcam/ports": "workspace:*",

@@ -1,0 +1,161 @@
+{
+  "dags": [
+    {
+      "dag_display_name": "acme_ledger_small_pool",
+      "dag_id": "acme_ledger_small_pool",
+      "default_view": "grid",
+      "description": null,
+      "file_token": "acme-file-token",
+      "fileloc": "/opt/airflow/dags/acme_ledger_small_pool.py",
+      "has_import_errors": false,
+      "has_task_concurrency_limits": false,
+      "is_active": true,
+      "is_paused": false,
+      "is_subdag": false,
+      "last_expired": null,
+      "last_parsed_time": "2026-11-05T23:38:22.393513+00:00",
+      "last_pickled": null,
+      "max_active_runs": 1,
+      "max_active_tasks": 16,
+      "max_consecutive_failed_dag_runs": 0,
+      "next_dagrun": "2026-11-05T23:34:00+00:00",
+      "next_dagrun_create_after": "2026-11-05T23:41:00+00:00",
+      "next_dagrun_data_interval_end": "2026-11-05T23:41:00+00:00",
+      "next_dagrun_data_interval_start": "2026-11-05T23:34:00+00:00",
+      "owners": ["acme-finance"],
+      "pickle_id": null,
+      "root_dag_id": null,
+      "schedule_interval": {
+        "__type": "TimeDelta",
+        "days": 0,
+        "microseconds": 0,
+        "seconds": 420
+      },
+      "scheduler_lock": null,
+      "tags": [
+        {
+          "name": "pool"
+        },
+        {
+          "name": "acme"
+        }
+      ],
+      "timetable_description": ""
+    },
+    {
+      "dag_display_name": "acme_manual_backfill",
+      "dag_id": "acme_manual_backfill",
+      "default_view": "grid",
+      "description": null,
+      "file_token": "acme-file-token",
+      "fileloc": "/opt/airflow/dags/acme_manual_backfill.py",
+      "has_import_errors": false,
+      "has_task_concurrency_limits": false,
+      "is_active": true,
+      "is_paused": false,
+      "is_subdag": false,
+      "last_expired": null,
+      "last_parsed_time": "2026-11-05T23:38:19.573656+00:00",
+      "last_pickled": null,
+      "max_active_runs": 25,
+      "max_active_tasks": 16,
+      "max_consecutive_failed_dag_runs": 0,
+      "next_dagrun": null,
+      "next_dagrun_create_after": null,
+      "next_dagrun_data_interval_end": null,
+      "next_dagrun_data_interval_start": null,
+      "owners": ["acme-ops"],
+      "pickle_id": null,
+      "root_dag_id": null,
+      "schedule_interval": null,
+      "scheduler_lock": null,
+      "tags": [
+        {
+          "name": "acme"
+        }
+      ],
+      "timetable_description": "Never, external triggers only"
+    },
+    {
+      "dag_display_name": "acme_orders_fan_out",
+      "dag_id": "acme_orders_fan_out",
+      "default_view": "grid",
+      "description": "Thirty short tasks in parallel.",
+      "file_token": "acme-file-token",
+      "fileloc": "/opt/airflow/dags/acme_orders_fan_out.py",
+      "has_import_errors": false,
+      "has_task_concurrency_limits": false,
+      "is_active": true,
+      "is_paused": false,
+      "is_subdag": false,
+      "last_expired": null,
+      "last_parsed_time": "2026-11-05T23:38:02.361780+00:00",
+      "last_pickled": null,
+      "max_active_runs": 1,
+      "max_active_tasks": 16,
+      "max_consecutive_failed_dag_runs": 0,
+      "next_dagrun": "2026-11-05T23:30:00+00:00",
+      "next_dagrun_create_after": "2026-11-05T23:40:00+00:00",
+      "next_dagrun_data_interval_end": "2026-11-05T23:40:00+00:00",
+      "next_dagrun_data_interval_start": "2026-11-05T23:30:00+00:00",
+      "owners": ["acme-data"],
+      "pickle_id": null,
+      "root_dag_id": null,
+      "schedule_interval": {
+        "__type": "CronExpression",
+        "value": "*/10 * * * *"
+      },
+      "scheduler_lock": null,
+      "tags": [
+        {
+          "name": "acme"
+        },
+        {
+          "name": "fan-out"
+        }
+      ],
+      "timetable_description": "Every 10 minutes"
+    },
+    {
+      "dag_display_name": "acme_partner_sensor",
+      "dag_id": "acme_partner_sensor",
+      "default_view": "grid",
+      "description": null,
+      "file_token": "acme-file-token",
+      "fileloc": "/opt/airflow/dags/acme_partner_sensor.py",
+      "has_import_errors": false,
+      "has_task_concurrency_limits": false,
+      "is_active": true,
+      "is_paused": false,
+      "is_subdag": false,
+      "last_expired": null,
+      "last_parsed_time": "2026-11-05T23:38:22.146107+00:00",
+      "last_pickled": null,
+      "max_active_runs": 1,
+      "max_active_tasks": 16,
+      "max_consecutive_failed_dag_runs": 0,
+      "next_dagrun": "2026-11-05T23:30:00+00:00",
+      "next_dagrun_create_after": null,
+      "next_dagrun_data_interval_end": "2026-11-05T23:35:00+00:00",
+      "next_dagrun_data_interval_start": "2026-11-05T23:30:00+00:00",
+      "owners": ["acme-data"],
+      "pickle_id": null,
+      "root_dag_id": null,
+      "schedule_interval": {
+        "__type": "CronExpression",
+        "value": "*/5 * * * *"
+      },
+      "scheduler_lock": null,
+      "tags": [
+        {
+          "name": "sensor"
+        },
+        {
+          "name": "acme"
+        }
+      ],
+      "timetable_description": "Every 5 minutes"
+    }
+  ],
+  "total_entries": 4
+}

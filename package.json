@@ -22,6 +22,9 @@
     "diagrams": "node .claude/skills/drawio-diagrams/scripts/export-all.mjs",
     "gen": "turbo run gen",
     "dcam": "turbo run build --filter=@dcam/web --output-logs=errors-only && tsx packages/cli/src/main.ts",
+    "emulator:up": "docker compose -f tools/emulator/docker-compose.yaml up -d --wait --wait-timeout 900",
+    "emulator:down": "docker compose -f tools/emulator/docker-compose.yaml down",
+    "emulator:test": "pnpm --filter @dcam/airflow-v1 test:emulator",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm depcruise && pnpm test && pnpm hygiene"
   },
   "devDependencies": {

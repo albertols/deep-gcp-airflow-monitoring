@@ -1,0 +1,31 @@
+# DCAM configuration for the local Airflow 2.11.1 emulator (tools/emulator, FR-EMU-02).
+#
+#   pnpm emulator:up
+#   DCAM_EMULATOR_USER=acme_viewer DCAM_EMULATOR_PASSWORD=acme_viewer \
+#     pnpm dcam --config tools/emulator/dcam.config.emulator.yaml
+#
+# Basic authentication is accepted only for loopback URLs; the credentials come from the environment
+# variables named below, never from this file. The limits mirror tools/emulator/docker-compose.yaml.
+version: 1
+
+workspace:
+  name: acme-emulator
+  # Kept apart from the data of real environments.
+  dataDir: ~/.dcam/emulator-data
+
+environments:
+  - id: acme-emulator
+    displayName: Acme emulator (Airflow 2.11.1)
+    tier: dev
+    profile: live
+    airflow:
+      baseUrl: http://127.0.0.1:8080
+      usernameEnv: DCAM_EMULATOR_USER
+      passwordEnv: DCAM_EMULATOR_PASSWORD
+      limits:
+        parallelism: 8
+        schedulers: 1
+        maxActiveTasksPerDag: 16
+        maxActiveRunsPerDag: 25
+        workerConcurrency: 4
+        workers: 1
