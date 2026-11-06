@@ -25,7 +25,7 @@ export async function runDoctor(probes: DoctorProbes, opts: DoctorOptions): Prom
   const startedAt = now();
   const envIds = opts.envIds ?? [];
 
-  const local = newLocalContext(probes);
+  const local = newLocalContext();
   const localOutcomes = new Outcomes();
   const localChecks = await runSteps(
     LOCAL_SCOPE,
@@ -61,7 +61,6 @@ export async function runDoctor(probes: DoctorProbes, opts: DoctorOptions): Prom
           const ctx = {
             probes,
             config,
-            proxy: local.proxy,
             adcOk: localOutcomes.status('adc.token') === 'pass',
             googleRefused: local.googleRefused,
             now,

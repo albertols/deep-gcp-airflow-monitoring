@@ -6,10 +6,9 @@
  */
 import { SourceError, type EnvironmentEntry, type WorkspaceConfig } from '@dcam/ports';
 import { DOCTOR_DOCS } from './docs';
-import { displayProxy, parseProxyUrl, proxyFor, readProxySettings, type ProxySettings } from './proxy';
 import { fail, pass, skip, skipAfter, warn, type Outcome, type Outcomes, type Step } from './steps';
 import { errorMessage, plural, shellQuote } from './text';
-import type { DataDirFacts, DoctorProbes } from './types';
+import type { DataDirFacts, DoctorProbes, DoctorProxySettings, DoctorProxyVariable } from './types';
 
 const GIB = 2 ** 30;
 /** Below this, DCAM cannot keep its default retention (§17.2 `retention.diskBudgetGb: 5`). */
@@ -23,7 +22,6 @@ export interface LocalContext {
   selected: EnvironmentEntry[];
   /** `--env` ids that are not in the configuration. */
   unknownIds: string[];
-  readonly proxy: ProxySettings;
   /**
    * Why no Google token may be requested (`DCAM_NETWORK=loopback-only`); the Google checks skip with
    * this reason. `null` when tokens may be requested.
@@ -44,14 +42,8 @@ export const TITLES = {
   adc: 'Application Default Credentials',
 } as const;
 
-export function newLocalContext(probes: DoctorProbes): LocalContext {
-  return {
-    config: null,
-    selected: [],
-    unknownIds: [],
-    proxy: readProxySettings(probes.env),
-    googleRefused: null,
-  };
+export function newLocalContext(): LocalContext {
+  return { config: null, selected: [], unknownIds: [], googleRefused: null };
 }
 
 const hasComposer = (ctx: LocalContext): boolean =>
@@ -93,7 +85,7 @@ export function localSteps(
       run: async () => permissions(await facts(), probes.platform),
     },
     { id: 'data-dir.free-space', title: TITLES.dataFree, run: async () => freeSpace(await facts()) },
-    { id: 'network.proxy', title: TITLES.proxy, run: async () => proxyCheck(ctx, probes.platform) },
+    { id: 'network.proxy', title: TITLES.proxy, run: async () => proxyCheck(probes) },
     { id: 'network.ca-bundle', title: TITLES.ca, run: () => caBundles(probes, ctx) },
     {
       id: 'gcloud.installed',
@@ -218,37 +210,40 @@ function freeSpace(f: DataDirFacts): Outcome {
   return pass(text);
 }
 
-function proxyCheck(ctx: LocalContext, platform: string): Outcome {
-  const { https, http, noProxy, conflicts } = ctx.proxy;
+const shownProxy = (v: DoctorProxyVariable): string =>
+  `${v.variable}=${v.url}${v.schemeAdded ? ' (no scheme given, so http:// is used)' : ''}`;
+
+/**
+ * The proxy variables as the transport itself reads them (http-guard, through the probe), so the evidence
+ * never disagrees with what DCAM sends. Loopback targets such as the emulator always bypass a remote
+ * proxy, so they need no NO_PROXY entry.
+ */
+function proxyCheck(probes: DoctorProbes): Outcome {
   const docsUrl = DOCTOR_DOCS.gcloudProxy;
-  const set = [https, http].filter((v) => v !== null);
-  for (const v of set) {
-    if (!parseProxyUrl(v.value)) {
-      return fail(`${v.name} is not a URL: "${displayProxy(v.value)}".`, {
-        fixHint: `Set ${v.name} to a URL such as http://proxy.example.com:3128.`,
-        docsUrl,
-      });
-    }
-  }
-  if (set.length === 0) return pass('No proxy variables are set: connections are direct.');
-  const parts = [...set, ...(noProxy ? [noProxy] : [])].map(
-    (v) => `${v.name}=${v === noProxy ? v.value : displayProxy(v.value)}`,
-  );
-  const shown = parts.join(', ');
-  // Loopback Airflow (the emulator) must not go through the corporate proxy (§17.6 step 4).
-  const proxied = ctx.selected
-    .filter((e) => e.source.kind === 'airflow')
-    .map((e) => (e.source.kind === 'airflow' ? e.source.baseUrl : ''))
-    .filter((url) => proxyFor(url, ctx.proxy) !== null);
-  if (proxied.length > 0) {
-    const hosts = [...new Set(proxied.map((u) => new URL(u).hostname))];
-    const value = [...new Set(['127.0.0.1', 'localhost', ...hosts])].join(',');
-    return warn(`${shown}. Requests to ${hosts.join(', ')} would go through the proxy.`, {
-      fixHint: platform === 'win32' ? `$env:NO_PROXY = "${value}"` : `export NO_PROXY=${value}`,
+  let settings: DoctorProxySettings;
+  try {
+    settings = probes.proxySettings();
+  } catch (error) {
+    return fail(`DCAM cannot use the proxy settings: ${errorMessage(error)}`, {
+      fixHint:
+        'Correct the variable named above (HTTPS_PROXY, HTTP_PROXY or DCAM_NETWORK) in the shell that starts DCAM, then run the doctor again. A proxy is http://host:port; credentials go in the URL, URL-encoded.',
       docsUrl,
     });
   }
-  if (conflicts.length > 0) {
+  const { https, http, noProxy, dropped, shadowed } = settings;
+  const used = [https, http].filter((v) => v !== null);
+  const parts = [
+    ...used.map(shownProxy),
+    ...(noProxy && used.length > 0 ? [`${noProxy.variable}=${noProxy.value}`] : []),
+  ];
+  const notUsed = dropped.map(
+    (v) => `${shownProxy(v)} is not used: DCAM_NETWORK=loopback-only keeps every connection on this machine`,
+  );
+  if (parts.length === 0 && notUsed.length === 0)
+    return pass('No proxy variables are set: connections are direct.');
+  const shown = [parts.join(', '), ...notUsed].filter((t) => t !== '').join('. ');
+  if (shadowed.length > 0) {
+    const conflicts = shadowed.map((s) => `${s.used} and ${s.ignored} differ, and ${s.used} is used`);
     return warn(`${shown}. ${conflicts.join('; ')}.`, {
       fixHint: 'Set the lower- and upper-case variables to the same value, or unset one of them.',
       docsUrl,

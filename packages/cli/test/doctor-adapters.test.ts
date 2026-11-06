@@ -42,6 +42,22 @@ environments:
     location: europe-west1
     environment: acme-composer-prod
 `;
+const EMULATOR_CONFIG = `version: 1
+environments:
+  - id: acme-emulator
+    tier: dev
+    airflow:
+      baseUrl: http://127.0.0.1:8080
+      usernameEnv: DCAM_EMULATOR_USER
+      passwordEnv: DCAM_EMULATOR_PASSWORD
+      limits:
+        parallelism: 32
+        schedulers: 1
+        maxActiveTasksPerDag: 16
+        maxActiveRunsPerDag: 16
+        workerConcurrency: 16
+        workers: 2
+`;
 const AIRFLOW_URI = 'https://acme-dot-europe-west1.composer.googleusercontent.com';
 const NOW = Date.UTC(2026, 10, 5, 12, 0, 0);
 
@@ -158,5 +174,46 @@ describe('FR-AUTH-05 doctor adapters wired to the configuration and the guarded 
     expect(report.checks.filter((c) => c.status === 'fail')).toEqual([]);
     expect(started).toEqual([]);
     expect(sent).toEqual([]);
+  });
+
+  it('FR-AUTH-07: a proxy given without a scheme is shown and used as http://', async () => {
+    await writeFile(join(cwd, 'dcam.config.yaml'), COMPOSER_CONFIG);
+    const { transport } = fakeGoogle();
+    const report = await doctor({ HTTPS_PROXY: 'proxy.acme.example:3128' }, transport);
+    expect(check(report, 'network.proxy')).toMatchObject({ status: 'pass' });
+    expect(check(report, 'network.proxy').evidence).toContain(
+      'HTTPS_PROXY=http://proxy.acme.example:3128 (no scheme given, so http:// is used)',
+    );
+    expect(check(report, 'composer.environment', 'acme-composer-prod').evidence).toContain(
+      'through proxy proxy.acme.example:3128',
+    );
+  });
+
+  it('FR-AUTH-07: a remote proxy and the emulator on loopback need no NO_PROXY: no warning, no export', async () => {
+    await writeFile(join(cwd, 'dcam.config.yaml'), EMULATOR_CONFIG);
+    const transport: Transport = async () =>
+      new Response(
+        JSON.stringify({ metadatabase: { status: 'healthy' }, scheduler: { status: 'healthy' } }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json', date: new Date(NOW).toUTCString() },
+        },
+      );
+    const report = await doctor(
+      {
+        https_proxy: 'http://proxy.acme.example:3128',
+        HTTP_PROXY: 'http://proxy.acme.example:3128',
+        NO_PROXY: '10.0.0.0/8',
+        DCAM_EMULATOR_USER: 'acme',
+        DCAM_EMULATOR_PASSWORD: 'acme-password',
+      },
+      transport,
+    );
+    const proxy = check(report, 'network.proxy');
+    expect(proxy.status).toBe('pass');
+    expect(proxy.fixHint).toBeNull();
+    expect(JSON.stringify(report)).not.toMatch(/export NO_PROXY|\$env:NO_PROXY/);
+    expect(check(report, 'airflow.health', 'acme-emulator').status).toBe('pass');
+    expect(check(report, 'airflow.health', 'acme-emulator').evidence).not.toContain('through proxy');
   });
 });

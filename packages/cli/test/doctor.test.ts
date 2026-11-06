@@ -175,6 +175,8 @@ describe('FR-AUTH-05 dcam doctor command', () => {
     }),
     dataDir: async (path) => ({ path, state: 'directory', writable: true, mode: 0o700, freeBytes: 2 ** 40 }),
     gcloudVersion: async () => 'Google Cloud SDK 540.0.0',
+    proxySettings: () => ({ http: null, https: null, noProxy: null, dropped: [], shadowed: [] }),
+    proxyRoute: () => ({ via: 'direct' }),
     tokens: { accessToken: async () => 'unused', invalidate: () => undefined },
     readTextFile: async () => '',
     environment: () => {
@@ -317,14 +319,20 @@ describe('FR-AUTH-05 local probes', () => {
     await expect(gcloudVersion('linux', {}, exec)).rejects.toThrow(/gcloud crashed/);
   });
 
-  it('FR-AUTH-07: the probes see only the proxy, CA and credential variables', () => {
+  it('FR-AUTH-07: the probes see only the CA and credential variables', () => {
     const probes = createDoctorProbes({
       adapters: unwiredDoctorAdapters({ configPath: null }),
-      env: { HTTPS_PROXY: 'http://proxy.acme.example:3128', ACME_SECRET: 'x', DCAM_DATA_DIR: '~/acme-data' },
+      env: {
+        HTTPS_PROXY: 'http://proxy.acme.example:3128',
+        NODE_EXTRA_CA_CERTS: '/home/acme/acme-root.pem',
+        ACME_SECRET: 'x',
+        DCAM_DATA_DIR: '~/acme-data',
+      },
       homeDir: '/home/acme',
       platform: 'linux',
     });
-    expect(Object.keys(probes.env).sort()).toEqual(DOCTOR_ENV_KEYS.filter((k) => k === 'HTTPS_PROXY').sort());
+    expect(Object.keys(probes.env)).toEqual(['NODE_EXTRA_CA_CERTS']);
+    expect(DOCTOR_ENV_KEYS).toEqual(['NODE_EXTRA_CA_CERTS', 'GOOGLE_APPLICATION_CREDENTIALS']);
     expect(probes.defaultDataDir).toBe(join('/home/acme', 'acme-data'));
   });
 
@@ -341,5 +349,60 @@ describe('FR-AUTH-05 local probes', () => {
     const adapters: DoctorAdapters = unwiredDoctorAdapters({ configPath: null });
     await expect(adapters.loadConfig()).rejects.toThrow(/not wired/);
     await expect(adapters.tokens.accessToken()).rejects.toThrow(/not wired/);
+  });
+});
+
+describe('FR-AUTH-07 proxy probes read the variables as the transport does (http-guard)', () => {
+  const PROXY = 'proxy.acme.example:3128';
+  const EMULATOR = 'http://127.0.0.1:8080/api/v1/health';
+  const COMPOSER = 'https://composer.googleapis.com/v1/projects/acme-prod-123';
+  const probesFor = (env: Record<string, string>) =>
+    createDoctorProbes({ adapters: unwiredDoctorAdapters({ configPath: null }), env, homeDir: '/home/acme' });
+
+  it('FR-AUTH-07: a proxy without a scheme is used as http://, as the transport does', () => {
+    const probes = probesFor({ HTTPS_PROXY: PROXY });
+    expect(probes.proxySettings().https).toMatchObject({
+      variable: 'HTTPS_PROXY',
+      url: `http://${PROXY}`,
+      schemeAdded: true,
+    });
+    expect(probes.proxyRoute(COMPOSER)).toEqual({ via: 'proxy', proxy: PROXY });
+  });
+
+  it('FR-AUTH-07: a remote proxy never carries loopback requests, so the emulator needs no NO_PROXY', () => {
+    const probes = probesFor({ https_proxy: `http://${PROXY}`, http_proxy: `http://${PROXY}` });
+    expect(probes.proxyRoute(EMULATOR)).toEqual({ via: 'direct' });
+    expect(probes.proxyRoute('http://localhost:8080/')).toEqual({ via: 'direct' });
+    expect(probes.proxyRoute(COMPOSER)).toEqual({ via: 'proxy', proxy: PROXY });
+  });
+
+  it('FR-AUTH-07: an empty lower-case variable does not hide the upper-case one', () => {
+    const probes = probesFor({ https_proxy: '', HTTPS_PROXY: `http://${PROXY}` });
+    expect(probes.proxySettings().https?.variable).toBe('HTTPS_PROXY');
+    expect(probes.proxySettings().shadowed).toEqual([]);
+    expect(probes.proxyRoute(COMPOSER)).toEqual({ via: 'proxy', proxy: PROXY });
+  });
+
+  it('FR-AUTH-07: DCAM_NETWORK=loopback-only drops a remote proxy', () => {
+    const probes = probesFor({ DCAM_NETWORK: 'loopback-only', HTTPS_PROXY: `http://${PROXY}` });
+    const settings = probes.proxySettings();
+    expect(settings.https).toBeNull();
+    expect(settings.dropped.map((v) => v.variable)).toEqual(['HTTPS_PROXY']);
+    expect(probes.proxyRoute(COMPOSER)).toEqual({ via: 'direct' });
+  });
+
+  it.each<[string, Record<string, string>, RegExp]>([
+    ['a socks5 proxy', { HTTPS_PROXY: 'socks5://proxy.acme.example:1080' }, /HTTPS_PROXY must be an http/],
+    ['a mistyped DCAM_NETWORK', { DCAM_NETWORK: 'loopback' }, /DCAM_NETWORK must be/],
+  ])("FR-AUTH-07: %s throws the transport's own error", (_name, env, message) => {
+    const probes = probesFor(env);
+    expect(() => probes.proxySettings()).toThrow(message);
+    expect(() => probes.proxyRoute(COMPOSER)).toThrow(message);
+  });
+
+  it('FR-AUTH-07: proxy credentials never reach the probes', () => {
+    const probes = probesFor({ HTTPS_PROXY: 'http://alice:s3cret@proxy.acme.example:3128' });
+    expect(JSON.stringify(probes.proxySettings())).not.toContain('s3cret');
+    expect(JSON.stringify(probes.proxyRoute(COMPOSER))).not.toContain('s3cret');
   });
 });

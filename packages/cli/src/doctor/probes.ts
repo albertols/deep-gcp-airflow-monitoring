@@ -1,6 +1,7 @@
 /**
  * The doctor's probes as the CLI provides them: facts about this machine read directly (Node.js, DuckDB,
- * the data directory, `gcloud --version`, proxy and CA variables, CA files), plus the adapter-backed
+ * the data directory, `gcloud --version`, CA variables, CA files), the proxy variables as http-guard's
+ * transport reads them (the same code, so the evidence matches what DCAM sends), plus the adapter-backed
  * probes (configuration file, ADC token source, Composer, Airflow and Monitoring clients) that the
  * composition root passes in as {@link DoctorAdapters}. Nothing here writes a file or calls the network.
  *
@@ -16,7 +17,9 @@ import type {
   DataDirFacts,
   DoctorEnvironmentProbes,
   DoctorProbes,
+  DoctorProxyRoute,
 } from '@dcam/application';
+import { networkModeFromEnv, proxyRoute, readProxyEnvironment } from '@dcam/http-guard';
 import type { AccessTokenSource, EnvironmentEntry, WorkspaceConfig } from '@dcam/ports';
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -38,17 +41,11 @@ export type ExecFileFn = (
   options: { readonly timeout: number },
 ) => Promise<{ readonly stdout: string }>;
 
-/** The only environment variables the doctor sees (it never prints their credentials). */
-export const DOCTOR_ENV_KEYS = [
-  'HTTPS_PROXY',
-  'https_proxy',
-  'HTTP_PROXY',
-  'http_proxy',
-  'NO_PROXY',
-  'no_proxy',
-  'NODE_EXTRA_CA_CERTS',
-  'GOOGLE_APPLICATION_CREDENTIALS',
-] as const;
+/**
+ * The only environment variables the checks see. The proxy variables reach them only through
+ * http-guard (`proxySettings`, `proxyRoute`), without credentials.
+ */
+export const DOCTOR_ENV_KEYS = ['NODE_EXTRA_CA_CERTS', 'GOOGLE_APPLICATION_CREDENTIALS'] as const;
 
 const GCLOUD_TIMEOUT_MS = 20_000;
 
@@ -163,10 +160,17 @@ export function createDoctorProbes(options: CreateDoctorProbesOptions): DoctorPr
     if (value !== undefined) picked[key] = value;
   }
   const { adapters } = options;
+  // Read on every call, like the transport at start-up: an invalid DCAM_NETWORK or proxy throws its error.
+  const proxyOptions = () => ({ loopbackOnly: networkModeFromEnv(env) === 'loopback-only' });
   return {
     platform,
     nodeVersion: options.nodeVersion ?? process.versions.node,
     env: picked,
+    proxySettings: () => readProxyEnvironment(env, proxyOptions()),
+    proxyRoute: (url): DoctorProxyRoute => {
+      const route = proxyRoute(env, url, proxyOptions());
+      return route.via === 'proxy' ? { via: 'proxy', proxy: route.proxy } : { via: 'direct' };
+    },
     defaultDataDir: defaultDataDir(env, options.homeDir ?? homedir()),
     loadDuckDb,
     loadConfig: () => adapters.loadConfig(),

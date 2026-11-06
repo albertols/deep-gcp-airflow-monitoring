@@ -18,6 +18,8 @@ import {
   type DoctorCheck,
   type DoctorCheckId,
   type DoctorProbes,
+  type DoctorProxyRoute,
+  type DoctorProxySettings,
   type DoctorReport,
 } from '../src/index';
 
@@ -100,7 +102,21 @@ interface Calls {
   airflowBaseUrls: string[];
   serverDateUrls: string[];
   metricQueries: MetricQuery[];
+  routedUrls: string[];
 }
+
+const NO_PROXIES: DoctorProxySettings = { http: null, https: null, noProxy: null, dropped: [], shadowed: [] };
+const PROXY_HOST = 'proxy.acme.example:3128';
+const corpProxy = (variable: string, schemeAdded = false) => ({
+  variable,
+  url: `http://${PROXY_HOST}`,
+  schemeAdded,
+});
+/** What http-guard's proxyRoute answers for a remote proxy: loopback targets always go direct. */
+const remoteProxyRoute = (url: string): DoctorProxyRoute =>
+  /^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(url)
+    ? { via: 'direct' }
+    : { via: 'proxy', proxy: PROXY_HOST };
 
 interface FakeOptions {
   platform?: string;
@@ -113,10 +129,12 @@ interface FakeOptions {
   token?: () => Promise<string>;
   files?: Record<string, string>;
   envs?: Record<string, EnvFakes>;
+  proxySettings?: () => DoctorProxySettings;
+  proxyRoute?: (url: string) => DoctorProxyRoute;
 }
 
 function fakeProbes(config: WorkspaceConfig, o: FakeOptions = {}): { probes: DoctorProbes; calls: Calls } {
-  const calls: Calls = { airflowBaseUrls: [], serverDateUrls: [], metricQueries: [] };
+  const calls: Calls = { airflowBaseUrls: [], serverDateUrls: [], metricQueries: [], routedUrls: [] };
   const probes: DoctorProbes = {
     platform: o.platform ?? 'darwin',
     nodeVersion: o.nodeVersion ?? '22.20.0',
@@ -133,6 +151,11 @@ function fakeProbes(config: WorkspaceConfig, o: FakeOptions = {}): { probes: Doc
       ...o.dataDir,
     }),
     gcloudVersion: o.gcloud ?? (async () => 'Google Cloud SDK 540.0.0'),
+    proxySettings: o.proxySettings ?? (() => NO_PROXIES),
+    proxyRoute: (url) => {
+      calls.routedUrls.push(url);
+      return o.proxyRoute ? o.proxyRoute(url) : { via: 'direct' };
+    },
     tokens: { accessToken: o.token ?? (async () => 'fake-token-value'), invalidate: () => undefined },
     readTextFile: async (path) => {
       const text = o.files?.[path];
@@ -438,47 +461,86 @@ describe('FR-AUTH-05 local checks', () => {
 });
 
 describe('FR-AUTH-07 proxy and CA bundle', () => {
-  it.each<[string, Record<string, string>, readonly EnvironmentEntry[], string, RegExp]>([
-    ['no proxy variables', {}, [composerEntry()], 'pass', /direct/],
+  it.each<[string, string, DoctorProxySettings, RegExp]>([
+    ['no proxy variables', 'pass', NO_PROXIES, /direct/],
     [
       'HTTPS_PROXY and NO_PROXY',
-      { HTTPS_PROXY: 'http://proxy.acme.example:3128', NO_PROXY: '127.0.0.1,localhost' },
-      [composerEntry()],
       'pass',
-      /HTTPS_PROXY=http:\/\/proxy\.acme\.example:3128/,
+      {
+        ...NO_PROXIES,
+        https: corpProxy('HTTPS_PROXY'),
+        noProxy: { variable: 'NO_PROXY', value: '10.0.0.0/8' },
+      },
+      /^HTTPS_PROXY=http:\/\/proxy\.acme\.example:3128, NO_PROXY=10\.0\.0\.0\/8\.$/,
     ],
     [
-      'a proxy URL that does not parse',
-      { HTTPS_PROXY: 'proxy acme 3128' },
-      [composerEntry()],
-      'fail',
-      /not a URL/,
+      'a value without a scheme, which the transport reads as http://',
+      'pass',
+      { ...NO_PROXIES, https: corpProxy('HTTPS_PROXY', true) },
+      /HTTPS_PROXY=http:\/\/proxy\.acme\.example:3128 \(no scheme given, so http:\/\/ is used\)/,
     ],
     [
-      'a proxy without NO_PROXY for a loopback Airflow',
-      { https_proxy: 'http://proxy.acme.example:3128', http_proxy: 'http://proxy.acme.example:3128' },
-      [emulatorEntry],
+      'a remote proxy that DCAM_NETWORK=loopback-only does not use',
+      'pass',
+      { ...NO_PROXIES, dropped: [corpProxy('HTTPS_PROXY')] },
+      /HTTPS_PROXY=http:\/\/proxy\.acme\.example:3128 is not used: DCAM_NETWORK=loopback-only/,
+    ],
+    [
+      'a lower-case variable that hides a different upper-case one',
       'warn',
-      /127\.0\.0\.1/,
+      {
+        ...NO_PROXIES,
+        https: corpProxy('https_proxy'),
+        shadowed: [{ used: 'https_proxy', ignored: 'HTTPS_PROXY' }],
+      },
+      /https_proxy and HTTPS_PROXY differ, and https_proxy is used/,
     ],
-    [
-      'a loopback Airflow excluded by NO_PROXY',
-      { HTTP_PROXY: 'http://proxy.acme.example:3128', NO_PROXY: 'localhost, 127.0.0.1' },
-      [emulatorEntry],
-      'pass',
-      /NO_PROXY/,
-    ],
-  ])('FR-AUTH-07: %s → %s', async (_name, env, envs, status, evidence) => {
-    const { probes } = fakeProbes(workspace(envs), { env });
+  ])('FR-AUTH-07: %s → %s', async (_name, status, settings, evidence) => {
+    const { probes } = fakeProbes(workspace([composerEntry()]), { proxySettings: () => settings });
     const c = check(await run(probes), 'network.proxy');
     expect(c.status).toBe(status);
     expect(c.evidence).toMatch(evidence);
     if (status !== 'pass') expect(c.docsUrl).toBe(DOCTOR_DOCS.gcloudProxy);
   });
 
-  it('FR-AUTH-07: proxy credentials are never printed', async () => {
+  it("FR-AUTH-07: proxy settings the transport refuses fail with the transport's own message", async () => {
     const { probes } = fakeProbes(workspace([composerEntry()]), {
-      env: { HTTPS_PROXY: 'http://alice:s3cret@proxy.acme.example:3128' },
+      proxySettings: () => {
+        throw new Error('HTTPS_PROXY must be an http:// or https:// URL, not socks5://');
+      },
+    });
+    const c = check(await run(probes), 'network.proxy');
+    expect(c.status).toBe('fail');
+    expect(c.evidence).toContain('HTTPS_PROXY must be an http:// or https:// URL, not socks5://');
+    expect(c.fixHint).toMatch(/HTTPS_PROXY/);
+    expect(c.docsUrl).toBe(DOCTOR_DOCS.gcloudProxy);
+  });
+
+  it('FR-AUTH-07: a remote proxy and a loopback Airflow without NO_PROXY pass: the emulator goes direct', async () => {
+    const { probes } = fakeProbes(workspace([emulatorEntry]), {
+      proxySettings: () => ({
+        ...NO_PROXIES,
+        https: corpProxy('https_proxy'),
+        http: corpProxy('http_proxy'),
+      }),
+      proxyRoute: remoteProxyRoute,
+    });
+    const report = await run(probes);
+    expect(check(report, 'network.proxy').status).toBe('pass');
+    expect(check(report, 'airflow.health', 'acme-emulator')).toMatchObject({ status: 'pass' });
+    expect(check(report, 'airflow.health', 'acme-emulator').evidence).not.toContain('through proxy');
+  });
+
+  it('FR-AUTH-07: proxy credentials are never printed, even if a probe returned them', async () => {
+    const { probes } = fakeProbes(workspace([composerEntry()]), {
+      proxySettings: () => ({
+        ...NO_PROXIES,
+        https: {
+          variable: 'HTTPS_PROXY',
+          url: 'http://alice:s3cret@proxy.acme.example:3128',
+          schemeAdded: false,
+        },
+      }),
     });
     const report = await run(probes);
     expect(JSON.stringify(report)).not.toContain('s3cret');
@@ -486,17 +548,31 @@ describe('FR-AUTH-07 proxy and CA bundle', () => {
     expect(check(report, 'network.proxy').evidence).toContain('http://***@proxy.acme.example:3128');
   });
 
-  it('FR-AUTH-07: the environment checks name the proxy they went through', async () => {
-    const { probes } = fakeProbes(workspace([composerEntry()]), {
-      env: { HTTPS_PROXY: 'http://proxy.acme.example:3128' },
-    });
+  it("FR-AUTH-07: the environment checks name the proxy of the transport's route", async () => {
+    const { probes, calls } = fakeProbes(workspace([composerEntry()]), { proxyRoute: remoteProxyRoute });
     const report = await run(probes);
-    expect(check(report, 'composer.environment', 'acme-composer-prod').evidence).toContain(
-      'through proxy proxy.acme.example:3128',
+    for (const id of ['composer.environment', 'airflow.health', 'monitoring.read'] as const)
+      expect(check(report, id, 'acme-composer-prod').evidence, id).toContain(
+        'through proxy proxy.acme.example:3128',
+      );
+    expect(calls.routedUrls).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/^https:\/\/composer\.googleapis\.com\//),
+        expect.stringMatching(/^https:\/\/monitoring\.googleapis\.com\//),
+        runningEnv.airflowUri,
+      ]),
     );
-    expect(check(report, 'airflow.health', 'acme-composer-prod').evidence).toContain(
-      'through proxy proxy.acme.example:3128',
-    );
+  });
+
+  it('FR-AUTH-07: a route that cannot be computed leaves the evidence without a proxy name', async () => {
+    const { probes } = fakeProbes(workspace([composerEntry()]), {
+      proxyRoute: () => {
+        throw new Error('HTTPS_PROXY must be an http:// or https:// URL, not socks5://');
+      },
+    });
+    const c = check(await run(probes), 'composer.environment', 'acme-composer-prod');
+    expect(c.status).toBe('pass');
+    expect(c.evidence).not.toContain('through proxy');
   });
 
   it.each<[string, Record<string, string>, Record<string, string>, string | null, string, RegExp]>([
@@ -703,8 +779,11 @@ describe('FR-AUTH-05 Composer environment checks', () => {
 });
 
 describe('FR-AUTH-05 Airflow web server and role', () => {
-  const withAirflow = (fakes: EnvFakes, env: Record<string, string> = {}) =>
-    fakeProbes(workspace([composerEntry()]), { env, envs: { 'acme-composer-prod': fakes } });
+  const withAirflow = (fakes: EnvFakes, proxied = false) =>
+    fakeProbes(workspace([composerEntry()]), {
+      envs: { 'acme-composer-prod': fakes },
+      ...(proxied ? { proxyRoute: remoteProxyRoute } : {}),
+    });
 
   it('FR-AUTH-07: the web server is called at the airflowUri from Composer', async () => {
     const { probes, calls } = withAirflow({});
@@ -719,7 +798,7 @@ describe('FR-AUTH-05 Airflow web server and role', () => {
           throw new SourceError('network', 'self-signed certificate in certificate chain');
         },
       },
-      { HTTPS_PROXY: 'http://proxy.acme.example:3128' },
+      true,
     );
     const report = await run(probes);
     const c = check(report, 'airflow.health', 'acme-composer-prod');
@@ -928,38 +1007,6 @@ describe('FR-AUTH-05 time limit', () => {
     const c = check(await pending, 'composer.environment', 'acme-composer-prod');
     expect(c.status).toBe('fail');
     expect(c.evidence).toMatch(/5 s/);
-  });
-});
-
-describe('FR-AUTH-07 proxy rules (undici 7.x EnvHttpProxyAgent)', () => {
-  it('FR-AUTH-07: the lower-case variable wins and a difference is a warning', async () => {
-    const { probes } = fakeProbes(workspace([composerEntry()]), {
-      env: {
-        https_proxy: 'http://proxy-a.acme.example:3128',
-        HTTPS_PROXY: 'http://proxy-b.acme.example:3128',
-      },
-    });
-    const report = await run(probes);
-    const c = check(report, 'network.proxy');
-    expect(c.status).toBe('warn');
-    expect(c.evidence).toContain('https_proxy and HTTPS_PROXY differ');
-    expect(check(report, 'composer.environment', 'acme-composer-prod').evidence).toContain(
-      'through proxy proxy-a.acme.example:3128',
-    );
-  });
-
-  it.each<[string, boolean]>([
-    ['*', false],
-    ['.googleapis.com', false],
-    ['composer.googleapis.com:443', false],
-    ['composer.googleapis.com:8443', true],
-    ['acme.example', true],
-  ])('FR-AUTH-07: NO_PROXY=%s → proxied %s', async (noProxy, proxied) => {
-    const { probes } = fakeProbes(workspace([composerEntry()]), {
-      env: { HTTPS_PROXY: 'http://proxy.acme.example:3128', NO_PROXY: noProxy },
-    });
-    const c = check(await run(probes), 'composer.environment', 'acme-composer-prod');
-    expect(c.evidence.includes('through proxy')).toBe(proxied);
   });
 });
 

@@ -15,7 +15,6 @@ import {
   type WorkspaceConfig,
 } from '@dcam/ports';
 import { DOCTOR_DOCS } from './docs';
-import { viaProxy, type ProxySettings } from './proxy';
 import { fail, pass, skip, skipAfter, warn, type Outcome, type Outcomes, type Step } from './steps';
 import { errorMessage, plural } from './text';
 import type { DoctorEnvironmentProbes, DoctorProbes } from './types';
@@ -45,7 +44,6 @@ const UNREACHABLE = new Set(['network', 'timeout']);
 export interface EnvironmentContext {
   readonly probes: DoctorProbes;
   readonly config: WorkspaceConfig;
-  readonly proxy: ProxySettings;
   /** The local ADC check passed: Google API calls can carry a token. */
   readonly adcOk: boolean;
   /** Why no Google token may be requested (`DCAM_NETWORK=loopback-only`), or `null`. */
@@ -63,6 +61,19 @@ const hostOf = (url: string): string => {
     return url;
   }
 };
+/**
+ * ` (through proxy host:port)` when the transport sends `url` through a proxy, else an empty string.
+ * Settings the transport cannot use are reported by the proxy check, so here they only drop the note.
+ */
+function viaProxy(probes: DoctorProbes, url: string): string {
+  try {
+    const route = probes.proxyRoute(url);
+    return route.via === 'proxy' ? ` (through proxy ${route.proxy})` : '';
+  } catch {
+    return '';
+  }
+}
+
 const composerUrl = (s: ComposerSource): string =>
   `${COMPOSER_API}/projects/${s.projectId}/locations/${s.location}/environments/${s.environment}`;
 
@@ -103,7 +114,7 @@ export function environmentSteps(
       const api = probes().composer;
       if (!api) return fail('No Composer API client is configured for this environment.');
       const q = quota(s);
-      const via = viaProxy(COMPOSER_API, ctx.proxy);
+      const via = viaProxy(ctx.probes, composerUrl(s));
       try {
         const env = await api.environment(s);
         state.composer = env;
@@ -162,7 +173,7 @@ export function environmentSteps(
           return skip(`Skipped: Composer reported no airflowUri (state ${state.composer.state}).`);
       }
       const base = stripSlash(airflowBase() ?? '');
-      const via = viaProxy(base, ctx.proxy);
+      const via = viaProxy(ctx.probes, base);
       try {
         const h = await airflow().health();
         const parts = [
@@ -248,7 +259,10 @@ export function environmentSteps(
         aligner: 'ALIGN_FRACTION_TRUE',
       };
       const q = quota(s);
-      const via = viaProxy('https://monitoring.googleapis.com/', ctx.proxy);
+      const via = viaProxy(
+        ctx.probes,
+        `https://monitoring.googleapis.com/v3/projects/${s.projectId}/timeSeries`,
+      );
       try {
         const series = await api.series(query);
         const text = `${plural(series.length, 'time series', 'time series')} of environment/healthy in the last 20 min${via}.`;

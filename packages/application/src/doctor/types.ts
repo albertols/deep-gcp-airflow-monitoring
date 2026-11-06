@@ -81,6 +81,37 @@ export interface DataDirFacts {
   readonly freeBytes: number | null;
 }
 
+/** One proxy variable as DCAM's HTTP transport reads it (http-guard `readProxyEnvironment`). */
+export interface DoctorProxyVariable {
+  /** The variable that supplied the value, for example `https_proxy`. */
+  readonly variable: string;
+  /** The proxy URL with credentials replaced by `***`, for example `http://***@proxy.example.com:3128`. */
+  readonly url: string;
+  /** The value had no scheme, so the transport uses `http://`. */
+  readonly schemeAdded: boolean;
+}
+
+/** The proxy variables exactly as the transport uses them. */
+export interface DoctorProxySettings {
+  readonly http: DoctorProxyVariable | null;
+  readonly https: DoctorProxyVariable | null;
+  /** `NO_PROXY` as set (either case); DCAM also sends loopback addresses direct, always. */
+  readonly noProxy: { readonly variable: string; readonly value: string } | null;
+  /** Remote proxies that `DCAM_NETWORK=loopback-only` does not use. */
+  readonly dropped: readonly DoctorProxyVariable[];
+  /** Both cases set to different values: `used` wins, `ignored` is not read. */
+  readonly shadowed: ReadonlyArray<{ readonly used: string; readonly ignored: string }>;
+}
+
+/** The way the transport sends a request (http-guard `proxyRoute`). */
+export type DoctorProxyRoute =
+  | { readonly via: 'direct' }
+  | {
+      readonly via: 'proxy';
+      /** `host:port` of the proxy. */
+      readonly proxy: string;
+    };
+
 /** The sources of one environment, as the collectors get them, plus the clock probe. */
 export interface DoctorEnvironmentProbes extends EnvironmentSources {
   /**
@@ -95,11 +126,16 @@ export interface DoctorProbes {
   readonly platform: string;
   /** `process.versions.node`, for example `22.20.0`. */
   readonly nodeVersion: string;
-  /**
-   * Proxy, CA and credential variables (`HTTPS_PROXY`, `https_proxy`, `HTTP_PROXY`, `http_proxy`,
-   * `NO_PROXY`, `no_proxy`, `NODE_EXTRA_CA_CERTS`, `GOOGLE_APPLICATION_CREDENTIALS`).
-   */
+  /** CA and credential variables (`NODE_EXTRA_CA_CERTS`, `GOOGLE_APPLICATION_CREDENTIALS`). */
   readonly env: Readonly<Record<string, string | undefined>>;
+  /**
+   * The proxy variables as DCAM's transport reads them, from the same code (http-guard). Throws the
+   * transport's own start-up error when it cannot use them (for example a `socks5://` proxy, or an
+   * invalid `DCAM_NETWORK`).
+   */
+  proxySettings(): DoctorProxySettings;
+  /** The way the transport sends a request to `url`; throws like {@link proxySettings}. */
+  proxyRoute(url: string): DoctorProxyRoute;
   /** The data directory to check when the configuration cannot be used (`DCAM_DATA_DIR` or the default). */
   readonly defaultDataDir: string;
   /** Opens and closes an in-memory DuckDB database; throws when the native binary does not load. */
