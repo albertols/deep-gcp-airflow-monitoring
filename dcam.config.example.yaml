@@ -13,8 +13,8 @@ workspace:
   dataDir: ~/.dcam/data # DuckDB store and backups, owner-only; DCAM_DATA_DIR overrides it
 
 auth:
-  # Project billed for Google API quota. Leave it out to use each environment's own project, or set it
-  # once with: gcloud auth application-default set-quota-project <project>
+  # Project billed for Google API quota (sent as x-goog-user-project). Leave it out to bill each
+  # environment's own project; you need serviceusage.services.use on the project that is billed.
   # quotaProjectId: acme-ops-123
 
 network:

@@ -36,17 +36,79 @@ pnpm dcam --demo         # opens http://127.0.0.1:8787 with synthetic data for t
 
 ## Run against your environment
 
-_Arrives in M1._ The path will be (full guide in [spec §17.6](docs/spec/dcam-spec.md#176-run-against-your-environment)):
+DCAM reads your Managed Airflow (Composer) environments with your own Google identity, read-only, from your
+laptop. It works on macOS, Linux and Windows, and through a corporate proxy that inspects TLS. The full guide is
+[spec §17.6](docs/spec/dcam-spec.md#176-run-against-your-environment).
 
-1. Sign in with your own credentials: `gcloud auth application-default login`, and set a quota project.
-2. Make sure your identity has `roles/composer.viewer` and `roles/monitoring.viewer`, and the Airflow
-   `Viewer` role (Composer 3 registers new API users as `Op` by default; `Viewer` is enough).
-3. Behind a corporate proxy, export `HTTPS_PROXY` (and `NODE_EXTRA_CA_CERTS` if TLS is inspected).
-4. `cp dcam.config.example.yaml dcam.config.yaml`, set your project, location and environment. This file
-   is git-ignored; never commit it.
-5. `pnpm dcam doctor`, then `pnpm dcam`.
+**You need:** Node.js 22.12 or later, pnpm 11 through Corepack (see the quickstart), the
+[Google Cloud CLI](https://cloud.google.com/sdk/docs/install), and network access to `*.googleapis.com` and to
+your environment's Airflow web server, directly or through the proxy.
 
-Everything DCAM collects stays in `~/.dcam/data/` on your machine.
+1. **Sign in** with your own credentials. DCAM asks the Google Cloud CLI for an access token
+   (`gcloud auth application-default print-access-token`), keeps it in memory only and reuses it for up to
+   30 minutes ([ADR-0016](docs/adr/0016-authentication.md)):
+
+   ```bash
+   gcloud auth application-default login
+   ```
+
+2. **Check your access.** Your identity needs `roles/composer.viewer` and `roles/monitoring.viewer` on the
+   environment's project, and an Airflow role in the environment. `Viewer` is all DCAM needs. The first time you
+   call the Airflow API, Composer 3 registers you as `Op`; ask an administrator to assign `Viewer` instead.
+3. **Quota project.** DCAM bills Google API quota to each environment's own project, which needs
+   `serviceusage.services.use` there. To bill another project instead, set `auth.quotaProjectId` in the
+   configuration file.
+4. **Proxy and CA.** Set the proxy before you start DCAM. If the proxy inspects TLS, also point
+   `NODE_EXTRA_CA_CERTS`, or `network.caBundlePath` in the configuration file, at your organisation's root CA
+   bundle in PEM format. DCAM sends both the Google API and the Airflow web server calls through the proxy.
+
+   ```bash
+   # macOS and Linux
+   export HTTPS_PROXY=http://proxy.example.com:3128
+   export NO_PROXY=localhost,127.0.0.1
+   export NODE_EXTRA_CA_CERTS=~/certs/root-ca.pem
+   ```
+
+   ```powershell
+   # Windows PowerShell
+   $env:HTTPS_PROXY = 'http://proxy.example.com:3128'
+   $env:NO_PROXY = 'localhost,127.0.0.1'
+   $env:NODE_EXTRA_CA_CERTS = "$HOME\certs\root-ca.pem"
+   ```
+
+   The Google Cloud CLI has proxy and CA settings of its own; see
+   [Configuring the gcloud CLI to use a proxy](https://cloud.google.com/sdk/docs/proxy-settings).
+
+5. **Configure.** Copy the example and set `projectId`, `location` and `environment` for each environment
+   (`gcloud composer environments list --project <project> --locations <region>` lists them). The copy is
+   git-ignored: never commit it, because the repository is public.
+
+   ```bash
+   cp dcam.config.example.yaml dcam.config.yaml
+   ```
+
+6. **Run the doctor.** It checks Node.js, DuckDB, the data folder, the Google Cloud CLI and your token, the
+   proxy and CA settings, then per environment Composer access, the Airflow web server and your Airflow role,
+   Cloud Monitoring and the clock. It prints a fix you can copy for each problem, and exits with code 1 when a
+   check fails.
+
+   ```bash
+   pnpm dcam doctor                 # or: pnpm dcam doctor --env <id> --json
+   ```
+
+7. **Start DCAM.** `pnpm dcam` (or `pnpm dcam --config <file>`) opens http://127.0.0.1:8787. Collection runs in
+   the background within a request budget per environment: the `standard` profile, the default for `prod`,
+   allows 12 Airflow API requests a minute. The pages fill as data arrives: first the configuration and the
+   DAG list, then live snapshots and finished task instances. The **DCAM health** page shows what each
+   collector is doing and how many requests DCAM made. If the configuration file is missing or invalid, DCAM
+   starts in setup mode and the page lists what to fix. Press Ctrl+C to stop.
+
+**What stays on your laptop.** Everything DCAM collects is stored in `~/.dcam/data/`, a folder only you can
+read (`DCAM_DATA_DIR` moves it). DCAM makes no calls except the read-only API calls on its allowlist, and it
+sends no telemetry. Do not attach that folder, or screenshots of real environments, to public issues.
+
+To try live mode without Google Cloud first, run the local Airflow 2.11.1 emulator
+([tools/emulator](tools/emulator/README.md)).
 
 ## Safety by design
 
