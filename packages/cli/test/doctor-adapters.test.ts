@@ -1,25 +1,56 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type * as ChildProcess from 'node:child_process';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { runDoctor, type DoctorCheck, type DoctorCheckId, type DoctorReport } from '@dcam/application';
 import type { Transport } from '@dcam/http-guard';
 import type { AccessTokenSource } from '@dcam/ports';
 import { liveDoctorAdapters } from '../src/doctor/adapters';
+import { createDoctorProbes, type ExecFileFn } from '../src/doctor/probes';
+
+/**
+ * Every program the code under test starts goes through this stand-in: nothing real is started. A
+ * gcloud ADC token request prints a fake token; anything else is "not installed".
+ */
+const started = vi.hoisted(() => [] as string[][]);
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof ChildProcess>();
+  return {
+    ...actual,
+    execFile: (file: string, args: readonly string[], ...rest: unknown[]) => {
+      started.push([file, ...args]);
+      const callback = rest.find((r) => typeof r === 'function') as
+        ((error: Error | null, stdout: string, stderr: string) => void) | undefined;
+      const token = args.includes('application-default');
+      queueMicrotask(() =>
+        token
+          ? callback?.(null, 'ya29.fake-doctor-token\n', '')
+          : callback?.(Object.assign(new Error(`spawn ${file} ENOENT`), { code: 'ENOENT' }), '', ''),
+      );
+      return { pid: undefined, kill: () => true };
+    },
+  };
+});
+const tokenRequests = () => started.filter((argv) => argv.includes('application-default'));
 
 const COMPOSER_CONFIG = `version: 1
 environments:
-  - id: acme-prod
+  - id: acme-composer-prod
     tier: prod
-    projectId: acme-prod-project
+    projectId: acme-prod-123
     location: europe-west1
-    environment: acme-prod
+    environment: acme-composer-prod
 `;
+const AIRFLOW_URI = 'https://acme-dot-europe-west1.composer.googleusercontent.com';
+const NOW = Date.UTC(2026, 10, 5, 12, 0, 0);
 
 let cwd: string;
 beforeEach(async () => {
   cwd = await mkdtemp(join(tmpdir(), 'dcam-doctor-'));
 });
 afterEach(async () => {
+  started.length = 0;
   await rm(cwd, { recursive: true, force: true });
 });
 
@@ -27,6 +58,47 @@ const adapters = (
   overrides: { tokens?: AccessTokenSource; transport?: Transport } = {},
   configPath?: string,
 ) => liveDoctorAdapters({ configPath: configPath ?? null, env: {}, cwd, homeDir: cwd, ...overrides });
+
+/** Answers Composer with a running environment and records the Authorization header of every request. */
+function fakeGoogle() {
+  const sent: Array<{ url: string; authorization: string | undefined }> = [];
+  const transport: Transport = async (url, init) => {
+    sent.push({ url, authorization: init.headers['authorization'] });
+    const body = url.startsWith('https://composer.googleapis.com/')
+      ? {
+          state: 'RUNNING',
+          config: {
+            airflowUri: AIRFLOW_URI,
+            softwareConfig: { imageVersion: 'composer-3-airflow-2.11.1-build.22' },
+          },
+        }
+      : {};
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json', date: new Date(NOW).toUTCString() },
+    });
+  };
+  return { sent, transport };
+}
+
+/** `gcloud --version` as the doctor's machine check sees it. */
+const gcloudInstalled: ExecFileFn = async () => ({ stdout: 'Google Cloud SDK 540.0.0\n' });
+
+async function doctor(env: Record<string, string>, transport: Transport): Promise<DoctorReport> {
+  const wired = liveDoctorAdapters({ configPath: null, env, cwd, homeDir: cwd, transport });
+  try {
+    const probes = createDoctorProbes({ adapters: wired, env, homeDir: cwd, exec: gcloudInstalled });
+    return await runDoctor(probes, { now: () => NOW });
+  } finally {
+    await wired.close();
+  }
+}
+
+function check(report: DoctorReport, id: DoctorCheckId, scope = 'local'): DoctorCheck {
+  const found = report.checks.find((c) => c.id === id && c.scope === scope);
+  if (!found) throw new Error(`no check ${id} in scope ${scope}`);
+  return found;
+}
 
 describe('FR-AUTH-05 doctor adapters wired to the configuration and the guarded client', () => {
   it('FR-AUTH-05: a missing configuration file is reported with the path DCAM looked at', async () => {
@@ -52,36 +124,39 @@ describe('FR-AUTH-05 doctor adapters wired to the configuration and the guarded 
   it('FR-AUTH-05: a valid configuration is returned for the environment checks', async () => {
     await writeFile(join(cwd, 'dcam.config.yaml'), COMPOSER_CONFIG);
     const result = await adapters().loadConfig();
-    expect(result).toMatchObject({ kind: 'valid', config: { environments: [{ id: 'acme-prod' }] } });
+    expect(result).toMatchObject({
+      kind: 'valid',
+      config: { environments: [{ id: 'acme-composer-prod' }] },
+    });
   });
 
-  it('FR-AUTH-01: the environment probes use the token source the ADC check asked', async () => {
+  it('FR-AUTH-01: the ADC check and every environment check share one gcloud token', async () => {
     await writeFile(join(cwd, 'dcam.config.yaml'), COMPOSER_CONFIG);
-    let asked = 0;
-    const tokens: AccessTokenSource = {
-      accessToken: async () => `ya29.token-${++asked}`,
-      invalidate: () => undefined,
-    };
-    const sent: Array<string | undefined> = [];
-    const transport: Transport = async (_url, init) => {
-      sent.push(init.headers['authorization'] ?? init.headers['Authorization']);
-      return new Response(JSON.stringify({ state: 'RUNNING' }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    };
-    const wired = adapters({ tokens, transport });
-    expect(wired.tokens).toBe(tokens);
-    const result = await wired.loadConfig();
-    if (result.kind !== 'valid') throw new Error('expected a valid configuration');
-    const [entry] = result.config.environments;
-    if (!entry) throw new Error('expected one environment');
-    const probes = wired.environment(entry, result.config);
-    await probes.composer?.environment({
-      projectId: 'acme-prod-project',
-      location: 'europe-west1',
-      environment: 'acme-prod',
-    });
-    expect(sent).toEqual(['Bearer ya29.token-1']);
+    const { sent, transport } = fakeGoogle();
+    const report = await doctor({}, transport);
+    expect(check(report, 'adc.token').status).toBe('pass');
+    expect(check(report, 'composer.environment', 'acme-composer-prod').status).toBe('pass');
+    expect(tokenRequests()).toHaveLength(1);
+    const google = sent.filter((s) => s.url.startsWith('https://composer.googleapis.com/v1/projects/'));
+    expect(google[0]?.authorization).toBe('Bearer ya29.fake-doctor-token');
+    expect(sent.some((s) => s.url.startsWith(AIRFLOW_URI))).toBe(true);
+    for (const s of sent.filter((x) => x.authorization !== undefined))
+      expect(s.authorization).toBe('Bearer ya29.fake-doctor-token');
+  });
+
+  it('NFR-SEC-04: with DCAM_NETWORK=loopback-only the doctor starts no gcloud for a token and sends nothing', async () => {
+    await writeFile(join(cwd, 'dcam.config.yaml'), COMPOSER_CONFIG);
+    const { sent, transport } = fakeGoogle();
+    const report = await doctor({ DCAM_NETWORK: 'loopback-only' }, transport);
+    const reason = 'DCAM_NETWORK=loopback-only: no Google token is requested';
+    expect(check(report, 'adc.token')).toMatchObject({ status: 'skip' });
+    expect(check(report, 'adc.token').evidence).toContain(reason);
+    for (const id of ['composer.environment', 'monitoring.read', 'clock.skew'] as const) {
+      expect(check(report, id, 'acme-composer-prod').status, id).toBe('skip');
+      expect(check(report, id, 'acme-composer-prod').evidence, id).toContain(reason);
+    }
+    expect(report.checks.filter((c) => c.status === 'fail')).toEqual([]);
+    expect(started).toEqual([]);
+    expect(sent).toEqual([]);
   });
 });

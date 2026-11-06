@@ -3,13 +3,12 @@
  * configuration file, the gcloud ADC token source, and each environment's clients on its own guarded
  * client (proxy, CA bundle, allowlist, `DCAM_NETWORK`).
  *
- * @implements FR-AUTH-05, FR-AUTH-01, FR-AUTH-07
+ * @implements FR-AUTH-05, FR-AUTH-01, FR-AUTH-07, NFR-SEC-04
  */
 import { configFileLocation, loadWorkspaceConfig } from '@dcam/config-file';
-import { createGcloudTokenSource } from '@dcam/gcp';
 import type { Transport } from '@dcam/http-guard';
 import type { AccessTokenSource } from '@dcam/ports';
-import { createEnvironmentClients } from '@dcam/server';
+import { createAdcTokenSource, createEnvironmentClients } from '@dcam/server';
 import type { DoctorAdapters } from './probes';
 
 export interface LiveDoctorAdaptersOptions {
@@ -32,8 +31,9 @@ export interface LiveDoctorAdapters extends DoctorAdapters {
 export function liveDoctorAdapters(options: LiveDoctorAdaptersOptions): LiveDoctorAdapters {
   const { env, cwd, homeDir } = options;
   const input = { flagPath: options.configPath ?? undefined, env, cwd, homeDir };
-  // One token source: the ADC check fetches the token, and the environment checks reuse it.
-  const tokens = options.tokens ?? createGcloudTokenSource();
+  // One token source: the ADC check fetches the token, and the environment checks reuse it. With
+  // DCAM_NETWORK=loopback-only it requests none and the Google checks skip (spec §21.4).
+  const tokens = options.tokens ?? createAdcTokenSource({ env });
   const opened: Array<{ close(): Promise<void> }> = [];
   return {
     async loadConfig() {

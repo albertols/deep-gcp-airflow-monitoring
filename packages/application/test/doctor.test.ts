@@ -403,6 +403,32 @@ describe('FR-AUTH-05 local checks', () => {
     );
   });
 
+  it('NFR-SEC-04: with DCAM_NETWORK=loopback-only the ADC check and the Google checks skip with the reason', async () => {
+    const reason = 'DCAM_NETWORK=loopback-only: no Google token is requested';
+    const { probes, calls } = fakeProbes(workspace([composerEntry(), emulatorEntry]), {
+      token: async () => {
+        throw new SourceError('guard', reason);
+      },
+    });
+    const report = await run(probes);
+    expect(check(report, 'adc.token').status).toBe('skip');
+    expect(check(report, 'adc.token').evidence).toContain(reason);
+    expect(statuses(report, 'acme-composer-prod')).toEqual([
+      ['composer.environment', 'skip'],
+      ['airflow.version', 'skip'],
+      ['airflow.health', 'skip'],
+      ['airflow.role', 'skip'],
+      ['monitoring.read', 'skip'],
+      ['clock.skew', 'skip'],
+    ]);
+    for (const id of ['composer.environment', 'monitoring.read', 'clock.skew'] as const)
+      expect(check(report, id, 'acme-composer-prod').evidence, id).toContain(reason);
+    // Nothing was asked of Google; the loopback emulator is still checked.
+    expect(calls.serverDateUrls).toEqual(['http://127.0.0.1:8080/api/v1/health']);
+    expect(check(report, 'airflow.health', 'acme-emulator').status).toBe('pass');
+    expect(report.ok).toBe(true);
+  });
+
   it('FR-AUTH-01: the access token never appears in the report', async () => {
     const { probes } = fakeProbes(workspace([composerEntry()]), { token: async () => 'tok-SECRET-123' });
     const report = await run(probes);

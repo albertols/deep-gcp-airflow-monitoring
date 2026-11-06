@@ -2,14 +2,33 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type * as ChildProcess from 'node:child_process';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Collector } from '@dcam/application';
 import type { Collection, Meta } from '@dcam/contracts';
 import { DB_FILE_NAME } from '@dcam/duckdb-store';
 import type { Transport } from '@dcam/http-guard';
-import type { AccessTokenSource } from '@dcam/ports';
+import { SourceError, type AccessTokenSource } from '@dcam/ports';
 import { buildApp } from '../src/app';
 import { openConfiguredWorkspace, type RunningWorkspace } from '../src/live/workspace';
+
+/** Every program the code under test tries to start; none is started (gcloud must never run here). */
+const started = vi.hoisted(() => [] as string[]);
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof ChildProcess>();
+  return {
+    ...actual,
+    execFile: (file: string, args: readonly string[], ...rest: unknown[]) => {
+      started.push([file, ...args].join(' '));
+      const callback = rest.find((r) => typeof r === 'function') as
+        ((error: Error, stdout: string, stderr: string) => void) | undefined;
+      queueMicrotask(() =>
+        callback?.(Object.assign(new Error(`spawn ${file} ENOENT`), { code: 'ENOENT' }), '', ''),
+      );
+      return { pid: undefined, kill: () => true };
+    },
+  };
+});
 
 const NOW = Date.UTC(2026, 10, 5, 12, 0, 0);
 const HOST = '127.0.0.1:8787';
@@ -48,6 +67,48 @@ const versionCollector: Collector = {
   },
 };
 
+const COMPOSER_CONFIG = (dataDir: string) => `version: 1
+workspace:
+  dataDir: ${dataDir}
+environments:
+  - id: acme-composer-prod
+    tier: prod
+    projectId: acme-prod-123
+    location: europe-west1
+    environment: acme-composer-prod
+`;
+
+/** Reads the Composer environment once and keeps the error it got. */
+function composerProbe() {
+  const errors: unknown[] = [];
+  const collector: Collector = {
+    manifest: {
+      id: 'composer.config',
+      source: 'SRC-COMPOSER',
+      api: 'composer',
+      cadence: 'composer',
+      priority: 'standard',
+      maxRequestsPerCycle: 1,
+      outputs: ['config'],
+      sourceKinds: ['composer'],
+    },
+    async collect(ctx) {
+      try {
+        await ctx.composer?.environment({
+          projectId: 'acme-prod-123',
+          location: 'europe-west1',
+          environment: 'acme-composer-prod',
+        });
+      } catch (error) {
+        errors.push(error);
+        throw error;
+      }
+      return { dataAsOf: null };
+    },
+  };
+  return { collector, errors };
+}
+
 const tokens: AccessTokenSource = {
   accessToken: async () => {
     throw new Error('the emulator needs no Google token');
@@ -62,6 +123,7 @@ beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'dcam-live-'));
 });
 afterEach(async () => {
+  started.length = 0;
   await workspace?.close();
   workspace = undefined;
   await rm(dir, { recursive: true, force: true });
@@ -164,5 +226,33 @@ describe('live workspace (FR-SETUP-02, FR-COLL-11, HM-030, FR-STORE-01)', () => 
     // A second DCAM on the same data directory can open the database once the first one closed.
     const second = await open({}, fakeAirflow().transport);
     expect(second.workspace.setup).toBeUndefined();
+  });
+
+  it('NFR-SEC-04: with DCAM_NETWORK=loopback-only a Composer environment starts no gcloud and sends nothing', async () => {
+    await writeFile(join(dir, 'dcam.config.yaml'), COMPOSER_CONFIG(join(dir, 'data')));
+    const sent: string[] = [];
+    const transport: Transport = async (url) => {
+      sent.push(url);
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    const probe = composerProbe();
+    const opened = await openConfiguredWorkspace({
+      env: { DCAM_NETWORK: 'loopback-only' },
+      cwd: dir,
+      homeDir: dir,
+      now: () => NOW,
+      collectors: [probe.collector],
+      transport,
+    });
+    workspace = opened.workspace;
+    opened.workspace.start();
+    await expect.poll(() => probe.errors.length, { timeout: 5_000 }).toBeGreaterThan(0);
+    expect(probe.errors[0]).toBeInstanceOf(SourceError);
+    expect(probe.errors[0]).toMatchObject({
+      kind: 'guard',
+      message: 'DCAM_NETWORK=loopback-only: no Google token is requested',
+    });
+    expect(started).toEqual([]);
+    expect(sent).toEqual([]);
   });
 });

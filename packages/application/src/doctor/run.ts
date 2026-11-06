@@ -63,6 +63,7 @@ export async function runDoctor(probes: DoctorProbes, opts: DoctorOptions): Prom
             config,
             proxy: local.proxy,
             adcOk: localOutcomes.status('adc.token') === 'pass',
+            googleRefused: local.googleRefused,
             now,
           };
           return runSteps(entry.id, environmentSteps(entry, ctx, outcomes), outcomes, {

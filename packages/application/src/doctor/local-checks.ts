@@ -4,7 +4,7 @@
  *
  * @implements FR-AUTH-05, FR-AUTH-02, FR-AUTH-07, FR-SETUP-02
  */
-import type { EnvironmentEntry, WorkspaceConfig } from '@dcam/ports';
+import { SourceError, type EnvironmentEntry, type WorkspaceConfig } from '@dcam/ports';
 import { DOCTOR_DOCS } from './docs';
 import { displayProxy, parseProxyUrl, proxyFor, readProxySettings, type ProxySettings } from './proxy';
 import { fail, pass, skip, skipAfter, warn, type Outcome, type Outcomes, type Step } from './steps';
@@ -24,6 +24,11 @@ export interface LocalContext {
   /** `--env` ids that are not in the configuration. */
   unknownIds: string[];
   readonly proxy: ProxySettings;
+  /**
+   * Why no Google token may be requested (`DCAM_NETWORK=loopback-only`); the Google checks skip with
+   * this reason. `null` when tokens may be requested.
+   */
+  googleRefused: string | null;
 }
 
 export const TITLES = {
@@ -40,7 +45,13 @@ export const TITLES = {
 } as const;
 
 export function newLocalContext(probes: DoctorProbes): LocalContext {
-  return { config: null, selected: [], unknownIds: [], proxy: readProxySettings(probes.env) };
+  return {
+    config: null,
+    selected: [],
+    unknownIds: [],
+    proxy: readProxySettings(probes.env),
+    googleRefused: null,
+  };
 }
 
 const hasComposer = (ctx: LocalContext): boolean =>
@@ -112,6 +123,11 @@ export function localSteps(
           if (!token) throw new Error('gcloud returned an empty token.');
           return pass(`gcloud issued an access token for Application Default Credentials${override}.`);
         } catch (error) {
+          // DCAM_NETWORK=loopback-only: the token source refuses before starting gcloud (spec §21.4).
+          if (error instanceof SourceError && error.kind === 'guard') {
+            ctx.googleRefused = error.message;
+            return skip(`Skipped: ${error.message}.`);
+          }
           return fail(`No access token${override}: ${errorMessage(error)}`, {
             fixHint: 'gcloud auth application-default login',
             docsUrl: DOCTOR_DOCS.adcLogin,

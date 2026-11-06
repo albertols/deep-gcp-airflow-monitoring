@@ -14,13 +14,13 @@ import {
 } from '@dcam/application';
 import { loadWorkspaceConfig } from '@dcam/config-file';
 import { openFileStore } from '@dcam/duckdb-store';
-import { createGcloudTokenSource } from '@dcam/gcp';
 import type { Transport } from '@dcam/http-guard';
 import type { AccessTokenSource, Clock, ConfigIssue, Sleeper, WorkspaceConfig } from '@dcam/ports';
 import { createSetupWorkspace } from '../setup';
 import type { Workspace } from '../workspace';
 import { createEnvironmentClients, type EnvironmentClients } from './environment-clients';
 import { systemSleeper } from './sleeper';
+import { createAdcTokenSource } from './tokens';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
@@ -35,7 +35,10 @@ export interface RunningWorkspace extends Workspace {
 /** What tests replace; DCAM itself uses the defaults. */
 export interface LiveWorkspaceOverrides {
   readonly now?: () => number;
-  /** The ADC token source; `gcloud auth application-default print-access-token` by default (ADR-0016). */
+  /**
+   * The ADC token source: gcloud by default (ADR-0016), and none at all with `DCAM_NETWORK=loopback-only`
+   * (see `createAdcTokenSource`).
+   */
   readonly tokens?: AccessTokenSource;
   readonly sleeper?: Sleeper;
   /** Replaces the proxy- and CA-aware transport of every guarded client. */
@@ -66,7 +69,7 @@ export async function createLiveWorkspace(options: LiveWorkspaceOptions): Promis
   const store = await openFileStore({ dataDir: config.dataDir, now }).catch((e: unknown) => {
     throw storeError(config.dataDir, e);
   });
-  const tokens = options.tokens ?? createGcloudTokenSource({ now });
+  const tokens = options.tokens ?? createAdcTokenSource({ env, now });
   const clients = new Map<string, EnvironmentClients>();
   // The guard's footprint hook needs the engine, and the engine needs the clients: bound late.
   let engine: CollectionEngine | undefined;

@@ -48,6 +48,8 @@ export interface EnvironmentContext {
   readonly proxy: ProxySettings;
   /** The local ADC check passed: Google API calls can carry a token. */
   readonly adcOk: boolean;
+  /** Why no Google token may be requested (`DCAM_NETWORK=loopback-only`), or `null`. */
+  readonly googleRefused: string | null;
   readonly now: () => number;
 }
 
@@ -96,6 +98,7 @@ export function environmentSteps(
     run: async () => {
       const s = entry.source;
       if (s.kind !== 'composer') return skip('Self-managed Airflow: no Composer API.');
+      if (ctx.googleRefused !== null) return skip(`Skipped: ${ctx.googleRefused}.`);
       if (!ctx.adcOk) return skipAfter('Application Default Credentials');
       const api = probes().composer;
       if (!api) return fail('No Composer API client is configured for this environment.');
@@ -229,6 +232,7 @@ export function environmentSteps(
     run: async () => {
       const s = entry.source;
       if (s.kind !== 'composer') return skip('Self-managed Airflow: no Cloud Monitoring metrics.');
+      if (ctx.googleRefused !== null) return skip(`Skipped: ${ctx.googleRefused}.`);
       if (!ctx.adcOk) return skipAfter('Application Default Credentials');
       const api = probes().monitoring;
       if (!api) return fail('No Cloud Monitoring client is configured for this environment.');
@@ -274,6 +278,7 @@ export function environmentSteps(
       const s = entry.source;
       const url = s.kind === 'composer' ? composerUrl(s) : `${stripSlash(s.baseUrl)}/api/v1/health`;
       const host = hostOf(url);
+      if (s.kind === 'composer' && ctx.googleRefused !== null) return skip(`Skipped: ${ctx.googleRefused}.`);
       if (state.unreachable) return skip(`Skipped: ${host} was not reachable.`);
       const before = ctx.now();
       const date = await probes().serverDate(url);
