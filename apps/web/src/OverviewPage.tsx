@@ -21,6 +21,7 @@ import Typography from '@mui/material/Typography';
 import { InfoPopover } from '@dcam/ui-kit';
 import { useState } from 'react';
 import type { DcamApi, OverviewRange } from './api';
+import { ProvenanceFooter } from './components/Panel';
 import { EXPLANATIONS, type ExplanationId } from './explanations';
 
 /** Every panel on this page; a test checks each has an explanation (FR-UI-05). */
@@ -158,10 +159,7 @@ export function OverviewPage({ api, envId }: { api: DcamApi; envId: string }) {
             </Table>
           </Paper>
 
-          <Typography variant="caption" color="text.secondary" component="footer">
-            Data as of {new Date(overview.data.data_as_of).toUTCString()} · Source:{' '}
-            {overview.data.sources.map((s) => (s === 'DEMO' ? 'demo data' : s)).join(', ')}
-          </Typography>
+          <ProvenanceFooter dataAsOf={overview.data.data_as_of} sources={overview.data.sources} />
         </>
       )}
     </Stack>

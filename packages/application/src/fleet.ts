@@ -7,6 +7,7 @@ import type { Bottlenecks, Fleet, FleetCard, FindingRef, Meta, SourceId } from '
 import { healthScore, slotSeconds } from '@dcam/domain';
 import { getBottlenecks, type BottleneckDeps } from './bottlenecks';
 import { RANGE_MS } from './range';
+import { anyUse, composerConfig, monitoringHealth, usedSources, type SourceUse } from './sources';
 
 export interface FleetQuery {
   readonly environments: Meta['environments'];
@@ -24,6 +25,7 @@ const iso = (ms: number) => new Date(ms).toISOString();
 export async function getFleet(deps: BottleneckDeps, q: FleetQuery): Promise<Fleet> {
   const now = deps.clock.now();
   const from = now - RANGE_MS['24h'];
+  const uses: SourceUse[] = [];
   const cards = await Promise.all(
     q.environments.map(async (env): Promise<FleetCard> => {
       const [config, health, snapshots, tries, findings, firing] = await Promise.all([
@@ -40,6 +42,15 @@ export async function getFleet(deps: BottleneckDeps, q: FleetQuery): Promise<Fle
             getBottlenecks(deps, { envId: env.env_id, range: '24h', sources: q.sources }))
         : null;
       const score = healthScore(health);
+      uses.push({
+        airflow:
+          latest !== undefined ||
+          tries.length > 0 ||
+          health.importErrors !== null ||
+          (bottlenecks?.sources.includes('SRC-AF-API') ?? false),
+        monitoring: monitoringHealth(health) || (bottlenecks?.sources.includes('SRC-MON') ?? false),
+        composer: composerConfig(config),
+      });
       return {
         env_id: env.env_id,
         display_name: env.display_name,
@@ -70,5 +81,5 @@ export async function getFleet(deps: BottleneckDeps, q: FleetQuery): Promise<Fle
       };
     }),
   );
-  return { data_as_of: iso(now), sources: [...q.sources], environments: cards };
+  return { data_as_of: iso(now), sources: usedSources(q.sources, anyUse(uses)), environments: cards };
 }

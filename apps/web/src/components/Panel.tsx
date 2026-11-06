@@ -133,7 +133,7 @@ export function ProvenanceFooter({
   return (
     <Typography variant="caption" color="text.secondary" component="footer">
       {dataAsOf === null ? 'No data collected yet' : `Data as of ${new Date(dataAsOf).toUTCString()}`} ·
-      Source: {sources.map((s) => SOURCE_NAMES[s]).join(', ')}
+      Source: {sources.length ? sources.map((s) => SOURCE_NAMES[s]).join(', ') : 'none yet'}
       {note ? ` · ${note}` : ''}
     </Typography>
   );

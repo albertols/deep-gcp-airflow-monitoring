@@ -32,6 +32,14 @@ import {
 } from '@dcam/domain';
 import type { Clock, EnvironmentModelSource, StoredTaskTry, TaskInstanceStore } from '@dcam/ports';
 import { ALERT_PACK, severityFor, type AlertRuleId, type PackRule } from './alert-pack';
+import {
+  NO_SOURCE_USE,
+  anyUse,
+  composerConfig,
+  monitoringHealth,
+  usedSources,
+  type SourceUse,
+} from './sources';
 
 export interface AlertDeps {
   readonly store: TaskInstanceStore;
@@ -673,6 +681,7 @@ async function environmentAlerts(deps: AlertDeps, envId: string, now: number) {
     const missing = 'No configuration has been collected for this environment yet.';
     return {
       asOf: null,
+      use: NO_SOURCE_USE,
       evaluated: ALERT_PACK.map((p) => ({
         rule: unknownRule(p, DEFINITIONS[p.id], envId, 'other', missing),
         events: [],
@@ -700,8 +709,14 @@ async function environmentAlerts(deps: AlertDeps, envId: string, now: number) {
     checked: checkedSeries(deps, envId),
   };
   const latest = Math.max(snapshots.at(-1)?.at ?? -Infinity, samples.at(-1)?.at ?? -Infinity);
+  const use: SourceUse = {
+    airflow: snapshots.length > 0 || tries.length > 0 || health.importErrors !== null,
+    monitoring: samples.length > 0 || monitoringHealth(health),
+    composer: composerConfig(config),
+  };
   return {
     asOf: Number.isFinite(latest) ? latest : null,
+    use,
     evaluated: ALERT_PACK.map((p) => evaluateRule(p, signals, from)),
   };
 }
@@ -716,7 +731,7 @@ export async function getAlerts(deps: AlertDeps, q: AlertQuery): Promise<Alerts>
   const evaluated = perEnv.flatMap((e) => e.evaluated);
   return {
     data_as_of: iso(asOf ?? now),
-    sources: [...q.sources],
+    sources: usedSources(q.sources, anyUse(perEnv.map((e) => e.use))),
     rules: evaluated.map((e) => e.rule),
     events: evaluated
       .flatMap((e) => e.events)

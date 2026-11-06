@@ -10,6 +10,7 @@ import { ADVISOR_RULES, environmentSignals, evaluateAdvisor, type AdvisorFinding
 import type { Clock, EnvironmentModelSource, TaskInstanceStore } from '@dcam/ports';
 import { DEFAULT_SNAPSHOT_CADENCE_MS } from './bottlenecks';
 import { RANGE_MS } from './range';
+import { NO_SOURCE_USE, composerConfig, usedSources } from './sources';
 
 /** Findings cover the last 24 hours (the contract's window). */
 export const FINDINGS_WINDOW_MS = RANGE_MS['24h'];
@@ -66,7 +67,7 @@ export async function getFindings(deps: FindingsDeps, q: FindingsQuery): Promise
     return {
       env_id: q.envId,
       data_as_of: null,
-      sources: [...q.sources],
+      sources: usedSources(q.sources, NO_SOURCE_USE),
       findings: [],
       not_evaluated: ADVISOR_RULES.map((r) => ({
         rule_id: r.id,
@@ -102,7 +103,11 @@ export async function getFindings(deps: FindingsDeps, q: FindingsQuery): Promise
     env_id: q.envId,
     // Never "now" when nothing was collected: missing data must not look fresh (spec §8.1).
     data_as_of: Number.isFinite(latest) ? iso(latest) : null,
-    sources: [...q.sources],
+    sources: usedSources(q.sources, {
+      airflow: snapshots.length > 0 || tries.length > 0 || dags.length > 0,
+      monitoring: workerSamples.length > 0,
+      composer: composerConfig(config),
+    }),
     findings: result.findings.map((f) => toContract(f, demo)),
     not_evaluated: result.insufficient.map((x) => ({
       rule_id: x.ruleId,

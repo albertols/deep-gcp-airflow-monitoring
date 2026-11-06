@@ -6,5 +6,6 @@ export * from './dags';
 export * from './alert-pack';
 export * from './alerts';
 export * from './findings';
+export * from './sources';
 export * from './collection';
 export * from './doctor';

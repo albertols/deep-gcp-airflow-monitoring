@@ -18,6 +18,7 @@ import {
 } from '@dcam/domain';
 import type { Clock, EnvironmentModelSource, TaskInstanceStore } from '@dcam/ports';
 import { RANGE_MS } from './range';
+import { composerConfig, usedSources } from './sources';
 
 /**
  * The `af.live` cadence of the standard profile (spec §7.7, §17.2), assumed only while fewer than two
@@ -104,7 +105,11 @@ export async function getBottlenecks(deps: BottleneckDeps, q: BottleneckQuery): 
     env_id: q.envId,
     range: { from: iso(from), to: iso(now) },
     data_as_of: iso(latest?.snapshot.at ?? now),
-    sources: [...q.sources],
+    sources: usedSources(q.sources, {
+      airflow: snapshots.length > 0 || tries.length > 0 || dags.length > 0,
+      monitoring: samples.length > 0,
+      composer: composerConfig(config),
+    }),
     bucket_seconds: BUCKET_MS[q.range] / 1000,
     snapshot_interval_seconds: a.cadenceMs === null ? null : Math.max(1, Math.round(a.cadenceMs / 1000)),
     waiting_task_seconds: seconds(waitingMs),
