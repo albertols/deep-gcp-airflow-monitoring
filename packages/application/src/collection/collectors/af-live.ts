@@ -11,15 +11,20 @@
  * - Ready times: Airflow 2.11 records no "scheduled" timestamp, so a scheduled try's `since` is when
  *   DCAM first saw it scheduled, carried from the previous snapshot, and recorded with `recordReady`
  *   so that stored tries get it as `readyAt` (HM-001, HM-006). A queued try's `since` is `queued_dttm`.
- * - Running tries are upserted as running, so the pages see their slot time before af.facts stores the
- *   finished row under the same key.
+ * - Running tries are upserted as running, seen running at the snapshot time, so the pages see their slot
+ *   time before af.facts stores the finished row under the same key (1–2 minutes later on the `live` and
+ *   `standard` profiles, more on `eco`). Until then a finished try would count as running until now, so a
+ *   snapshot that read every row ends each stored running try it no longer lists when DCAM last saw it
+ *   running, marked estimated (`closeRunningTries`): the earliest its end can be, so peak concurrency never
+ *   exceeds what the snapshots saw. A sample ends nothing: a try it did not read may still be running. The
+ *   store also ends an open try once a later try of its task instance exists (HM-003).
  * - Workers: the newest worker sample from `mon.core` when fresh; otherwise, for a self-managed Airflow,
  *   the configured workers; otherwise the larger of `min_count` and the distinct worker hosts of
  *   running tries (a lower bound), with the target equal to it (no autoscaling evidence).
  * - Configuration: pools exist only in Airflow, so this collector keeps the stored configuration's
  *   pools current; for a self-managed Airflow it writes the whole configuration from `limits`.
  *
- * @implements FR-COLL-01, FR-COLL-06, FR-EMU-02, HM-001, HM-006, HM-011
+ * @implements FR-COLL-01, FR-COLL-06, FR-EMU-02, HM-001, HM-003, HM-006, HM-011
  */
 import type { LiveSnapshot, PoolConfig, SnapshotTaskInstance, WorkerSample } from '@dcam/domain';
 import type { AirflowPool, AirflowTaskInstance } from '@dcam/ports';
@@ -177,7 +182,12 @@ export function afLiveCollector(): Collector {
 
       await ctx.store.saveSnapshot(envId, snapshot);
       if (scheduled.length > 0) await ctx.store.recordReady(envId, scheduled.map(tryKeyOf), at);
-      if (running.length > 0) await ctx.store.upsertTaskTries(running.map((t) => storedTryOf(envId, t)));
+      if (running.length > 0)
+        await ctx.store.upsertTaskTries(
+          running.map((t) => ({ ...storedTryOf(envId, t), seenRunningAt: at })),
+        );
+      // Only a snapshot that read every row knows which stored running tries have stopped.
+      if (rows.complete) await ctx.store.closeRunningTries(envId, running.map(tryKeyOf), at);
       await syncConfig(ctx, pools);
       return { dataAsOf: at };
     },

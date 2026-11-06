@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { classifySnapshot, type EnvironmentConfig } from '@dcam/domain';
-import { afLiveCollector } from '../../src/index';
+import { classifySnapshot, occupancySeries, TOTAL_KEY, type EnvironmentConfig } from '@dcam/domain';
+import { afFactsCollector, afLiveCollector } from '../../src/index';
 import {
   Budget,
   emulatorEntry,
@@ -112,6 +112,161 @@ describe('HM-006 af.live snapshot', () => {
       ['run_c', 'running', T0 - MIN, null],
     ]);
     expect(await store.taskTries('acme-prod', T0 - 10 * MIN, T0)).toHaveLength(3);
+  });
+});
+
+describe('HM-003 af.live: running tries end when they stop running', () => {
+  const H = 60 * MIN;
+  const running = (taskId: string, over: Parameters<typeof ti>[0] = {}) =>
+    ti({ taskId, state: 'running', startAt: T0 - MIN, endAt: null, ...over });
+
+  it('HM-003: a complete snapshot ends the tries it no longer lists when they were last seen running', async () => {
+    const airflow = new FakeAirflow({ tis: [running('run_a'), running('run_b')], pools: livePools() });
+    const store = new MemoryStore();
+    const live = afLiveCollector();
+    const ctx = fakeContext({ airflow, store, shared });
+    await live.collect(ctx);
+    airflow.data.tis = [running('run_b')];
+    ctx.advance(30_000);
+    await live.collect(ctx);
+
+    const tries = new Map((await store.taskTries('acme-prod', T0 - H, T0 + H)).map((t) => [t.taskId, t]));
+    expect(tries.get('run_a')).toMatchObject({ state: null, endAt: T0, endEstimated: true });
+    expect(tries.get('run_b')).toMatchObject({
+      state: 'running',
+      endAt: null,
+      endEstimated: false,
+      seenRunningAt: T0 + 30_000,
+    });
+  });
+
+  it('HM-003: a sample ends nothing, because a try it did not read may still be running', async () => {
+    const crowd = Array.from({ length: 450 }, (_, i) =>
+      ti({ taskId: `q_${i}`, state: 'queued', endAt: null }),
+    );
+    const airflow = new FakeAirflow({ tis: [running('run_a')], pools: livePools() });
+    const store = new MemoryStore();
+    const live = afLiveCollector();
+    const ctx = fakeContext({ airflow, store, shared });
+    await live.collect(ctx);
+    airflow.data.tis = crowd;
+    ctx.advance(30_000);
+    await live.collect(ctx);
+    expect((await store.taskTries('acme-prod', T0 - H, T0 + H))[0]).toMatchObject({
+      taskId: 'run_a',
+      endAt: null,
+    });
+  });
+
+  it('HM-003: a failed try rescheduled before af.facts read its row does not run forever', async () => {
+    // The task instance list holds the current try only: once try 2 is scheduled, try 1's row is gone.
+    const flaky = { dagId: 'acme_orders_daily', runId: RUN, taskId: 'flaky', mapIndex: -1 };
+    const airflow = new FakeAirflow({
+      pools: livePools(),
+      tis: [ti({ ...flaky, tryNumber: 1, state: 'running', startAt: T0 - MIN, endAt: null })],
+    });
+    const store = new MemoryStore();
+    const ctx = fakeContext({ airflow, store, shared });
+    const live = afLiveCollector();
+    const facts = afFactsCollector();
+    await facts.collect(ctx);
+    await live.collect(ctx);
+    airflow.data.tis = [
+      ti({ ...flaky, tryNumber: 2, state: 'scheduled', queuedAt: null, startAt: null, endAt: null }),
+    ];
+    ctx.advance(MIN);
+    await facts.collect(ctx);
+    await live.collect(ctx);
+    airflow.data.tis = [
+      ti({
+        ...flaky,
+        tryNumber: 2,
+        queuedAt: T0 + 2 * MIN,
+        startAt: T0 + 2 * MIN,
+        endAt: T0 + 3 * MIN,
+        updatedAt: T0 + 3 * MIN,
+      }),
+    ];
+    ctx.advance(5 * MIN);
+    await facts.collect(ctx);
+
+    expect(await store.taskTries('acme-prod', T0 + 24 * H, T0 + 25 * H)).toEqual([]);
+    const first = (await store.taskTries('acme-prod', T0 - H, T0 + H)).find((t) => t.tryNumber === 1);
+    expect(first).toMatchObject({ endAt: T0, endEstimated: true });
+  });
+
+  it('HM-011: peak concurrency never exceeds the running count of the snapshots while af.facts lags', async () => {
+    // Four slots, each running tries back to back; every fourth task fails once and is retried on the same
+    // slot, so its first try leaves the task instance list before af.facts can read it.
+    const SLOTS = 4;
+    const LIVE_MS = 10_000;
+    const plan: Array<{
+      taskId: string;
+      tryNumber: number;
+      readyAt: number;
+      startAt: number;
+      endAt: number;
+      state: string;
+    }> = [];
+    for (let slot = 0; slot < SLOTS; slot++) {
+      let t = T0 + slot * 3_000;
+      for (let i = 0; t < T0 + 8 * MIN; i++) {
+        const taskId = `s${slot}_t${i}`;
+        const tries = i % 4 === 1 ? 2 : 1;
+        for (let n = 1; n <= tries; n++) {
+          const startAt = t + 3_000;
+          const endAt = startAt + [25_000, 41_000, 17_000, 33_000][(i + n + slot) % 4]!;
+          plan.push({
+            taskId,
+            tryNumber: n,
+            readyAt: startAt - 2_000,
+            startAt,
+            endAt,
+            state: n < tries ? 'up_for_retry' : 'success',
+          });
+          t = endAt;
+        }
+      }
+    }
+    /** The task instance list at `now`: one row per task instance, its latest try that is ready. */
+    const listAt = (now: number) => {
+      const current = new Map<string, (typeof plan)[number]>();
+      for (const p of plan) if (p.readyAt <= now) current.set(p.taskId, p);
+      return [...current.values()].map((p) => {
+        const state = now < p.startAt ? 'queued' : now < p.endAt ? 'running' : p.state;
+        return ti({
+          taskId: p.taskId,
+          tryNumber: p.tryNumber,
+          state,
+          queuedAt: p.readyAt + 1_000,
+          startAt: now < p.startAt ? null : p.startAt,
+          endAt: now < p.endAt ? null : p.endAt,
+          updatedAt: now < p.startAt ? p.readyAt : now < p.endAt ? p.startAt : p.endAt,
+        });
+      });
+    };
+
+    const airflow = new FakeAirflow({ pools: livePools() });
+    const store = new MemoryStore();
+    const ctx = fakeContext({ airflow, store, shared, now: T0 });
+    const live = afLiveCollector();
+    const facts = afFactsCollector();
+    let snapshotPeak = 0;
+    let peak = 0;
+    for (let now = T0; now <= T0 + 8 * MIN; now += LIVE_MS) {
+      ctx.advance(now - ctx.now());
+      airflow.data.tis = listAt(now);
+      await live.collect(ctx);
+      if ((now - T0) % (3 * LIVE_MS) === 0) await facts.collect(ctx);
+      snapshotPeak = Math.max(snapshotPeak, store.snaps.at(-1)?.executor.running ?? 0);
+      const w = { from: T0, to: now, now };
+      const series = occupancySeries(await store.taskTries('acme-prod', w.from, w.to), w, {
+        bucketMs: 1_000,
+      });
+      peak = Math.max(peak, ...(series.get(TOTAL_KEY) ?? []).map((b) => b.max));
+    }
+    expect(snapshotPeak).toBe(SLOTS);
+    expect(peak).toBeLessThanOrEqual(snapshotPeak);
   });
 });
 
