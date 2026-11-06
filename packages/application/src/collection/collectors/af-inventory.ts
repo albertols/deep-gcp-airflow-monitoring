@@ -10,8 +10,9 @@
  * is below 100 returns shorter pages, and stepping by 100 would skip the rest of each page and still
  * count the pass complete (spec §7.5 "Pagination and consistency", VC-11 open).
  *
- * Until a pass is complete the stored set is the previous set overlaid with the pages read so far; a
- * complete pass replaces it, so deleted and inactive DAGs drop out.
+ * Until a pass is complete the stored set is the previous set overlaid with the pages read so far
+ * (`saveDags` upserts); a complete pass replaces it in one transaction (`replaceDags`), so deleted and
+ * inactive DAGs drop out.
  *
  * @implements FR-COLL-01, FR-COLL-06, FR-COLL-08, FR-DAGX-08 (default team rule), HM-028 (import errors)
  */
@@ -119,15 +120,12 @@ export function afInventoryCollector(): Collector {
       if (stopped !== null) ctx.reducedFidelity(stopped);
       return { dataAsOf: wrote ? ctx.now() : null };
 
+      /** A complete pass replaces the stored set in one transaction; pages read so far are upserted. */
       async function saveDags(c: CollectorContext, pass: Pass, complete: boolean) {
         if (complete) {
-          await c.store.saveDags(envId, [...pass.dags.values()]);
+          await c.store.replaceDags(envId, [...pass.dags.values()]);
           passes.delete(envId);
-          return;
-        }
-        const merged = new Map((await c.store.dags(envId)).map((d) => [d.dagId, d]));
-        for (const [id, d] of pass.dags) merged.set(id, d);
-        await c.store.saveDags(envId, [...merged.values()]);
+        } else await c.store.saveDags(envId, [...pass.dags.values()]);
       }
     },
   };

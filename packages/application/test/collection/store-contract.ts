@@ -5,6 +5,7 @@
  * Fictitious `acme_*` data only.
  */
 import type { ExpectStatic } from 'vitest';
+import type { DagMeta } from '@dcam/domain';
 import type {
   CollectionStore,
   SnapshotCoverage,
@@ -43,6 +44,20 @@ const tryRow = (over: Partial<StoredTaskTry> = {}): StoredTaskTry => ({
   ...over,
 });
 
+const dagMeta = (dagId: string, over: Partial<DagMeta> = {}): DagMeta => ({
+  dagId,
+  fileloc: `/home/airflow/gcs/dags/${dagId}.py`,
+  owners: ['finance-data'],
+  tags: ['orders'],
+  team: 'finance-data',
+  schedule: '0 2 * * *',
+  maxActiveTasks: 16,
+  maxActiveRuns: 25,
+  catchup: true,
+  paused: false,
+  ...over,
+});
+
 /** A try as `af.live` stores it: running, no end, seen running at `seenAt`. */
 const runningRow = (over: Partial<StoredTaskTry> = {}, seenAt = T0 + MIN): StoredTaskTry =>
   tryRow({ state: 'running', endAt: null, seenRunningAt: seenAt, ...over });
@@ -62,6 +77,46 @@ async function all(store: CollectionStore) {
 }
 
 export const STORE_CONTRACT: readonly StoreContractCase[] = [
+  {
+    name: 'FR-COLL-03: saveDags upserts by DAG id, so DAGs missing from a page are kept',
+    async run(store, expect) {
+      await store.saveDags(ENV, [dagMeta('acme_orders_daily'), dagMeta('acme_billing_hourly')]);
+      await store.saveDags(ENV, [dagMeta('acme_orders_daily', { paused: true }), dagMeta('acme_zz')]);
+      expect(await store.dags(ENV)).toEqual([
+        dagMeta('acme_billing_hourly'),
+        dagMeta('acme_orders_daily', { paused: true }),
+        dagMeta('acme_zz'),
+      ]);
+    },
+  },
+  {
+    name: 'FR-COLL-03: replaceDags replaces the DAG set of one environment, so deleted DAGs drop out',
+    async run(store, expect) {
+      await store.saveDags(ENV, [dagMeta('acme_orders_daily'), dagMeta('acme_deleted')]);
+      await store.saveDags('acme-dev', [dagMeta('acme_dev_only')]);
+      await store.replaceDags(ENV, [dagMeta('acme_orders_daily', { paused: true }), dagMeta('acme_new')]);
+      expect(await store.dags(ENV)).toEqual([
+        dagMeta('acme_new'),
+        dagMeta('acme_orders_daily', { paused: true }),
+      ]);
+      expect(await store.dags('acme-dev')).toEqual([dagMeta('acme_dev_only')]);
+      await store.replaceDags(ENV, []);
+      expect(await store.dags(ENV)).toEqual([]);
+    },
+  },
+  {
+    name: 'FR-COLL-03: taskTries returns tries whose interval overlaps [from, to), not one that ended at from or started at to',
+    async run(store, expect) {
+      await store.upsertTaskTries([
+        tryRow({ taskId: 'ended_at_from', startAt: T0 - 5 * MIN, endAt: T0 }),
+        tryRow({ taskId: 'inside', startAt: T0, endAt: T0 + MIN }),
+        tryRow({ taskId: 'started_at_to', startAt: T0 + 2 * MIN, endAt: T0 + 3 * MIN }),
+        runningRow({ taskId: 'running', startAt: T0 - DAY }),
+      ]);
+      const ids = (await store.taskTries(ENV, T0, T0 + 2 * MIN)).map((t) => t.taskId).sort();
+      expect(ids).toEqual(['inside', 'running']);
+    },
+  },
   {
     name: 'FR-COLL-03: a running row never replaces a stored try that has a true end (af.live races af.facts)',
     async run(store, expect) {

@@ -21,7 +21,13 @@ export interface TryKey {
  */
 export interface CollectionStore extends TaskInstanceStore, EnvironmentModelSource {
   saveConfig(envId: string, config: EnvironmentConfig): Promise<void>;
+  /** Upserts by DAG id; DAGs missing from `dags` are kept, so an inventory may be saved page by page. */
   saveDags(envId: string, dags: readonly DagMeta[]): Promise<void>;
+  /**
+   * Replaces the environment's DAG set with `dags` in one transaction: a complete inventory pass, after
+   * which deleted and inactive DAGs drop out.
+   */
+  replaceDags(envId: string, dags: readonly DagMeta[]): Promise<void>;
   savePlatformHealth(envId: string, health: PlatformHealth): Promise<void>;
   /** Stores the snapshot with its coverage, so that history tells a sample from a complete snapshot. */
   saveSnapshot(envId: string, snapshot: StoredLiveSnapshot): Promise<void>;

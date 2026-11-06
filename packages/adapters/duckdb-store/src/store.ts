@@ -361,34 +361,45 @@ export class DuckDbStore implements Store, CollectionStore {
   /** Upserts by DAG id; DAGs missing from `dags` are kept, so an inventory may be saved page by page. */
   async saveDags(envId: string, dags: readonly DagMeta[]): Promise<void> {
     if (dags.length === 0) return;
-    await this.write(async (con) => {
-      await con.run('DELETE FROM meta.staging_dag');
-      await append(con, 'staging_dag', dags, (a, d) => {
-        text(a, envId);
-        text(a, d.dagId);
-        text(a, d.fileloc);
-        // The item type is explicit: DuckDB cannot infer one from an empty list.
-        a.appendList(d.owners, VARCHAR_LIST);
-        a.appendList(d.tags, VARCHAR_LIST);
-        text(a, d.team);
-        text(a, d.schedule);
-        integer(a, d.maxActiveTasks);
-        integer(a, d.maxActiveRuns);
-        a.appendBoolean(d.catchup);
-        a.appendBoolean(d.paused);
-      });
-      await con.run(
-        `INSERT OR REPLACE INTO dim.dag
-           (env_id, dag_id, fileloc, owners, tags, team, schedule, max_active_tasks, max_active_runs, catchup,
-            paused, saved_at)
-         SELECT env_id, dag_id, fileloc, owners, tags, team, schedule, max_active_tasks, max_active_runs, catchup,
-                paused, to_timestamp($1)
-         FROM meta.staging_dag
-         QUALIFY row_number() OVER (PARTITION BY env_id, dag_id ORDER BY rowid DESC) = 1`,
-        [seconds(this.now())],
-      );
-      await con.run('DELETE FROM meta.staging_dag');
+    await this.write((con) => this.mergeDags(con, envId, dags));
+  }
+
+  /** Deletes the environment's DAGs and stores `dags` in one transaction (a complete inventory pass). */
+  replaceDags(envId: string, dags: readonly DagMeta[]): Promise<void> {
+    return this.write(async (con) => {
+      await con.run('DELETE FROM dim.dag WHERE env_id = $1', [envId]);
+      if (dags.length > 0) await this.mergeDags(con, envId, dags);
     });
+  }
+
+  /** Stages `dags` and upserts them into `dim.dag` inside the caller's transaction; the last row of a DAG wins. */
+  private async mergeDags(con: DuckDBConnection, envId: string, dags: readonly DagMeta[]): Promise<void> {
+    await con.run('DELETE FROM meta.staging_dag');
+    await append(con, 'staging_dag', dags, (a, d) => {
+      text(a, envId);
+      text(a, d.dagId);
+      text(a, d.fileloc);
+      // The item type is explicit: DuckDB cannot infer one from an empty list.
+      a.appendList(d.owners, VARCHAR_LIST);
+      a.appendList(d.tags, VARCHAR_LIST);
+      text(a, d.team);
+      text(a, d.schedule);
+      integer(a, d.maxActiveTasks);
+      integer(a, d.maxActiveRuns);
+      a.appendBoolean(d.catchup);
+      a.appendBoolean(d.paused);
+    });
+    await con.run(
+      `INSERT OR REPLACE INTO dim.dag
+         (env_id, dag_id, fileloc, owners, tags, team, schedule, max_active_tasks, max_active_runs, catchup,
+          paused, saved_at)
+       SELECT env_id, dag_id, fileloc, owners, tags, team, schedule, max_active_tasks, max_active_runs, catchup,
+              paused, to_timestamp($1)
+       FROM meta.staging_dag
+       QUALIFY row_number() OVER (PARTITION BY env_id, dag_id ORDER BY rowid DESC) = 1`,
+      [seconds(this.now())],
+    );
+    await con.run('DELETE FROM meta.staging_dag');
   }
 
   savePlatformHealth(envId: string, health: PlatformHealth): Promise<void> {

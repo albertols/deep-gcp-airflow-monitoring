@@ -114,7 +114,7 @@ export class MemoryStore implements CollectionStore {
   async taskTries(envId: string, from: number, to: number): Promise<StoredTaskTry[]> {
     return [...this.tries.values()].filter(
       (t) =>
-        t.envId === envId && t.startAt !== null && t.startAt < to && (t.endAt === null || t.endAt >= from),
+        t.envId === envId && t.startAt !== null && t.startAt < to && (t.endAt === null || t.endAt > from),
     );
   }
   async countTaskTries(envId: string): Promise<number> {
@@ -123,8 +123,11 @@ export class MemoryStore implements CollectionStore {
   async config(envId: string): Promise<EnvironmentConfig | null> {
     return this.configs.get(envId) ?? null;
   }
+  /** Ordered by DAG id, as DuckDB returns them. */
   async dags(envId: string): Promise<DagMeta[]> {
-    return [...(this.dagSets.get(envId) ?? [])];
+    return [...(this.dagSets.get(envId) ?? [])].sort((a, b) =>
+      a.dagId < b.dagId ? -1 : a.dagId > b.dagId ? 1 : 0,
+    );
   }
   async snapshots(_envId: string, from: number, to: number): Promise<StoredLiveSnapshot[]> {
     return this.snaps.filter((s) => s.at >= from && s.at < to).sort((a, b) => a.at - b.at);
@@ -139,8 +142,15 @@ export class MemoryStore implements CollectionStore {
     // A JSON round trip, as a document store would do: Infinity or NaN would not survive it.
     this.configs.set(envId, JSON.parse(JSON.stringify(config)) as EnvironmentConfig);
   }
+  /** Upserts by DAG id, as DuckDB does. */
   async saveDags(envId: string, dags: readonly DagMeta[]): Promise<void> {
-    this.dagSets.set(envId, [...dags]);
+    const byId = new Map((this.dagSets.get(envId) ?? []).map((d) => [d.dagId, d]));
+    for (const d of dags) byId.set(d.dagId, d);
+    this.dagSets.set(envId, [...byId.values()]);
+  }
+  async replaceDags(envId: string, dags: readonly DagMeta[]): Promise<void> {
+    this.dagSets.set(envId, []);
+    await this.saveDags(envId, dags);
   }
   async savePlatformHealth(envId: string, health: PlatformHealth): Promise<void> {
     this.health.set(envId, health);
