@@ -10,6 +10,7 @@ import { afFactsCollector } from './af-facts';
 import { afInventoryCollector } from './af-inventory';
 import { afLiveCollector } from './af-live';
 import { composerConfigCollector } from './composer-config';
+import { monCoreCollector } from './mon-core';
 
 export {
   afFactsCollector,
@@ -21,6 +22,14 @@ export {
 export { afInventoryCollector } from './af-inventory';
 export { afLiveCollector } from './af-live';
 export { composerConfigCollector } from './composer-config';
+export {
+  monCoreCollector,
+  targetWorkers,
+  workerTypeOf,
+  MON_DB_INGESTION_DELAY_MS,
+  MON_INGESTION_DELAY_MS,
+  MON_TRAILING_MS,
+} from './mon-core';
 export {
   parseImageVersion,
   teamOf,
@@ -34,5 +43,11 @@ export {
 } from './mapping';
 
 export function createCollectors(): readonly Collector[] {
-  return [composerConfigCollector(), afInventoryCollector(), afLiveCollector(), afFactsCollector()];
+  return [
+    composerConfigCollector(),
+    afInventoryCollector(),
+    afLiveCollector(),
+    afFactsCollector(),
+    monCoreCollector(),
+  ];
 }
