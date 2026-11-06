@@ -84,8 +84,8 @@ export function afInventoryCollector(): Collector {
 
         requests++;
         const importErrors = await airflow.importErrorCount();
-        const health = await ctx.store.platformHealth(envId);
-        await ctx.store.savePlatformHealth(envId, { ...health, importErrors });
+        // A patch: mon.core writes the other inputs concurrently (HM-028).
+        await ctx.store.patchPlatformHealth(envId, { importErrors });
         wrote = true;
 
         const pass = passes.get(envId) ?? { offset: 0, total: null, dags: new Map<string, DagMeta>() };

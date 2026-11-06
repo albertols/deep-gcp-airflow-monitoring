@@ -177,11 +177,8 @@ export function monCoreCollector(): Collector {
       }
       if (state.healthAt === undefined || now - state.healthAt >= HEALTH_EVERY_MS) {
         try {
-          const health = await readHealth();
-          await ctx.store.savePlatformHealth(envId, {
-            ...(await ctx.store.platformHealth(envId)),
-            ...health,
-          });
+          // A patch: the import errors come from the Airflow API concurrently (HM-028).
+          await ctx.store.patchPlatformHealth(envId, await readHealth());
           state.healthAt = now;
         } catch (e) {
           if (!(e instanceof BudgetExhaustedError)) throw e;

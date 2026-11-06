@@ -133,6 +133,19 @@ class Serial {
   }
 }
 
+/** Columns of `fact.platform_health` by input (migration 0004). */
+const HEALTH_COLUMNS = {
+  envHealthyRatio: 'env_healthy_ratio',
+  dbHealthyRatio: 'db_healthy_ratio',
+  heartbeatCompleteness: 'heartbeat_completeness',
+  webServerHealthyRatio: 'web_server_healthy_ratio',
+  dbCpuMemoryMax: 'db_cpu_memory_max',
+  zombies24h: 'zombies_24h',
+  workerRestarts24h: 'worker_restarts_24h',
+  importErrors: 'import_errors',
+  parseLoopP95Seconds: 'parse_loop_p95_s',
+} as const satisfies Record<keyof PlatformHealth, string>;
+
 const NO_HEALTH: PlatformHealth = {
   envHealthyRatio: null,
   dbHealthyRatio: null,
@@ -419,6 +432,24 @@ export class DuckDbStore implements Store, CollectionStore {
           health.parseLoopP95Seconds,
           seconds(this.now()),
         ],
+      );
+    });
+  }
+
+  /** One upsert of the given columns: inputs left out keep their stored values (or stay null). */
+  async patchPlatformHealth(envId: string, patch: Partial<PlatformHealth>): Promise<void> {
+    const keys = (Object.keys(HEALTH_COLUMNS) as Array<keyof PlatformHealth>).filter(
+      (k) => patch[k] !== undefined,
+    );
+    if (keys.length === 0) return;
+    const columns = [...keys.map((k) => HEALTH_COLUMNS[k]), 'saved_at'];
+    const values = keys.map((_, i) => `$${i + 2}`);
+    await this.write(async (con) => {
+      await con.run(
+        `INSERT INTO fact.platform_health (env_id, ${columns.join(', ')})
+         VALUES ($1, ${values.join(', ')}, to_timestamp($${keys.length + 2}))
+         ON CONFLICT (env_id) DO UPDATE SET ${columns.map((c) => `${c} = excluded.${c}`).join(', ')}`,
+        [envId, ...keys.map((k) => patch[k] ?? null), seconds(this.now())],
       );
     });
   }

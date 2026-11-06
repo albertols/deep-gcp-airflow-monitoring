@@ -155,6 +155,10 @@ export class MemoryStore implements CollectionStore {
   async savePlatformHealth(envId: string, health: PlatformHealth): Promise<void> {
     this.health.set(envId, health);
   }
+  async patchPlatformHealth(envId: string, patch: Partial<PlatformHealth>): Promise<void> {
+    const given = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+    this.health.set(envId, { ...NO_HEALTH, ...this.health.get(envId), ...given });
+  }
   async saveSnapshot(_envId: string, snapshot: StoredLiveSnapshot): Promise<void> {
     this.snaps.push(snapshot);
   }

@@ -245,6 +245,29 @@ export const STORE_CONTRACT: readonly StoreContractCase[] = [
     },
   },
   {
+    name: 'HM-028: patchPlatformHealth writes only the inputs it is given and keeps the others',
+    async run(store, expect) {
+      await store.patchPlatformHealth(ENV, { importErrors: 3 });
+      expect(await store.platformHealth(ENV)).toMatchObject({ importErrors: 3, envHealthyRatio: null });
+      await store.patchPlatformHealth(ENV, { envHealthyRatio: 0.98, zombies24h: 2 });
+      await store.patchPlatformHealth('acme-dev', { importErrors: 7 });
+      expect(await store.platformHealth(ENV)).toEqual({
+        envHealthyRatio: 0.98,
+        dbHealthyRatio: null,
+        heartbeatCompleteness: null,
+        webServerHealthyRatio: null,
+        dbCpuMemoryMax: null,
+        zombies24h: 2,
+        workerRestarts24h: null,
+        importErrors: 3,
+        parseLoopP95Seconds: null,
+      });
+      // `null` is a value (no data now); a key left out is not.
+      await store.patchPlatformHealth(ENV, { zombies24h: null });
+      expect(await store.platformHealth(ENV)).toMatchObject({ zombies24h: null, importErrors: 3 });
+    },
+  },
+  {
     name: 'HM-006: a recorded ready time fills a try stored without one; a stored ready time is kept',
     async run(store, expect) {
       await store.recordReady(ENV, [keyOf(tryRow({ taskId: 'recorded' }))], T0 - 2 * MIN);

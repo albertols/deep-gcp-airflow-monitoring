@@ -28,7 +28,15 @@ export interface CollectionStore extends TaskInstanceStore, EnvironmentModelSour
    * which deleted and inactive DAGs drop out.
    */
   replaceDags(envId: string, dags: readonly DagMeta[]): Promise<void>;
+  /** Replaces the whole record. Collectors patch theirs instead ({@link patchPlatformHealth}). */
   savePlatformHealth(envId: string, health: PlatformHealth): Promise<void>;
+  /**
+   * Writes only the inputs given in `patch` (a key left out, or `undefined`, is kept; `null` means no data),
+   * in one transaction. Collectors own different inputs (import errors from the Airflow API, the rest from
+   * Cloud Monitoring) and run concurrently: reading the record and saving it whole lets one cycle undo
+   * another's write (HM-028).
+   */
+  patchPlatformHealth(envId: string, patch: Partial<PlatformHealth>): Promise<void>;
   /** Stores the snapshot with its coverage, so that history tells a sample from a complete snapshot. */
   saveSnapshot(envId: string, snapshot: StoredLiveSnapshot): Promise<void>;
   /** Snapshots with `from <= at < to`, oldest first, with the coverage they were stored with. */
