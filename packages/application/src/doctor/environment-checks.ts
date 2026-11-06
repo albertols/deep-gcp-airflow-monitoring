@@ -385,8 +385,25 @@ interface GoogleContext {
   readonly notFound: string;
 }
 
+/**
+ * Used only when the transport gave no specific hint. Loopback addresses always bypass a remote proxy,
+ * so no NO_PROXY advice here.
+ */
 const NETWORK_HINT =
-  'Behind a corporate proxy, export HTTPS_PROXY (and NO_PROXY for local addresses); if it inspects TLS, set NODE_EXTRA_CA_CERTS to your corporate root CA.';
+  'Behind a corporate proxy, set HTTPS_PROXY in the shell that starts DCAM; if the proxy inspects TLS, set NODE_EXTRA_CA_CERTS (or network.caBundlePath) to your corporate root CA.';
+
+/**
+ * A failure before a usable HTTP answer: the transport's own hint first (TLS inspection, proxy
+ * authentication, a refused redirect), else `fallback`. A redirect did answer, with its 3xx status.
+ */
+function unreachable(error: SourceError, where: string, fallback: string, docsUrl: string): Outcome {
+  const status = error.details.status;
+  const text =
+    status === undefined
+      ? `No answer from ${where}: ${error.message}`
+      : `${where} answered HTTP ${status}: ${error.message}`;
+  return fail(text, { fixHint: error.details.fixHint ?? fallback, docsUrl });
+}
 
 /** Explains a failed Google API call from its `SourceError` kind (FR-AUTH-04, FR-AUTH-06). */
 function googleFailure(error: unknown, g: GoogleContext): Outcome {
@@ -395,6 +412,12 @@ function googleFailure(error: unknown, g: GoogleContext): Outcome {
   const said = `${g.service}${g.via} answered${status}: ${error.message}`;
   switch (error.kind) {
     case 'unauthenticated':
+      // Without an HTTP status no request was sent: the token itself could not be fetched.
+      if (error.details.status === undefined)
+        return fail(`No access token, so nothing was sent to ${g.service}: ${error.message}`, {
+          fixHint: error.details.fixHint ?? 'gcloud auth application-default login',
+          docsUrl: DOCTOR_DOCS.adcLogin,
+        });
       return fail(`The access token was rejected. ${said}`, {
         fixHint: 'gcloud auth application-default login',
         docsUrl: DOCTOR_DOCS.adcLogin,
@@ -431,10 +454,7 @@ function googleFailure(error: unknown, g: GoogleContext): Outcome {
       return fail(`Not found. ${said}`, { fixHint: g.notFound, docsUrl: DOCTOR_DOCS.composerIam });
     case 'network':
     case 'timeout':
-      return fail(`No answer from ${g.service}${g.via}: ${error.message}`, {
-        fixHint: NETWORK_HINT,
-        docsUrl: DOCTOR_DOCS.gcloudProxy,
-      });
+      return unreachable(error, `${g.service}${g.via}`, NETWORK_HINT, DOCTOR_DOCS.gcloudProxy);
     case 'rate-limited':
     case 'unavailable':
       return fail(`Temporarily unavailable. ${said}`, {
@@ -455,13 +475,25 @@ function airflowFailure(error: unknown, entry: EnvironmentEntry, where: string):
   switch (error.kind) {
     case 'network':
     case 'timeout':
-      return fail(`No answer from ${where}: ${error.message}`, {
-        fixHint: composer
+      return unreachable(
+        error,
+        where,
+        composer
           ? `${NETWORK_HINT} The web server's access control must allow your egress IP or the proxy's.`
           : 'Start the emulator (tools/emulator), or check the baseUrl in the configuration.',
         docsUrl,
-      });
+      );
     case 'unauthenticated':
+      // Without an HTTP status nothing was sent: unset emulator credentials, or no Google token.
+      if (error.details.status === undefined)
+        return fail(`${error.message} Nothing was sent to ${where}.`, {
+          fixHint:
+            error.details.fixHint ??
+            (composer
+              ? 'gcloud auth application-default login'
+              : 'Set the variables named by usernameEnv and passwordEnv in the shell that starts DCAM.'),
+          docsUrl,
+        });
       return fail(`The web server rejected the credentials. ${said}`, {
         fixHint: composer
           ? 'gcloud auth application-default login'

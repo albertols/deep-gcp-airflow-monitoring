@@ -846,6 +846,148 @@ describe('FR-AUTH-05 Airflow web server and role', () => {
   });
 });
 
+describe('FR-AUTH-07 fix hints from the transport', () => {
+  const TLS_HINT =
+    'The TLS certificate presented for composer.googleapis.com is not trusted (SELF_SIGNED_CERT_IN_CHAIN). ' +
+    'Start DCAM with NODE_EXTRA_CA_CERTS=<file> or set network.caBundlePath in dcam.config.yaml.';
+  const PROXY_AUTH_HINT =
+    'The proxy asked for authentication (407). Check HTTPS_PROXY and HTTP_PROXY: proxy credentials go in the URL.';
+  const REDIRECT_HINT = 'DCAM never follows redirects. A proxy sign-in or block page often causes this.';
+  const composerFailing = (error: SourceError) =>
+    fakeProbes(workspace([composerEntry()]), {
+      envs: {
+        'acme-composer-prod': {
+          composer: async () => {
+            throw error;
+          },
+          series: async () => {
+            throw error;
+          },
+        },
+      },
+    }).probes;
+
+  it.each<[string, SourceError]>([
+    [
+      'TLS inspection',
+      new SourceError('network', 'GET composer.googleapis.com/v1 failed (SELF_SIGNED_CERT_IN_CHAIN)', {
+        fixHint: TLS_HINT,
+      }),
+    ],
+    ['proxy authentication', new SourceError('network', 'proxy answered 407', { fixHint: PROXY_AUTH_HINT })],
+    [
+      'a timeout',
+      new SourceError('timeout', 'timed out after 30000 ms', {
+        fixHint: 'The server did not answer in time.',
+      }),
+    ],
+  ])("FR-AUTH-07: the Google checks keep the transport's hint for %s", async (_name, error) => {
+    const report = await run(composerFailing(error));
+    for (const id of ['composer.environment', 'monitoring.read'] as const) {
+      const c = check(report, id, 'acme-composer-prod');
+      expect(c.status, id).toBe('fail');
+      expect(c.fixHint, id).toBe(error.details.fixHint);
+      expect(c.evidence, id).toMatch(/^No answer from /);
+    }
+  });
+
+  it('FR-AUTH-07: a redirect says the service answered HTTP 3xx, with the redirect hint', async () => {
+    const error = new SourceError(
+      'network',
+      'composer.googleapis.com answered 302; DCAM does not follow redirects',
+      {
+        status: 302,
+        fixHint: REDIRECT_HINT,
+      },
+    );
+    const c = check(await run(composerFailing(error)), 'composer.environment', 'acme-composer-prod');
+    expect(c.status).toBe('fail');
+    expect(c.evidence).toMatch(/^composer\.googleapis\.com answered HTTP 302: /);
+    expect(c.evidence).not.toContain('No answer');
+    expect(c.fixHint).toBe(REDIRECT_HINT);
+  });
+
+  it('FR-AUTH-07: without a hint from the transport the generic network hint stays, without NO_PROXY advice', async () => {
+    const error = new SourceError('network', 'connect ECONNRESET');
+    const c = check(await run(composerFailing(error)), 'composer.environment', 'acme-composer-prod');
+    expect(c.fixHint).toMatch(/HTTPS_PROXY/);
+    expect(c.fixHint).not.toMatch(/NO_PROXY/);
+  });
+
+  it.each<[string, SourceError, RegExp]>([
+    [
+      'TLS inspection',
+      new SourceError('network', 'self-signed certificate', { fixHint: TLS_HINT }),
+      /^No answer from /,
+    ],
+    [
+      'a redirect',
+      new SourceError('network', 'answered 302', { status: 302, fixHint: REDIRECT_HINT }),
+      /^acme-prod-dot-europe-west1\.composer\.googleusercontent\.com answered HTTP 302: /,
+    ],
+  ])(
+    "FR-AUTH-07: the Airflow web server check keeps the transport's hint for %s",
+    async (_name, error, evidence) => {
+      const { probes } = fakeProbes(workspace([composerEntry()]), {
+        envs: {
+          'acme-composer-prod': {
+            health: async () => {
+              throw error;
+            },
+          },
+        },
+      });
+      const c = check(await run(probes), 'airflow.health', 'acme-composer-prod');
+      expect(c.status).toBe('fail');
+      expect(c.evidence).toMatch(evidence);
+      expect(c.fixHint).toBe(error.details.fixHint);
+    },
+  );
+
+  it('FR-EMU-02: unset emulator credentials say that nothing was sent, not that the server rejected them', async () => {
+    const hint =
+      'Set DCAM_EMULATOR_USER and DCAM_EMULATOR_PASSWORD in the shell that starts DCAM, then restart it.';
+    const { probes } = fakeProbes(workspace([emulatorEntry]), {
+      envs: {
+        'acme-emulator': {
+          health: async () => {
+            throw new SourceError(
+              'unauthenticated',
+              'The Airflow user name or password of acme-emulator is not set.',
+              {
+                fixHint: hint,
+              },
+            );
+          },
+        },
+      },
+    });
+    const c = check(await run(probes), 'airflow.health', 'acme-emulator');
+    expect(c.status).toBe('fail');
+    expect(c.evidence).not.toMatch(/rejected|answered/);
+    expect(c.evidence).toContain('The Airflow user name or password of acme-emulator is not set.');
+    expect(c.evidence).toContain('Nothing was sent to 127.0.0.1:8080.');
+    expect(c.fixHint).toBe(hint);
+  });
+
+  it('FR-AUTH-05: a 401 from the web server still says it rejected the credentials', async () => {
+    const { probes } = fakeProbes(workspace([emulatorEntry]), {
+      envs: {
+        'acme-emulator': {
+          health: async () => {
+            throw new SourceError('unauthenticated', 'Unauthorized', { status: 401 });
+          },
+        },
+      },
+    });
+    const c = check(await run(probes), 'airflow.health', 'acme-emulator');
+    expect(c.evidence).toMatch(
+      /^The web server rejected the credentials\. 127\.0\.0\.1:8080 answered \(HTTP 401\)/,
+    );
+    expect(c.fixHint).toMatch(/usernameEnv and passwordEnv/);
+  });
+});
+
 describe('FR-AUTH-05 Monitoring and clock', () => {
   it('FR-AUTH-05: the Monitoring probe is one small query on the environment resource', async () => {
     const { probes, calls } = fakeProbes(workspace([composerEntry()]));
