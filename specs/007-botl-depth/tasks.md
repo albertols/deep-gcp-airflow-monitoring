@@ -23,7 +23,7 @@ Test tasks come before the code they cover.
 
 - [x] T-720 Test + code: top contributors, noisy neighbours, pools and priority panels with states, (i) and
       provenance (FR-BOTL-01, FR-BOTL-06, FR-ENV-08, HM-023, FR-UI-05, FR-UI-07, FR-UI-08)
-- [ ] T-721 Test + code: schedule intelligence page, route and navigation (FR-BOTL-03, S-17)
+- [x] T-721 Test + code: schedule intelligence page, route and navigation (FR-BOTL-03, S-17)
 
 ## Blocked
 

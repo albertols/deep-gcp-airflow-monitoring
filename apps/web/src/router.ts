@@ -12,6 +12,7 @@ export type Route =
   | { readonly page: 'dags' }
   | { readonly page: 'dag'; readonly dagId: string }
   | { readonly page: 'bottlenecks' }
+  | { readonly page: 'schedule' }
   | { readonly page: 'fleet' }
   | { readonly page: 'advisor' }
   | { readonly page: 'wiki'; readonly slug?: string }
@@ -25,10 +26,11 @@ export interface Location {
   readonly envId: string | null;
 }
 
-type SimplePage = 'dags' | 'bottlenecks' | 'fleet' | 'advisor' | 'wiki' | 'alerts' | 'health';
+type SimplePage = 'dags' | 'bottlenecks' | 'schedule' | 'fleet' | 'advisor' | 'wiki' | 'alerts' | 'health';
 const SIMPLE: ReadonlySet<string> = new Set<SimplePage>([
   'dags',
   'bottlenecks',
+  'schedule',
   'fleet',
   'advisor',
   'wiki',
