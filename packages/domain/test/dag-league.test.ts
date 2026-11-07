@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dagLeague, dagWindowStats, gini } from '../src/index';
+import { dagLeague, dagWindowStats, gini, summariseRun } from '../src/index';
 import { tryAt, windowOf } from './fixtures';
 
 const W = windowOf(60, 120); // the second hour after T0
@@ -35,6 +35,37 @@ describe('FR-DAGX-02 per-DAG runs and reliability', () => {
     const stats = dagWindowStats(tries, W, { inProgress: (dagId) => dagId === 'dag_b' });
     expect(stats.get('dag_a')).toMatchObject({ runs: 1, finishedRuns: 0, successRate: null });
     expect(stats.get('dag_b')).toMatchObject({ runs: 1, finishedRuns: 0, successRate: null });
+  });
+
+  it('FR-DAGX-02: a run whose latest try waits for a retry or a reschedule, or has no state yet, is running', () => {
+    const run = (taskB: Parameters<typeof tryAt>[0]) =>
+      summariseRun([tryAt({ taskId: 'a', start: 0, end: 1 }), tryAt({ taskId: 'b', ...taskB })]);
+    // Airflow sets the end of a try that fails into up_for_retry; the retry has not started yet.
+    expect(run({ start: 2, end: 3, state: 'up_for_retry' })).toMatchObject({
+      state: 'running',
+      endAt: null,
+      durationSeconds: null,
+    });
+    // A reschedule-mode sensor between pokes, and a try the store closed (state NULL, estimated end).
+    expect(run({ start: 2, end: 3, state: 'up_for_reschedule' })?.state).toBe('running');
+    expect(run({ start: 2, end: 3, state: null })?.state).toBe('running');
+    // The retry of an up_for_retry try decides the run; an earlier try closed without a state does not.
+    expect(
+      summariseRun([
+        tryAt({ taskId: 'b', start: 2, end: 3, state: null }),
+        tryAt({ taskId: 'b', tryNumber: 2, start: 4, end: 5, state: 'failed' }),
+      ])?.state,
+    ).toBe('failed');
+    expect(run({ start: 2, end: 3, state: 'skipped' })?.state).toBe('success');
+  });
+
+  it('HM-015: a run still in progress is not a finished run, so it is no failure and no outage', () => {
+    const tries = [
+      tryAt({ runId: 'r1', taskId: 'a', start: 61, end: 62, state: 'failed' }),
+      tryAt({ runId: 'r2', taskId: 'a', start: 70, end: 71, state: 'up_for_retry' }),
+      tryAt({ runId: 'r3', taskId: 'a', start: 80, end: 81, state: null }),
+    ];
+    expect(dagWindowStats(tries, W).get('dag_a')).toMatchObject({ runs: 3, finishedRuns: 1, failedRuns: 1 });
   });
 
   it('FR-DAGX-02: run duration p50/p95 is last end − first start over finished runs, with the §8.9 rule', () => {

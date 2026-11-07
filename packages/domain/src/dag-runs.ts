@@ -28,6 +28,24 @@ export type RunState = 'success' | 'failed' | 'running';
 const FAILED_TRY_STATES: ReadonlySet<string> = new Set(['failed', 'up_for_retry']);
 /** Final task instance states that make the DAG run fail. */
 const FAILED_FINAL_STATES: ReadonlySet<string> = new Set(['failed', 'upstream_failed']);
+/**
+ * Terminal task instance states: Airflow's `State.finished` (2.11.1 `airflow/utils/state.py` L162-170). Every
+ * other state is unfinished (`State.unfinished`, L180-191): `None`, scheduled, queued, running, restarting,
+ * up_for_retry, up_for_reschedule and deferred. Airflow sets the end of a try that becomes up_for_retry
+ * (`TaskInstance._set_state`, `airflow/models/taskinstance.py` L2444), and DCAM's store closes a try that
+ * stopped showing as running with state `NULL` and an estimated end until its finished row is read.
+ */
+const FINISHED_STATES: ReadonlySet<string> = new Set([
+  'success',
+  'failed',
+  'skipped',
+  'upstream_failed',
+  'removed',
+]);
+
+/** True when the try reached a terminal state: an end time alone does not say the task instance is done. */
+export const isFinishedTry = (t: Pick<DagTaskTry, 'state'>) =>
+  t.state !== null && FINISHED_STATES.has(t.state);
 
 export const isFailedTry = (t: Pick<DagTaskTry, 'state'>) =>
   t.state !== null && FAILED_TRY_STATES.has(t.state);
@@ -154,9 +172,11 @@ export interface RunOptions {
 }
 
 /**
- * One run from all its tries. Running while a try has not ended or work is waiting; otherwise failed
- * when the latest try of some task instance failed, else successful. ⚠️ M1 takes the run state from the
- * DAG runs collector; this derivation cannot see a retry that has not started yet.
+ * One run from all its tries. Running while a try has not ended, the latest try of a task instance is not in
+ * a terminal state ({@link isFinishedTry}: waiting for a retry or a reschedule, or closed by the store without
+ * a state), or work is waiting; otherwise failed when the latest try of some task instance failed, else
+ * successful. ⚠️ M1 takes the run state from the DAG runs collector; this derivation cannot see a task
+ * instance that has no try yet.
  */
 export function summariseRun(tries: readonly DagTaskTry[], options: RunOptions = {}): RunSummary | null {
   const started = tries.filter((t) => t.startAt !== null);
@@ -172,12 +192,14 @@ export function summariseRun(tries: readonly DagTaskTry[], options: RunOptions =
   }
   const running = open || (options.inProgress?.(first.dagId, first.runId) ?? false);
   let failed = false;
+  let unfinished = false;
   for (const ti of triesByTaskInstance(started)) {
     let latest = ti[0] as DagTaskTry;
     for (const t of ti) if (t.tryNumber > latest.tryNumber) latest = t;
-    if (latest.state !== null && FAILED_FINAL_STATES.has(latest.state)) failed = true;
+    if (!isFinishedTry(latest)) unfinished = true;
+    else if (FAILED_FINAL_STATES.has(latest.state as string)) failed = true;
   }
-  const state: RunState = running ? 'running' : failed ? 'failed' : 'success';
+  const state: RunState = running || unfinished ? 'running' : failed ? 'failed' : 'success';
   const end = state === 'running' ? null : endAt;
   return {
     dagId: first.dagId,
