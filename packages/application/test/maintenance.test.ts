@@ -350,22 +350,44 @@ describe('FR-STORE-07 disk budget', () => {
     expect(status.last_run?.thinned_snapshots).toBe(9 * (2_880 - 288));
   });
 
-  it('FR-STORE-07: when thinning is not enough it deletes whole days, oldest first, until below 90 %', async () => {
+  it('FR-STORE-07: when thinning is not enough it deletes whole days of snapshots, oldest first, before any task try', async () => {
     const store = heavy(10, 30);
     // After thinning: 2,880 + 9 × 288 snapshots (5.47 MB) and 3,000 tries (0.3 MB); 5.2 MB is the 90 % mark.
     const { job } = setup(store, config({ diskBudgetGb: 5.2e6 / 0.9 / 1e9 }));
     await job.run('budget-check');
     const deletes = store.calls.filter((c) => c.startsWith('delete'));
+    expect(deletes.every((c) => c.includes(' snapshots '))).toBe(true);
     const horizons = [...new Set(deletes.map((c) => Number(c.split(' ').at(-1))))];
-    // One day at a time from the oldest data (tries 30 days old), never moving back.
+    // One day at a time from the oldest snapshot (10 days old), never moving back, never past the 8-day floor.
     expect(horizons).toEqual([...horizons].sort((a, b) => a - b));
-    expect(horizons[0]).toBe(Math.floor((T0 - 30 * DAY) / DAY) * DAY + DAY);
+    expect(horizons[0]).toBe(Math.floor((T0 - 10 * DAY) / DAY) * DAY + DAY);
+    expect(horizons.at(-1)).toBe(T0 - 8 * DAY);
     expect(store.bytes()).toBeLessThan(5.2e6);
+    // The league's 30 days of tries are untouched.
+    expect(store.times('acme-prod', 'task-tries')).toHaveLength(3_000);
     const action = job.status().budget_action;
     expect(action?.floor_reached).toBe(false);
-    expect(action?.deleted_before).toBe(new Date(horizons.at(-1) as number).toISOString());
-    // It stopped at the first day that brought usage below 90 %, before the 8-day floor.
-    expect(horizons.at(-1)).toBe(T0 - 8 * DAY - DAY / 2);
+    expect(action?.deleted_before).toBe(new Date(T0 - 8 * DAY).toISOString());
+  });
+
+  it('FR-STORE-07: once snapshots reach the floor it deletes task tries, oldest day first, until below 90 %', async () => {
+    const store = heavy(10, 30);
+    // Deleting every snapshot older than 8 days leaves 5.196 MB: tries must go too to get below 5.0 MB.
+    const { job } = setup(store, config({ diskBudgetGb: 5.0e6 / 0.9 / 1e9 }));
+    await job.run('budget-check');
+    const deletes = store.calls.filter((c) => c.startsWith('delete'));
+    const lastSnapshot = deletes.findLastIndex((c) => c.includes(' snapshots '));
+    const firstTry = deletes.findIndex((c) => c.includes(' task-tries '));
+    expect(firstTry).toBeGreaterThan(lastSnapshot);
+    const tryHorizons = [
+      ...new Set(deletes.filter((c) => c.includes(' task-tries ')).map((c) => Number(c.split(' ').at(-1)))),
+    ];
+    expect(tryHorizons[0]).toBe(Math.floor((T0 - 30 * DAY) / DAY) * DAY + DAY);
+    expect(tryHorizons).toEqual([...tryHorizons].sort((a, b) => a - b));
+    expect(store.bytes()).toBeLessThan(5.0e6);
+    // It stopped at the first day of tries that brought usage below 90 %, before the 8-day floor.
+    expect(Math.min(...store.times('acme-prod', 'task-tries'))).toBeLessThan(T0 - 8 * DAY);
+    expect(job.status().budget_action?.floor_reached).toBe(false);
   });
 
   it('FR-STORE-07: never deletes the last 8 days for the budget, and says the floor is reached', async () => {

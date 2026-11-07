@@ -59,8 +59,9 @@ reported as not used. Data of environments no longer in the configuration expire
 2. FR-STORE-02: retention is configurable per class, with hard minimum and maximum days, and per environment.
 3. FR-STORE-07: usage (database blocks in use plus the WAL) is measured every hour. At ≥ 90 % of
    `retention.diskBudgetGb` the API and the health page warn; DCAM thins snapshots older than 24 h to one per
-   5 minutes, then deletes whole days of the oldest data, oldest first, until usage is below 90 %, never data
-   younger than 8 days. Thinning keeps slot-seconds exact and platform waiting task-time within 5 % over 16 h
+   5 minutes, then deletes whole days by age, one family at a time (snapshots, ready times, worker samples, then
+   task tries), oldest day first, until usage is below 90 %, never data younger than 8 days. Snapshots go first
+   because they hold most of the bytes; task tries last because the league and the baselines read them. Thinning keeps slot-seconds exact and platform waiting task-time within 5 % over 16 h
    of thinned snapshots, 10 % over 6 h (golden test).
 4. FR-STORE-06: the job never runs twice at once, is idempotent, and a run cut short (crash between batches)
    is completed by the next run with the same result as one uninterrupted run.

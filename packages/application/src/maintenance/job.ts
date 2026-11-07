@@ -15,8 +15,12 @@
  *
  * Disk budget (FR-STORE-07), after every run: measure the store. At or above 90 % of the budget, warn, thin
  * live snapshots older than 24 h to one per 5 minutes, CHECKPOINT and measure again. While still at or above
- * 90 %, delete everything older than the end of the oldest data's day (UTC), all families, oldest first, never
- * the last {@link BUDGET_FLOOR_MS} (8 days), CHECKPOINT and measure.
+ * 90 %, delete by age one family at a time in {@link BUDGET_DELETE_ORDER}: everything of the family older than
+ * the end of its oldest day (UTC), CHECKPOINT and measure, day after day until it reaches the last
+ * {@link BUDGET_FLOOR_MS} (8 days), which is never deleted; then the next family. Snapshots go first because
+ * they hold most of the bytes and are kept 14 days by default; task tries go last because the league, DAG
+ * detail's 28-day baseline and the alerts' 7-day baseline read them (FR-STORE-07 says only "deleting by age",
+ * so the order across families is DCAM's choice).
  *
  * Crash safety (FR-STORE-06): every step is idempotent and every batch commits on its own, so a run cut short
  * (crash, error, stop) leaves whole batches done and the next run finishes the rest with the same result.
@@ -36,6 +40,7 @@ import {
 import {
   RETAINED_FAMILIES,
   type Clock,
+  type RetainedFamily,
   type RetentionStore,
   type Sleeper,
   type StorageUsage,
@@ -93,6 +98,14 @@ class Stopping extends Error {}
 const iso = (ms: number) => new Date(ms).toISOString();
 const gb = (bytes: number) => `${(bytes / BYTES_PER_GB).toFixed(2)} GB`;
 
+/** Families the disk budget deletes by age, in order: the bulkiest and shortest-kept first (FR-STORE-07). */
+export const BUDGET_DELETE_ORDER: readonly RetainedFamily[] = [
+  'snapshots',
+  'ready-times',
+  'worker-samples',
+  'task-tries',
+];
+
 export function createMaintenanceJob(deps: MaintenanceDeps): MaintenanceJob {
   const { store, clock, sleeper, config } = deps;
   const budgetBytes = Math.max(1, Math.round(workspaceRetention(config).diskBudgetGb * BYTES_PER_GB));
@@ -142,14 +155,13 @@ export function createMaintenanceJob(deps: MaintenanceDeps): MaintenanceJob {
     await store.checkpoint();
   };
 
-  /** The oldest row that can expire, over every environment and family. */
-  const oldestRow = async (envs: readonly string[]): Promise<number | null> => {
+  /** The oldest row of `family` that can expire, over every environment. */
+  const oldestRow = async (envs: readonly string[], family: RetainedFamily): Promise<number | null> => {
     let oldest: number | null = null;
-    for (const envId of envs)
-      for (const family of RETAINED_FAMILIES) {
-        const t = await store.oldest(envId, family);
-        if (t !== null && (oldest === null || t < oldest)) oldest = t;
-      }
+    for (const envId of envs) {
+      const t = await store.oldest(envId, family);
+      if (t !== null && (oldest === null || t < oldest)) oldest = t;
+    }
     return oldest;
   };
 
@@ -187,25 +199,25 @@ export function createMaintenanceJob(deps: MaintenanceDeps): MaintenanceJob {
     used = await measure();
 
     const floor = now - BUDGET_FLOOR_MS;
-    while (over(used)) {
-      check();
-      const oldest = await oldestRow(envs);
-      if (oldest === null || oldest >= floor) {
-        act.floorReached = true;
-        log(
-          'error',
-          `DCAM's store is still above ${Math.round(DISK_WARN_SHARE * 100)} % of its disk budget with only the last 8 days left, which DCAM keeps. ` +
-            'Raise retention.diskBudgetGb or lower retention.rawMetricPointsDays in dcam.config.yaml.',
-        );
-        return;
+    for (const family of BUDGET_DELETE_ORDER)
+      while (over(used)) {
+        check();
+        const oldest = await oldestRow(envs, family);
+        if (oldest === null || oldest >= floor) break;
+        const before = Math.min(Math.floor(oldest / DAY_MS) * DAY_MS + DAY_MS, floor);
+        for (const envId of envs) await drain(envId, family, before, r);
+        act.deletedBefore = Math.max(act.deletedBefore ?? before, before);
+        check();
+        await store.checkpoint();
+        used = await measure();
       }
-      const before = Math.min(Math.floor(oldest / DAY_MS) * DAY_MS + DAY_MS, floor);
-      for (const envId of envs) for (const family of RETAINED_FAMILIES) await drain(envId, family, before, r);
-      act.deletedBefore = Math.max(act.deletedBefore ?? before, before);
-      check();
-      await store.checkpoint();
-      used = await measure();
-    }
+    if (!over(used)) return;
+    act.floorReached = true;
+    log(
+      'error',
+      `DCAM's store is still above ${Math.round(DISK_WARN_SHARE * 100)} % of its disk budget with only the last 8 days left, which DCAM keeps. ` +
+        'Raise retention.diskBudgetGb or lower retention.rawMetricPointsDays in dcam.config.yaml.',
+    );
   };
 
   const run = (kind: MaintenanceKind): Promise<void> => {
