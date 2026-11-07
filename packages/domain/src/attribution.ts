@@ -103,10 +103,10 @@ export function attributeWaiting(
       add(totals, c.reason, span);
       if (bucket) add(bucket.byReason, c.reason, span);
       let dags = byReasonDag.get(c.reason);
-      if (!dags) byReasonDag.set(c.reason, (dags = new Map()));
+      if (!dags) byReasonDag.set(c.reason, (dags = new Map<string, number>()));
       add(dags, c.ti.dagId, span);
       let byPool = byReasonPool.get(c.reason);
-      if (!byPool) byReasonPool.set(c.reason, (byPool = new Map()));
+      if (!byPool) byReasonPool.set(c.reason, (byPool = new Map<string, number>()));
       add(byPool, c.ti.pool, span);
       if (workersAtMax) add(atMax, c.reason, span);
       if (c.reason === 'pool-exhausted') {

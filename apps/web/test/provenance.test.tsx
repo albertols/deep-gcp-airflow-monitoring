@@ -27,6 +27,7 @@ const api: DcamApi = {
   getDagLeague: reject,
   getDagDetail: reject,
   getBottlenecks: reject,
+  getSchedule: reject,
   getFindings: reject,
   getAlerts: reject,
   getFleet: reject,

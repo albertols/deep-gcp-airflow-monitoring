@@ -160,6 +160,7 @@ function renderPage(data?: Alerts) {
     getDagLeague: reject,
     getDagDetail: reject,
     getBottlenecks: reject,
+    getSchedule: reject,
     getFindings: reject,
     getAlerts,
     getFleet: reject,

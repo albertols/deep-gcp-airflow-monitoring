@@ -63,9 +63,9 @@ export function priorityFairness(
   const all: Seen[] = [];
   const see = (ti: SnapshotTaskInstance, at: number) => {
     let runs = byDag.get(ti.dagId);
-    if (!runs) byDag.set(ti.dagId, (runs = new Map()));
+    if (!runs) byDag.set(ti.dagId, (runs = new Map<string, Map<string, Seen[]>>()));
     let tasks = runs.get(ti.runId);
-    if (!tasks) runs.set(ti.runId, (tasks = new Map()));
+    if (!tasks) runs.set(ti.runId, (tasks = new Map<string, Seen[]>()));
     let tries = tasks.get(ti.taskId);
     if (!tries) tasks.set(ti.taskId, (tries = []));
     let seen: Seen | undefined;

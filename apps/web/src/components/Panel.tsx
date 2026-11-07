@@ -125,14 +125,17 @@ export function ProvenanceFooter({
   dataAsOf,
   sources,
   note,
+  as = 'footer',
 }: {
   /** `null` when nothing was collected yet: missing data never shows a data time (spec §8.1). */
   dataAsOf: string | null;
   sources: readonly SourceId[];
   note?: string;
+  /** `p` inside a panel, so that only the page footer is a `contentinfo` landmark. */
+  as?: 'footer' | 'p';
 }) {
   return (
-    <Typography variant="caption" color="text.secondary" component="footer">
+    <Typography variant="caption" color="text.secondary" component={as}>
       {dataAsOf === null ? 'No data collected yet' : `Data as of ${new Date(dataAsOf).toUTCString()}`} ·
       Source: {sources.length ? sources.map((s) => SOURCE_NAMES[s]).join(', ') : 'none yet'}
       {note ? ` · ${note}` : ''}

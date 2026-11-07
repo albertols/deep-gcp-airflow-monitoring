@@ -17,6 +17,7 @@ import {
   type Fleet,
   type Meta,
   type Range,
+  type Schedule,
 } from '@dcam/contracts';
 
 export type OverviewRange = Range;
@@ -29,6 +30,8 @@ export interface DcamApi {
   getDagLeague(envId: string, range: Range): Promise<DagLeague>;
   getDagDetail(envId: string, dagId: string, range: Range, runId?: string): Promise<DagDetail>;
   getBottlenecks(envId: string, range: Range): Promise<Bottlenecks>;
+  /** Schedule intelligence (S-17, FR-BOTL-03). */
+  getSchedule(envId: string, range: Range): Promise<Schedule>;
   getFindings(envId: string): Promise<Findings>;
   getAlerts(envId?: string): Promise<Alerts>;
   getFleet(): Promise<Fleet>;
@@ -113,6 +116,14 @@ export function createDcamApi(baseUrl = ''): DcamApi {
           params: { path: env(envId), query: { range } },
         }),
         'the bottleneck analysis',
+      );
+    },
+    async getSchedule(envId, range) {
+      return unwrap(
+        await client.GET('/api/v1/environments/{env_id}/schedule', {
+          params: { path: env(envId), query: { range } },
+        }),
+        'schedule intelligence',
       );
     },
     async getFindings(envId) {

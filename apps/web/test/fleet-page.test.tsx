@@ -80,6 +80,7 @@ const apiFor = (data: Fleet): DcamApi => ({
   getDagLeague: reject,
   getDagDetail: reject,
   getBottlenecks: reject,
+  getSchedule: reject,
   getFindings: reject,
   getAlerts: reject,
   getFleet: async () => data,

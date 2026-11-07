@@ -1,8 +1,9 @@
 /**
  * S-16 "Why is work waiting?": waiting task-time attributed to the limit that binds (HM-006), with
- * worker capacity, pool pressure and sensor waste.
+ * worker capacity, top contributors, noisy neighbours, pools, priority fairness and sensor waste.
  *
- * @implements FR-BOTL-01, FR-BOTL-02, FR-BOTL-07, FR-BOTL-09, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements FR-BOTL-01, FR-BOTL-02, FR-BOTL-06, FR-BOTL-07, FR-BOTL-09, FR-ENV-08, HM-017, HM-023,
+ *   FR-UI-05, FR-UI-07, FR-UI-08
  */
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
@@ -27,7 +28,11 @@ import { PageHeader } from '../../components/PageHeader';
 import { Kpi, KpiRow, Panel, ProvenanceFooter, QueryState } from '../../components/Panel';
 import type { PageProps } from '../types';
 import { BOTTLENECK_EXPLANATIONS as X } from './explanations';
+import { NoisyNeighboursPanel } from './NoisyNeighboursPanel';
+import { PoolsPanel } from './PoolsPanel';
+import { PriorityPanel } from './PriorityPanel';
 import { CHART_SERIES, REASONS, type ChartSeriesKey } from './reasons';
+import { TopContributorsPanel } from './TopContributorsPanel';
 
 const minutes = (seconds: number) => seconds / 60;
 const fmtMinutes = (m: number) => `${formatInt(Math.round(m))} min`;
@@ -288,34 +293,13 @@ export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
             </Typography>
           </Panel>
 
+          <TopContributorsPanel b={b} linkTo={linkTo} />
+          <NoisyNeighboursPanel b={b} linkTo={linkTo} />
+          <PoolsPanel b={b} linkTo={linkTo} />
+
           <Stack direction={{ xs: 'column', lg: 'row' }} sx={{ gap: 4 }}>
             <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Panel explanation={X['botl-pools']}>
-                <Table size="small" aria-label="Pools">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Pool</TableCell>
-                      <TableCell align="right">Slots</TableCell>
-                      <TableCell align="right">Waiting (task-h)</TableCell>
-                      <TableCell align="right">Starved (min)</TableCell>
-                      <TableCell align="right">Fill p95</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {b.pools.map((p) => (
-                      <TableRow key={p.name}>
-                        <TableCell sx={{ fontFamily: '"Roboto Mono", ui-monospace, monospace' }}>
-                          {p.name}
-                        </TableCell>
-                        <TableCell align="right">{formatInt(p.slots)}</TableCell>
-                        <TableCell align="right">{taskHours(p.waiting_task_seconds)}</TableCell>
-                        <TableCell align="right">{formatInt(Math.round(p.starved_minutes))}</TableCell>
-                        <TableCell align="right">{formatShare(p.utilisation_p95)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </Panel>
+              <PriorityPanel b={b} />
             </Box>
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Panel explanation={X['botl-sensors']}>

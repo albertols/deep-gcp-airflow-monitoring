@@ -3,6 +3,7 @@
  */
 import type { Explanation } from '@dcam/ui-kit';
 import { WIKI_SLUGS, wikiHref } from '../wiki/content/slugs';
+import { DEPTH_EXPLANATIONS } from './explanations-depth';
 
 const POOLS_DOC = {
   title: 'Airflow documentation: pools',
@@ -118,15 +119,6 @@ export const BOTTLENECK_EXPLANATIONS = {
     ],
     docs: [CONFIG_DOC, POOLS_DOC],
   },
-  'botl-pools': {
-    id: 'botl-pools',
-    wiki: { href: wikiHref(WIKI_SLUGS.pools) },
-    title: 'Pools',
-    summary: 'Waiting caused by each pool, minutes it was starved, and how full it ran.',
-    formula: 'starved minutes = time with zero open slots while work waited for the pool',
-    sources: ['SRC-AF-API'],
-    docs: [POOLS_DOC],
-  },
   'botl-sensors': {
     id: 'botl-sensors',
     wiki: { href: wikiHref(WIKI_SLUGS.sensorSlotWaste) },
@@ -138,6 +130,8 @@ export const BOTTLENECK_EXPLANATIONS = {
       'Sensors are detected by operator name; custom sensors that do not end in "Sensor" are missed.',
     ],
   },
+  // Top contributors, noisy neighbours, pools and priority fairness (feature 007).
+  ...DEPTH_EXPLANATIONS,
 } as const satisfies Record<string, Explanation>;
 
 export type BottleneckExplanationId = keyof typeof BOTTLENECK_EXPLANATIONS;

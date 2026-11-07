@@ -213,6 +213,7 @@ describe('setup mode in the shell (FR-SETUP-02)', () => {
       getDagLeague: reject,
       getDagDetail: reject,
       getBottlenecks: reject,
+      getSchedule: reject,
       getFindings: reject,
       getAlerts: reject,
       getFleet: reject,

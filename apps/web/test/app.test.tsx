@@ -38,6 +38,7 @@ const api: DcamApi = {
   getDagLeague: notYet,
   getDagDetail: notYet,
   getBottlenecks: notYet,
+  getSchedule: notYet,
   getFindings: notYet,
   getAlerts: notYet,
   getFleet: notYet,
