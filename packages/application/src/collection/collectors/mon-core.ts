@@ -203,7 +203,8 @@ export function monCoreCollector(): Collector {
               ),
             ),
           );
-        // ⚠️ VERIFY: Composer reports database utilisation as a 0–1 ratio, as Cloud SQL does.
+        // Composer documents the database metrics as "CPU utilization ratio (from 0.0 to 1.0)", unit 1
+        // (https://cloud.google.com/monitoring/api/metrics_gcp_c, composer.googleapis.com, read 2026-11-07).
         const dbCpu = await dbMax('environment/database/cpu/utilization');
         const dbMemory = await dbMax('environment/database/memory/utilization');
         const zombies = sumOf(

@@ -75,7 +75,9 @@ export function parseCli(argv: readonly string[]): CliOptions {
  * runs the script in the repository root, and pnpm passes the folder it was started in as `INIT_CWD`
  * (checked with pnpm 11.28.0 on macOS: `INIT_CWD` is the invoking subfolder while the working directory
  * is the package root; npm documents the same variable for `npm run`,
- * https://docs.npmjs.com/cli/v11/using-npm/scripts#current-working-directory). ⚠️ VERIFY on Windows.
+ * https://docs.npmjs.com/cli/v11/using-npm/scripts#current-working-directory). pnpm documents it with
+ * no platform caveat: "`INIT_CWD`: the directory where pnpm was started" (https://pnpm.io/scripts, read
+ * 2026-11-07).
  * Without `INIT_CWD` (DCAM started directly) the working directory is used. Absolute and `~` paths and
  * `null` (no `--config`) are returned unchanged; the configuration adapter expands `~`.
  */

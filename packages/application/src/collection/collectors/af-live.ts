@@ -14,7 +14,8 @@
  *   sample. In Airflow 2.11 a task instance waiting on a pool, `max_active_tasks`, a task-level limit or
  *   parallelism stays `scheduled`; only the ones that pass those checks become `queued` and go to the
  *   executor (`SchedulerJobRunner._executable_task_instances_to_queued` in
- *   `airflow/jobs/scheduler_job_runner.py` at `v2-11-stable`, as spec HM-006 "Why this order" reads it).
+ *   `airflow/jobs/scheduler_job_runner.py` at tag 2.11.1: it selects only `SCHEDULED` rows, skips those a
+ *   pool or a DAG, task or run limit holds back, and queues the rest; read 2026-11-07).
  *   So in the bottleneck DCAM diagnoses the scheduled state overflows, while the running state is bounded
  *   by the worker slots and usually fits one page: reading it alone keeps the running set complete, which
  *   `closeRunningTries` needs. This departs from spec §7.5 L648 "(queued first)". A first page that

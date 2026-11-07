@@ -12,8 +12,8 @@
  * string uses `CronDataIntervalTimetable` (the interval ends at the next cron time) and a timedelta
  * `DeltaDataIntervalTimetable` (it ends one delta later)
  * (https://airflow.apache.org/docs/apache-airflow/2.11.0/authoring-and-scheduling/timetable.html).
- * ⚠️ VERIFY: `[scheduler] create_cron_data_intervals = False` switches cron strings to
- * `CronTriggerTimetable` (no interval); the start-delay logic detects that from the run itself.
+ * `[scheduler] create_cron_data_intervals = False` switches cron strings to `CronTriggerTimetable`
+ * (no interval; Airflow 2.11.1 configuration reference, read 2026-11-07); the start-delay logic detects that from the run itself.
  * Cron times are evaluated in UTC, so a logical date the cron does not produce in UTC (a DAG in another
  * time zone) gives no interval rather than a wrong one.
  *
