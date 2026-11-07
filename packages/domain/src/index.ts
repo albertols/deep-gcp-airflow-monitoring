@@ -13,6 +13,7 @@ export * from './dag-league';
 export * from './dag-detail';
 export * from './alerts';
 export * from './schedule';
+export * from './schedule-heatmap';
 export * from './advisor-model';
 export * from './advisor-signals';
 export * from './advisor-rule';

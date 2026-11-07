@@ -17,7 +17,7 @@
  * Cron times are evaluated in UTC, so a logical date the cron does not produce in UTC (a DAG in another
  * time zone) gives no interval rather than a wrong one.
  *
- * @implements HM-009, HM-002
+ * @implements HM-009, HM-002, FR-BOTL-03
  */
 import type { DagMeta } from './model';
 
@@ -78,11 +78,15 @@ function expand(field: string, f: Field): Set<number> | null {
   return out;
 }
 
-/**
- * Average starts per day in each minute-of-hour (60 entries) for a cron expression or preset, or
- * `null` for schedules without fixed start minutes (`@once`, `None`, timedeltas, assets).
- */
-export function dailyStartsByMinute(schedule: string): number[] | null {
+/** The start minutes and hours of a cron schedule, and its average starts per day in each of those cells. */
+interface DailyShape {
+  readonly minutes: ReadonlySet<number>;
+  readonly hours: ReadonlySet<number>;
+  /** Starts per day in each (hour, minute) cell the schedule fires in. */
+  readonly perCell: number;
+}
+
+function dailyShape(schedule: string): DailyShape | null {
   const cron = PRESETS[schedule.trim()] ?? schedule.trim();
   const fields = cron.split(/\s+/);
   if (fields.length !== 5) return null;
@@ -99,11 +103,37 @@ export function dailyStartsByMinute(schedule: string): number[] | null {
   const dowShare = dow === '*' ? 1 : weekdays.size / 7;
   // Cron matches either restricted day field when both are set.
   const dayShare = dom !== '*' && dow !== '*' ? Math.min(1, domShare + dowShare) : domShare * dowShare;
-  const perDay = hours.size * dayShare * (months.size / 12);
+  return { minutes, hours, perCell: dayShare * (months.size / 12) };
+}
+
+/**
+ * Average starts per day in each minute-of-hour (60 entries) for a cron expression or preset, or
+ * `null` for schedules without fixed start minutes (`@once`, `None`, timedeltas, assets).
+ */
+export function dailyStartsByMinute(schedule: string): number[] | null {
+  const shape = dailyShape(schedule);
+  if (!shape) return null;
+  const perDay = shape.hours.size * shape.perCell;
   const out = new Array<number>(60).fill(0);
-  for (const m of minutes) out[m] = perDay;
+  for (const m of shape.minutes) out[m] = perDay;
   return out;
 }
+
+/**
+ * Average starts per day in each hour-of-day × minute-of-hour cell (1,440 entries, index `hour × 60 +
+ * minute`, UTC) for a cron expression or preset, or `null` like {@link dailyStartsByMinute} (FR-BOTL-03).
+ */
+export function dailyStartsByHourMinute(schedule: string): number[] | null {
+  const shape = dailyShape(schedule);
+  if (!shape) return null;
+  const out = new Array<number>(24 * 60).fill(0);
+  for (const h of shape.hours) for (const m of shape.minutes) out[h * 60 + m] = shape.perCell;
+  return out;
+}
+
+/** The schedule as cron text, presets expanded and whitespace collapsed: one key per schedule. */
+export const cronKey = (schedule: string) =>
+  (PRESETS[schedule.trim()] ?? schedule.trim()).replace(/\s+/g, ' ');
 
 const MIN_MS = 60_000;
 const DAY_MS = 24 * 60 * MIN_MS;

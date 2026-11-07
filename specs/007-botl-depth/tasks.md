@@ -8,7 +8,7 @@ Test tasks come before the code they cover.
 - [x] T-701 Test + code: pool activity per pool and bucket (FR-ENV-08)
 - [x] T-702 Test + code: HM-017 noisy neighbours, golden and property tests (HM-017, FR-BOTL-06)
 - [x] T-703 Test + code: HM-023 priority bands with observed waits (HM-023)
-- [ ] T-704 Test + code: planned and actual start heatmaps, top colliding minutes and schedules (HM-009,
+- [x] T-704 Test + code: planned and actual start heatmaps, top colliding minutes and schedules (HM-009,
       FR-BOTL-03)
 
 ## Application, contract, server
