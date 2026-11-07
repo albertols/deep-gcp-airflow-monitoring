@@ -12,7 +12,7 @@ Test tasks come before the code they cover.
       budget (warn, thin, delete oldest first, floor), status (FR-STORE-02, FR-STORE-06, FR-STORE-07)
 - [x] T-504 Contract and bottlenecks: `Collection.storage`, `CollectionEnvironment.retention`,
       `Bottlenecks.snapshot_retention` (FR-STORE-02, FR-STORE-07)
-- [ ] T-505 Server: wire the job, stop before the store closes; golden tests (retention exact, thinning within
+- [x] T-505 Server: wire the job, stop before the store closes; golden tests (retention exact, thinning within
       tolerance, crash and resume) (FR-STORE-02, FR-STORE-06, FR-STORE-07)
 - [ ] T-506 Web: DCAM health page local store panel and retention per environment (FR-STORE-07, FR-UI-05,
       FR-UI-07, FR-UI-08)

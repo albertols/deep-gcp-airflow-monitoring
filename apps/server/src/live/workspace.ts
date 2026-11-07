@@ -7,11 +7,16 @@
  * missing `network.caBundlePath`, a SOCKS proxy, a mistyped `DCAM_NETWORK`) stops start-up with its own
  * message, instead of failing every collection cycle afterwards (FR-AUTH-07).
  *
- * @implements FR-SETUP-02, FR-COLL-01, FR-COLL-11, FR-STORE-01, FR-AUTH-07, HM-030
+ * The store maintenance job (retention and the disk budget) starts with the collectors and is stopped with
+ * them, before the store closes; its status joins the collection status (FR-STORE-02, FR-STORE-07).
+ *
+ * @implements FR-SETUP-02, FR-COLL-01, FR-COLL-11, FR-STORE-01, FR-STORE-02, FR-STORE-07, FR-AUTH-07, HM-030
  */
 import {
   createCollectionEngine,
   createCollectors,
+  createMaintenanceJob,
+  withMaintenance,
   type CollectionEngine,
   type CollectionLogEntry,
   type Collector,
@@ -30,9 +35,12 @@ type Env = Readonly<Record<string, string | undefined>>;
 
 /** A workspace that runs: live collection, or setup mode with nothing to collect. */
 export interface RunningWorkspace extends Workspace {
-  /** Starts the collectors; nothing happens in setup mode. */
+  /** Starts the collectors and the store maintenance; nothing happens in setup mode. */
   start(): void;
-  /** Stops the collectors, waits for running cycles, then closes connections and the store. */
+  /**
+   * Stops the collectors and the store maintenance, waits for running cycles and the delete batch in flight,
+   * then closes connections and the store.
+   */
   close(): Promise<void>;
 }
 
@@ -83,6 +91,7 @@ export async function createLiveWorkspace(options: LiveWorkspaceOptions): Promis
   const { config, env } = options;
   const now = options.now ?? Date.now;
   const clock: Clock = { now };
+  const sleeper = options.sleeper ?? systemSleeper;
   const tokens = options.tokens ?? createAdcTokenSource({ env, now });
   // The guard's footprint hook needs the engine, and the engine needs the clients: bound late.
   let engine: CollectionEngine | undefined;
@@ -119,7 +128,7 @@ export async function createLiveWorkspace(options: LiveWorkspaceOptions): Promis
       config,
       store,
       clock,
-      sleeper: options.sleeper ?? systemSleeper,
+      sleeper,
       collectors: options.collectors ?? createCollectors(),
       ...(options.log === undefined ? {} : { log: options.log }),
       sources: (entry) => {
@@ -134,6 +143,13 @@ export async function createLiveWorkspace(options: LiveWorkspaceOptions): Promis
     throw error;
   }
   const running = engine;
+  const maintenance = createMaintenanceJob({
+    store,
+    clock,
+    sleeper,
+    config,
+    ...(options.log === undefined ? {} : { log: options.log }),
+  });
   let closing: Promise<void> | undefined;
   return {
     mode: 'live',
@@ -145,11 +161,14 @@ export async function createLiveWorkspace(options: LiveWorkspaceOptions): Promis
     store,
     model: store,
     clock,
-    collection: () => running.status(),
-    start: () => running.start(),
+    collection: () => withMaintenance(running.status(), maintenance),
+    start: () => {
+      running.start();
+      maintenance.start();
+    },
     close: () =>
       (closing ??= (async () => {
-        await running.stop();
+        await Promise.all([running.stop(), maintenance.stop()]);
         await closeAll(clients.values());
         store.close();
       })()),

@@ -11,6 +11,7 @@ import type { Transport } from '@dcam/http-guard';
 import { SourceError, type AccessTokenSource } from '@dcam/ports';
 import { buildApp } from '../src/app';
 import { openConfiguredWorkspace, type RunningWorkspace } from '../src/live/workspace';
+import { conforms } from './contract';
 
 /** Every program the code under test tries to start; none is started (gcloud must never run here). */
 const started = vi.hoisted(() => [] as string[]);
@@ -248,6 +249,40 @@ describe('live workspace (FR-SETUP-02, FR-COLL-11, HM-030, FR-STORE-01)', () => 
     // A second DCAM on the same data directory can open the database once the first one closed.
     const second = await open({}, fakeAirflow().transport);
     expect(second.workspace.setup).toBeUndefined();
+  });
+
+  it('FR-STORE-07: maintenance runs on start, the collection status reports the store against its budget, and close stops it', async () => {
+    const dataDir = join(dir, 'data');
+    const config = EMULATOR_CONFIG(dataDir).replace(
+      '    tier: dev\n',
+      '    tier: dev\n    retention: { rawTaskInstancesDays: 30 }\n',
+    );
+    await writeFile(join(dir, 'dcam.config.yaml'), `${config}retention:\n  diskBudgetGb: 2\n`);
+    const { workspace: ws } = await open({}, fakeAirflow().transport);
+    expect(ws.collection?.().storage?.state).toBe('unknown');
+    ws.start();
+    await expect
+      .poll(() => ws.collection?.().storage?.last_run?.finished_at, { timeout: 10_000 })
+      .toBeTruthy();
+    const collection = await get<Collection>(ws, '/api/v1/collection');
+    expect(conforms('Collection', collection)).toBe(true);
+    expect(collection.storage).toMatchObject({
+      state: 'ok',
+      budget_bytes: 2e9,
+      warn_share: 0.9,
+      last_run: { kind: 'retention', error: null, started_at: new Date(NOW).toISOString() },
+      next_run_at: new Date(NOW + 3_600_000).toISOString(),
+      budget_action: null,
+    });
+    expect(collection.storage?.file_bytes).toBeGreaterThan(0);
+    expect(collection.environments[0]?.retention).toEqual({
+      raw_task_instances_days: 30,
+      raw_metric_points_days: 14,
+    });
+    await ws.close();
+    workspace = undefined;
+    // The store closed after maintenance stopped: the data directory opens again.
+    expect((await open({}, fakeAirflow().transport)).workspace.setup).toBeUndefined();
   });
 
   it('NFR-SEC-04: with DCAM_NETWORK=loopback-only a Composer environment starts no gcloud and sends nothing', async () => {
