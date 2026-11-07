@@ -10,7 +10,7 @@
 import type { PoolConfig } from '@dcam/domain';
 import { SourceError } from '@dcam/ports';
 import { BudgetExhaustedError, type Collector, type CollectorContext } from '../types';
-import { assertAirflow2, configFromComposer, parseImageVersion } from './mapping';
+import { assertSupportedAirflow, configFromComposer, parseImageVersion } from './mapping';
 
 /** How far back a snapshot may be to seed the pools of a new configuration. */
 const POOL_SEED_LOOKBACK_MS = 60 * 60_000;
@@ -65,7 +65,7 @@ export function composerConfigCollector(): Collector {
         throw new SourceError('unsupported', 'Composer 1 environments are not supported', {
           fixHint: 'DCAM reads Composer 2 and Composer 3 environments.',
         });
-      assertAirflow2(ctx.shared.airflowVersion);
+      assertSupportedAirflow(ctx.shared.airflowVersion);
 
       const airflowVersion = ctx.shared.airflowVersion ?? image?.airflowVersion ?? 'unknown';
       await ctx.store.saveConfig(

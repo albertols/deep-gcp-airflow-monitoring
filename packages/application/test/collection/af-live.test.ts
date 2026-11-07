@@ -476,6 +476,13 @@ describe('FR-COLL-06 af.live within the budget', () => {
     expect(airflow.calls).toEqual([]);
   });
 
+  it('FR-COLL-08: refuses Airflow below 2.10, whose try numbers DCAM would misread', async () => {
+    const airflow = new FakeAirflow({ pools: livePools() });
+    const ctx = fakeContext({ airflow, shared: { ...shared, airflowVersion: '2.9.3' } });
+    await expect(afLiveCollector().collect(ctx)).rejects.toMatchObject({ kind: 'unsupported' });
+    expect(airflow.calls).toEqual([]);
+  });
+
   it('FR-COLL-01: declares a live Airflow collector', () => {
     expect(afLiveCollector().manifest).toMatchObject({
       id: 'af.live',

@@ -45,6 +45,18 @@ describe('FR-COLL-08 af.inventory: version', () => {
   });
 });
 
+describe('FR-COLL-08 af.inventory: Airflow below 2.10', () => {
+  it('FR-COLL-08: an Airflow below 2.10 is reported as unsupported and no DAG is stored', async () => {
+    const airflow = new FakeAirflow({ version: '2.9.3', dags: manyDags(3) });
+    const store = new MemoryStore();
+    const ctx = fakeContext({ airflow, store, shared });
+    await expect(afInventoryCollector().collect(ctx)).rejects.toMatchObject({ kind: 'unsupported' });
+    expect(ctx.shared.airflowVersion).toBe('2.9.3');
+    expect(airflow.calls).toEqual(['version']);
+    expect(await store.dags('acme-prod')).toEqual([]);
+  });
+});
+
 describe('FR-COLL-06 af.inventory: DAG paging within the budget', () => {
   it('FR-COLL-06: pages /dags 100 at a time, stops at maxRequestsPerCycle and resumes next cycle', async () => {
     const airflow = new FakeAirflow({ dags: manyDags(2_000) });

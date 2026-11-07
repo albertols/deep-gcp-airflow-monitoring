@@ -19,7 +19,7 @@
 import type { DagMeta, EnvironmentConfig } from '@dcam/domain';
 import { BudgetExhaustedError, type Collector, type CollectorContext } from '../types';
 import {
-  assertAirflow2,
+  assertSupportedAirflow,
   COMPOSER_DEFAULT_MAX_ACTIVE_RUNS_PER_DAG,
   COMPOSER_DEFAULT_MAX_ACTIVE_TASKS_PER_DAG,
   dagMetaOf,
@@ -80,7 +80,7 @@ export function afInventoryCollector(): Collector {
           ctx.shared.airflowVersion = version;
           versionReadAt.set(envId, ctx.now());
         }
-        assertAirflow2(ctx.shared.airflowVersion);
+        assertSupportedAirflow(ctx.shared.airflowVersion);
 
         requests++;
         const importErrors = await airflow.importErrorCount();

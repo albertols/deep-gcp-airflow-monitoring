@@ -67,17 +67,41 @@ export function parseImageVersion(image: string): ImageVersion | null {
   return { generation: Number(m[1]), airflowVersion: m[2] as string };
 }
 
-/** Airflow 3 needs the REST API v2 adapter, planned for M4 (FR-COLL-08). */
-export function assertAirflow2(version: string | null): void {
-  if (version !== null && Number(version.split('.')[0]) >= 3)
+/**
+ * The Airflow versions DCAM M1 reads (FR-COLL-08): "Airflow 2" means 2.10 or later 2.x (spec §1 L111).
+ *
+ * - Airflow 3 needs the REST API v2 adapter, planned for M4.
+ * - Below 2.10 the try number means something else. Airflow 2.10.0's release notes, "``try_number`` is no
+ *   longer incremented during task execution (#39336)" (RELEASE_NOTES.rst at tag 2.11.1, checked
+ *   2026-11-07): the try number is now set when the task is scheduled and never changes in flight.
+ *   Before, it was incremented when the task started on the worker, also when it resumed from deferral or
+ *   reschedule. The collectors and the store key tries on it, store `up_for_retry` rows under it and end
+ *   an open try once a later try exists (HM-003), so on older versions they would split one try into two
+ *   and end running tries early.
+ *
+ * A version DCAM cannot parse is not refused: `GET /version` or the image will tell later.
+ */
+export function assertSupportedAirflow(version: string | null): void {
+  if (version === null) return;
+  if (Number(version.split('.')[0]) >= 3)
     throw new SourceError('unsupported', 'Airflow 3 environments are supported from M4', {
       fixHint:
         'DCAM M1 reads Airflow 2 environments only. Track the Airflow 3 adapter in the roadmap (spec §22.2).',
     });
+  const m = /^(\d+)\.(\d+)/.exec(version.trim());
+  if (m && (Number(m[1]) < 2 || (Number(m[1]) === 2 && Number(m[2]) < 10)))
+    throw new SourceError(
+      'unsupported',
+      `Airflow ${version} is older than 2.10, the oldest version DCAM reads`,
+      {
+        fixHint:
+          'Airflow 2.10 changed how tries are numbered: a try number is now set when the task is scheduled and no longer grows while it runs (Airflow 2.10.0 release notes, #39336). DCAM counts tries that way and would misread retries on older versions. Upgrade the environment to Airflow 2.10 or later.',
+      },
+    );
 }
 
-/** Refuses Airflow 3 once any collector has learned the version (FR-COLL-08). */
-export const assertSupported = (ctx: CollectorContext) => assertAirflow2(ctx.shared.airflowVersion);
+/** Refuses an unsupported Airflow once any collector has learned the version (FR-COLL-08). */
+export const assertSupported = (ctx: CollectorContext) => assertSupportedAirflow(ctx.shared.airflowVersion);
 
 /**
  * `[core] parallelism` 0 is no limit: "Setting this value to zero allows unlimited parallelism" (Airflow

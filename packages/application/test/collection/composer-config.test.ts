@@ -145,6 +145,25 @@ describe('FR-COLL-09 composer.config', () => {
     expect(await store.config('acme-prod')).toBeNull();
   });
 
+  it('FR-COLL-08: an image with Airflow below 2.10 is reported as unsupported, after sharing what it found', async () => {
+    const store = new MemoryStore();
+    const composer = new FakeComposer(composerEnv({ imageVersion: 'composer-2.9.7-airflow-2.9.3' }));
+    const ctx = fakeContext({ store, composer });
+    const error = await composerConfigCollector()
+      .collect(ctx)
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(SourceError);
+    expect(error).toMatchObject({
+      kind: 'unsupported',
+      message: 'Airflow 2.9.3 is older than 2.10, the oldest version DCAM reads',
+      details: {
+        fixHint: expect.stringMatching(/#39336.*Upgrade the environment to Airflow 2\.10 or later/s),
+      },
+    });
+    expect(ctx.shared.airflowVersion).toBe('2.9.3');
+    expect(await store.config('acme-prod')).toBeNull();
+  });
+
   it('FR-COLL-09: a Composer 1 image is reported as unsupported', async () => {
     const composer = new FakeComposer(composerEnv({ imageVersion: 'composer-1.20.12-airflow-2.4.3' }));
     await expect(composerConfigCollector().collect(fakeContext({ composer }))).rejects.toMatchObject({

@@ -308,6 +308,13 @@ describe('FR-COLL-06 af.facts: windows that fit in one page, within the budget',
     await expect(afFactsCollector().collect(ctx)).rejects.toMatchObject({ kind: 'unsupported' });
   });
 
+  it('FR-COLL-08: refuses Airflow below 2.10, whose try numbers DCAM would misread', async () => {
+    const airflow = new FakeAirflow();
+    const ctx = fakeContext({ airflow, shared: { ...shared, airflowVersion: '2.9.3' } });
+    await expect(afFactsCollector().collect(ctx)).rejects.toMatchObject({ kind: 'unsupported' });
+    expect(airflow.calls).toEqual([]);
+  });
+
   it('FR-COLL-01: declares a standard Airflow facts collector', () => {
     expect(afFactsCollector().manifest).toMatchObject({
       id: 'af.facts',
