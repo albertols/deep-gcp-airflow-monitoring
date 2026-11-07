@@ -139,6 +139,31 @@ describe('FR-COLL-04 af.backfill: seven days of finished task instances before a
     expect(done?.startedAt).toBe(saved.startedAt);
   });
 
+  it('FR-COLL-06: a cycle whose commit fails is read again, so no row is lost and complete means complete', async () => {
+    const N = 3_000;
+    const airflow = new FakeAirflow({ tis: spread(N, A - 7 * DAY, A) });
+    const store = new MemoryStore();
+    const ctx = fakeContext({ airflow, store, shared });
+    await afFactsCollector().collect(ctx);
+    const real = store.commitBackfill.bind(store);
+    let commits = 0;
+    store.commitBackfill = async (...args) => {
+      commits++;
+      // The third commit, a cycle with rows, fails as a full disk or a DuckDB I/O error would make it.
+      if (commits === 3) throw new Error('simulated write failure');
+      return real(...args);
+    };
+    const collector = afBackfillCollector();
+    let failures = 0;
+    for (let i = 0; i < 300 && lastReport(ctx)?.state !== 'complete'; i++) {
+      await collector.collect(ctx).catch(() => failures++);
+      ctx.advance(MIN);
+    }
+    expect(failures).toBe(1);
+    expect(lastReport(ctx)?.state).toBe('complete');
+    expect([...store.tries.values()].filter((t) => t.taskId.startsWith('t_'))).toHaveLength(N);
+  });
+
   it('FR-COLL-04: yielding to the budget is progress, not reduced fidelity', async () => {
     const airflow = new FakeAirflow({ tis: spread(800, A - 7 * DAY, A) }, new Budget('airflow', 2));
     const store = new MemoryStore();

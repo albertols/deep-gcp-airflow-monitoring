@@ -146,8 +146,16 @@ export function afBackfillCollector(): Collector {
         result.requests > 0 ||
         next.coveredFrom !== progress.coveredFrom ||
         next.from !== progress.from
-      )
-        await ctx.store.commitBackfill(envId, ID, next, { tries: [...result.rows.values()] });
+      ) {
+        try {
+          await ctx.store.commitBackfill(envId, ID, next, { tries: [...result.rows.values()] });
+        } catch (e) {
+          // The reader already dropped the windows it read: forget the run, so the next cycle reads again
+          // from the stored progress, as af.facts does (FR-COLL-06).
+          runs.delete(envId);
+          throw e;
+        }
+      }
       run.coveredFrom = coveredFrom;
       run.rate.record(now, next.itemsRead);
       for (const note of result.notes) if (!note.includes(' is stuck at ')) ctx.reducedFidelity(note);
