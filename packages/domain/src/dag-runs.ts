@@ -64,6 +64,9 @@ export const isFinishedTry = (t: Pick<DagTaskTry, 'state'>) =>
 export const isFailedTry = (t: Pick<DagTaskTry, 'state'>) =>
   t.state !== null && FAILED_TRY_STATES.has(t.state);
 
+/** True for a final task instance state that makes the DAG run fail. */
+export const isFailedFinalState = (state: string | null) => state !== null && FAILED_FINAL_STATES.has(state);
+
 export const runKey = (dagId: string, runId: string) => `${dagId}\u0000${runId}`;
 export const taskInstanceKey = (t: Pick<TaskTry, 'dagId' | 'runId' | 'taskId' | 'mapIndex'>) =>
   `${t.dagId}\u0000${t.runId}\u0000${t.taskId}\u0000${t.mapIndex}`;
@@ -214,7 +217,7 @@ export function summariseRun(tries: readonly DagTaskTry[], options: RunOptions =
     let latest = ti[0] as DagTaskTry;
     for (const t of ti) if (t.tryNumber > latest.tryNumber) latest = t;
     if (!isFinishedTry(latest)) unfinished = true;
-    else if (FAILED_FINAL_STATES.has(latest.state as string)) failed = true;
+    else if (isFailedFinalState(latest.state)) failed = true;
   }
   const state: RunState = running || unfinished ? 'running' : failed ? 'failed' : 'success';
   const end = state === 'running' ? null : endAt;

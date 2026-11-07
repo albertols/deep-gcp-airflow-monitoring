@@ -239,20 +239,34 @@ const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 export function dagLeague(input: DagLeagueInput): DagLeagueResult {
   const options: RunOptions = input.inProgress ? { inProgress: input.inProgress } : {};
   const current = dagWindowStats(input.tries, input.window, options);
-  const previous = slotSeconds(input.tries, input.previousWindow).byDag;
-  const ids = new Set([...input.dagIds, ...current.keys(), ...previous.keys()]);
+  const previous = new Map(
+    [...slotSeconds(input.tries, input.previousWindow).byDag].map(([id, s]) => [id, s.executorSlotSeconds]),
+  );
+  return rankLeague(current, previous, input.dagIds);
+}
+
+/**
+ * Ranks per-DAG window statistics into the league: every known DAG gets a row, shares of the window and
+ * of the previous window (executor slot-seconds per DAG, only DAGs with a positive value), Pareto and Gini.
+ */
+export function rankLeague(
+  current: ReadonlyMap<string, DagWindowStats>,
+  previous: ReadonlyMap<string, number>,
+  dagIds: readonly string[],
+): DagLeagueResult {
+  const ids = new Set([...dagIds, ...current.keys(), ...previous.keys()]);
   const stats = [...ids].map((id) => current.get(id) ?? emptyDagStats(id));
   stats.sort((a, b) => b.executorSlotSeconds - a.executorSlotSeconds || byId(a.dagId, b.dagId));
 
   // Summed in rank order, so the last active row's cumulative share is exactly 1.
   const total = stats.reduce((s, r) => s + r.executorSlotSeconds, 0);
   let previousTotal = 0;
-  for (const p of previous.values()) previousTotal += p.executorSlotSeconds;
+  for (const p of previous.values()) previousTotal += p;
 
   let cumulative = 0;
   const rows = stats.map((r): DagLeagueEntry => {
     cumulative += r.executorSlotSeconds;
-    const before = previous.get(r.dagId)?.executorSlotSeconds ?? 0;
+    const before = previous.get(r.dagId) ?? 0;
     return {
       ...r,
       share: ratio(r.executorSlotSeconds, total),

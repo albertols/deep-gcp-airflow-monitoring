@@ -56,7 +56,7 @@ export interface OccupancyBucket {
 /** Key used in {@link occupancySeries} results for the whole input. */
 export const TOTAL_KEY = '*';
 
-interface Interval {
+export interface Interval {
   readonly from: number;
   readonly to: number;
   readonly weight: number;
@@ -77,7 +77,7 @@ function observedEnd(w: SweepWindow): number {
 }
 
 /** The try's running interval clipped to the window, or `null` if it has none inside it. */
-function clippedInterval(t: TaskTry, w: SweepWindow, weight = 1): Interval | null | 'rejected' {
+export function clippedInterval(t: TaskTry, w: SweepWindow, weight = 1): Interval | null | 'rejected' {
   if (t.startAt === null || !Number.isFinite(t.startAt)) return 'rejected';
   const end = t.endAt ?? w.now;
   if (!Number.isFinite(end) || end < t.startAt) return 'rejected';
