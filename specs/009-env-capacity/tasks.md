@@ -4,7 +4,7 @@ Test tasks come before the code they cover.
 
 ## Domain
 
-- [ ] T-900 Test + code: per-minute worker figures, buckets, capacity-bound periods, scale events, heatmap
+- [x] T-900 Test + code: per-minute worker figures, buckets, capacity-bound periods, scale events, heatmap
       (FR-ENV-02, HM-011, HM-012)
 - [ ] T-901 Test + code: DAG × hour-of-day load for the top N DAGs from task tries (FR-DAGX-06)
 - [ ] T-902 Test + code: cron times in a window (HM-010)

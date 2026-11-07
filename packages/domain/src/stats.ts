@@ -33,6 +33,29 @@ export interface Quantile {
   readonly lowSample: boolean;
 }
 
+/** Median, p95 and max of a sample, with the §8.9 rule made explicit: no p95 under 20 samples. */
+export interface Spread {
+  readonly p50: number | null;
+  /** `null` with fewer than {@link MIN_SAMPLES_FOR_TAIL} samples: show the max and "low sample" instead. */
+  readonly p95: number | null;
+  readonly max: number | null;
+  readonly samples: number;
+  readonly lowSample: boolean;
+}
+
+export function spreadOf(values: readonly number[]): Spread {
+  const sorted = sortedFinite(values);
+  const samples = sorted.length;
+  const lowSample = samples < MIN_SAMPLES_FOR_TAIL;
+  return {
+    p50: percentileOfSorted(sorted, 0.5),
+    p95: lowSample ? null : percentileOfSorted(sorted, 0.95),
+    max: samples ? (sorted[samples - 1] as number) : null,
+    samples,
+    lowSample,
+  };
+}
+
 /** A percentile that follows the §8.9 rule: tail percentiles need at least 20 samples. */
 export function quantile(values: readonly number[], p: number): Quantile {
   const finite = values.filter(Number.isFinite);

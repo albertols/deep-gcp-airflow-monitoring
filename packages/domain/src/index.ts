@@ -23,3 +23,4 @@ export * from './retention';
 export * from './duration-regression';
 export * from './reliability';
 export * from './critical-path';
+export * from './capacity';
