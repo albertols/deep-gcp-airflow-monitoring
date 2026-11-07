@@ -78,18 +78,74 @@ describe('BudgetGate (FR-COLL-02, FR-COLL-06)', () => {
     expect(await time.settle(background)).toBe(T0 + 60_000);
   });
 
-  it('FR-COLL-06: background work also stays within the background budget class', async () => {
+  it('FR-COLL-02: background work gets its guaranteed share while standard work keeps the bucket more than half used', async () => {
+    // Standard profile: 12 a minute, background share 2. Standard work takes a token every 8 s (7 or 8 in
+    // any minute), so fewer than half the tokens are ever free: before, background work starved here.
+    const time = new FakeTime();
+    const g = gate(time, 12, Infinity, 2);
+    const background: number[] = [];
+    let stop = false;
+    const standard = async () => {
+      for (let t = 0; t < 600_000; t += 8_000) {
+        (await g.acquire({ priority: 'standard', deadline: time.now() }))();
+        await time.sleep(8_000);
+      }
+      stop = true;
+    };
+    const backfill = async () => {
+      await time.sleep(60_000);
+      while (!stop) {
+        const release = await g.acquire({ priority: 'background', deadline: time.now() + 120_000 });
+        background.push(time.now() - T0);
+        release();
+      }
+    };
+    await time.settle(Promise.all([standard(), backfill()]));
+    const contended = background.filter((t) => t < 600_000);
+    for (let m = 1; m < 10; m++)
+      expect(contended.filter((t) => t >= m * 60_000 && t < (m + 1) * 60_000).length, `minute ${m}`).toBe(2);
+    expect(maxInWindow(contended.map((t) => t + T0))).toBe(2);
+    // Once standard work stops, the bucket is more than half free and background work uses the spare capacity.
+    expect(background.filter((t) => t > 600_000).length).toBeGreaterThan(0);
+  });
+
+  it('FR-COLL-02: standard work waiting with background work is served first, even within the guaranteed share', async () => {
+    const time = new FakeTime();
+    const g = gate(time, 4, Infinity, 2);
+    // The bucket is empty and its tokens come back one a second from T0 + 60 s.
+    for (let i = 0; i < 4; i++) {
+      (await g.acquire({ priority: 'live', deadline: time.now() }))();
+      await time.advance(1_000);
+    }
+    // Background work queued first and has its share unused: the standard request still gets the first token.
+    const order: string[] = [];
+    const wait = (priority: 'standard' | 'background') =>
+      g.acquire({ priority, deadline: T0 + 300_000 }).then((release) => {
+        order.push(`${priority}@${time.now() - T0}`);
+        release();
+      });
+    await time.settle(Promise.all([wait('background'), wait('standard')]));
+    expect(order).toEqual(['standard@60000', 'background@61000']);
+  });
+
+  it('FR-COLL-06: beyond its share, background work uses spare capacity only while the bucket is at least half full', async () => {
     const time = new FakeTime();
     const g = gate(time, 60, Infinity, 2);
-    const at: number[] = [];
-    const run = async () => {
-      for (let i = 0; i < 6; i++) {
+    const background = async (n: number) => {
+      const at: number[] = [];
+      for (let i = 0; i < n; i++) {
         (await g.acquire({ priority: 'background', deadline: T0 + 600_000 }))();
         at.push(time.now() - T0);
       }
+      return at;
     };
-    await time.settle(run());
-    expect(at).toEqual([0, 0, 60_000, 60_000, 120_000, 120_000]);
+    // Far more than its share of 2, down to 29 tokens left: under half of 60 it stops.
+    expect(await time.settle(background(31))).toEqual(Array.from({ length: 31 }, () => 0));
+    // Live work finds the other half of the budget at once ...
+    for (let i = 0; i < 29; i++) (await g.acquire({ priority: 'live', deadline: T0 }))();
+    expect(time.now()).toBe(T0);
+    // ... and the next background request waits until the bucket is half full again.
+    expect(await time.settle(background(1))).toEqual([60_000]);
   });
 
   it('FR-COLL-06: a request that cannot get a token before its deadline fails with BudgetExhaustedError', async () => {
@@ -164,9 +220,11 @@ describe('effectiveBudgets (FR-COLL-06, §7.11 hard maxima)', () => {
     });
     expect(effectiveBudgets(config.budgets, 'live')).toEqual({
       airflow: 120,
-      airflowBackground: 120,
+      // A guaranteed background share is at most half the profile's budget.
+      airflowBackground: 60,
       airflowConcurrent: 4,
       monitoring: 120,
+      monitoringBackground: 20,
       composer: 30,
     });
     expect(effectiveBudgets(config.budgets, 'standard').airflow).toBe(12);
@@ -175,7 +233,22 @@ describe('effectiveBudgets (FR-COLL-06, §7.11 hard maxima)', () => {
       airflowBackground: 0,
       airflowConcurrent: 4,
       monitoring: 0,
+      monitoringBackground: 0,
       composer: 0,
     });
+  });
+
+  it('FR-COLL-06: Monitoring and Composer budgets follow the profile as in §7.11 (30/30/10/5, 6/6/2/1)', () => {
+    const { budgets } = workspace([composerEnv('acme-prod')]);
+    const google = (profile: 'live' | 'standard' | 'eco') => {
+      const b = effectiveBudgets(budgets, profile);
+      return [b.monitoring, b.monitoringBackground, b.composer];
+    };
+    expect(google('live')).toEqual([30, 5, 6]);
+    expect(google('standard')).toEqual([30, 5, 6]);
+    expect(google('eco')).toEqual([10, 5, 2]);
+    // The Airflow background share: the `background` budget class, at most half of eco's 4.
+    expect(effectiveBudgets(budgets, 'standard').airflowBackground).toBe(2);
+    expect(effectiveBudgets(budgets, 'eco').airflowBackground).toBe(2);
   });
 });

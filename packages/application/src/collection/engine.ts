@@ -14,9 +14,11 @@
  *   Airflow, from `composer.config` for Composer) and are woken as soon as it is set.
  *
  * Budgets (FR-COLL-06, NFR-OBS-05)
- * - Airflow per environment by the profile's budget class (background work also within `background`), at
- *   most `maxConcurrent` in flight; Composer per environment; Monitoring per project, shared by the
- *   project's environments. Every budget is clamped to the hard maxima.
+ * - Airflow per environment by the profile's budget class, at most `maxConcurrent` in flight; Composer per
+ *   environment; Monitoring per project, shared by the project's environments, at the budget of the most
+ *   demanding profile among them. Monitoring and Composer budgets follow the profile (§7.11). Background
+ *   work has a guaranteed share of the Airflow and Monitoring budgets (`budget.ts`). Every budget is
+ *   clamped to the hard maxima.
  * - One token per source call. A call may wait for a token until the cycle's deadline (its start plus its
  *   cadence). A call that gets none in time, or that would exceed the manifest's `maxRequestsPerCycle`,
  *   throws `BudgetExhaustedError`: the cycle ends early with reduced fidelity, not as a failure, and the
@@ -52,7 +54,13 @@ import {
   type Sleeper,
   type WorkspaceConfig,
 } from '@dcam/ports';
-import { BudgetGate, HARD_MAXIMA, TokenBucket, effectiveBudgets, type BudgetGateOptions } from './budget';
+import {
+  BudgetGate,
+  TokenBucket,
+  effectiveBudgets,
+  type BudgetGateOptions,
+  type EffectiveBudgets,
+} from './budget';
 import { CircuitBreaker } from './breaker';
 import {
   BudgetExhaustedError,
@@ -192,21 +200,38 @@ export function createCollectionEngine(deps: CollectionEngineDeps): CollectionEn
     api: ApiId,
     extra: Pick<BudgetGateOptions, 'backgroundBucket' | 'maxConcurrent'> = { maxConcurrent: () => Infinity },
   ) => new BudgetGate({ api, clock, sleeper, bucket: new TokenBucket(perMinute), ...extra });
-  // Cloud Monitoring budgets are per project (§7.11 item 1): one gate per project.
-  const monitoringPerMinute = Math.min(
-    Math.max(0, config.budgets.monitoringPerProjectPerMinute),
-    HARD_MAXIMA.monitoringPerMinute,
-  );
+  // Cloud Monitoring budgets are per project (§7.11 item 1): one gate per project, with the budget of the
+  // most demanding profile among the project's environments (eco alone gets the eco budget).
+  const projectBudgets = new Map<string, { monitoring: number; monitoringBackground: number }>();
+  for (const entry of config.environments) {
+    if (entry.source.kind !== 'composer') continue;
+    const b = effectiveBudgets(config.budgets, entry.profile);
+    const prev = projectBudgets.get(entry.source.projectId);
+    projectBudgets.set(entry.source.projectId, {
+      monitoring: Math.max(prev?.monitoring ?? 0, b.monitoring),
+      monitoringBackground: Math.max(prev?.monitoringBackground ?? 0, b.monitoringBackground),
+    });
+  }
   const projectGates = new Map<string, BudgetGate>();
   const monitoringGate = (env: EnvironmentEntry): BudgetGate => {
     if (env.source.kind !== 'composer') return gate(() => 0, 'monitoring');
     const key = env.source.projectId;
     let g = projectGates.get(key);
     if (!g) {
-      g = gate(() => monitoringPerMinute, 'monitoring');
+      const budget = projectBudgets.get(key) ?? { monitoring: 0, monitoringBackground: 0 };
+      g = gate(() => budget.monitoring, 'monitoring', {
+        backgroundBucket: new TokenBucket(() => budget.monitoringBackground),
+        maxConcurrent: () => Infinity,
+      });
       projectGates.set(key, g);
     }
     return g;
+  };
+  /** An environment's budgets, with the Monitoring budget of its project. */
+  const budgetsOf = (entry: EnvironmentEntry): EffectiveBudgets => {
+    const own = effectiveBudgets(config.budgets, entry.profile);
+    const project = entry.source.kind === 'composer' ? projectBudgets.get(entry.source.projectId) : undefined;
+    return project && entry.profile !== 'off' ? { ...own, ...project } : own;
   };
 
   const wake = (task: Task) => {
@@ -218,7 +243,7 @@ export function createCollectionEngine(deps: CollectionEngineDeps): CollectionEn
 
   const envs = new Map<string, EnvRuntime>();
   for (const entry of config.environments) {
-    const budgets = effectiveBudgets(config.budgets, entry.profile);
+    const budgets = budgetsOf(entry);
     const google = entry.source.kind === 'composer';
     const tasks: Task[] = [];
     const runtime: EnvRuntime = {

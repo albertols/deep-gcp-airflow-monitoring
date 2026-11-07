@@ -6,13 +6,23 @@
  *   any 60 s window (NFR-OBS-05), which a classic refilling bucket does not guarantee (a full bucket plus
  *   the refill admits up to twice the rate in one minute). A budget below one request per minute spaces
  *   single requests out (0.5/min admits one request per 120 s).
- * - {@link BudgetGate} queues requests by priority (live > standard > background, FR-COLL-02). Background
- *   work only takes a token while the bucket is at least half full, so it always yields, and on the
- *   Airflow API it also stays within the `background` budget class. A request that cannot start before
- *   its deadline is refused at once with {@link BudgetExhaustedError}: the cycle then ends early with
- *   reduced fidelity instead of exceeding the budget (FR-COLL-06).
+ * - {@link BudgetGate} queues requests by priority (live > standard > background, FR-COLL-02): a request
+ *   waiting at the same time as a lower-priority one is always served first. Background work (inventory,
+ *   backfill, FR-COLL-04) takes a token in two ways, and never beyond the budget:
+ *   - its guaranteed share: up to the background bucket's rate (the `background` budget class, at most
+ *     half the profile's budget) whenever a token is free, so it completes even while live and standard
+ *     work keep more than half the bucket busy (feature 004: on the standard profile those use 6–7 of 12);
+ *   - spare capacity: any token while the bucket is at least half full, so the other half stays free for
+ *     bursts of live and standard work (§7.11 item 2, "background work always yields").
+ *   Live and standard work can therefore lose at most the guaranteed share to background work: 2 of 12
+ *   requests a minute on the standard profile, leaving 10 for the 8.8–9.8 of the §7.11 arithmetic.
+ *   A request that cannot start before its deadline is refused at once with {@link BudgetExhaustedError}:
+ *   the cycle then ends early with reduced fidelity instead of exceeding the budget (FR-COLL-06).
+ * - Cloud Monitoring and Composer budgets follow the profile as §7.11's table does (Monitoring 30 / 30 / 10
+ *   / 5, Composer 6 / 6 / 2 / 1 for live / standard / eco / background): the configured value is the live
+ *   and standard budget, eco gets a third of it and background work a sixth.
  *
- * @implements FR-COLL-02, FR-COLL-06, NFR-OBS-05
+ * @implements FR-COLL-02, FR-COLL-04, FR-COLL-06, NFR-OBS-05
  */
 import type { Budgets, Clock, Profile, Sleeper } from '@dcam/ports';
 import { BudgetExhaustedError, type ApiId, type CollectorManifest } from './types';
@@ -35,25 +45,61 @@ export const HARD_MAXIMA = {
 export interface EffectiveBudgets {
   /** Airflow API requests per minute for the environment's profile class. */
   readonly airflow: number;
-  /** Airflow API requests per minute for background work (inventory refreshes). */
+  /** Guaranteed Airflow API requests per minute of background work (inventory, backfill), within `airflow`. */
   readonly airflowBackground: number;
   readonly airflowConcurrent: number;
-  /** Cloud Monitoring requests per minute, shared by every environment of the project. */
+  /** Cloud Monitoring requests per minute for the profile; the project's environments share one budget. */
   readonly monitoring: number;
+  /** Guaranteed Cloud Monitoring requests per minute of background work (the metrics backfill). */
+  readonly monitoringBackground: number;
   readonly composer: number;
 }
 
 const clamp = (value: number, max: number) => Math.min(Math.max(0, value), max);
 
+/**
+ * Share of the configured Monitoring and Composer budget per budget class (§7.11 table: Monitoring
+ * 30 / 30 / 10 / 5 and Composer 6 / 6 / 2 / 1 for live / standard / eco / background).
+ */
+export const GOOGLE_PROFILE_SHARE: Readonly<Record<Exclude<Profile, 'off'> | 'background', number>> = {
+  live: 1,
+  standard: 1,
+  eco: 1 / 3,
+  background: 1 / 6,
+};
+
+/** A guaranteed background share never takes more than half the budget it lives in. */
+const guaranteed = (background: number, budget: number) => Math.min(background, budget / 2);
+
 /** Requests per minute by API for an environment on `profile`; `off` makes no requests. */
 export function effectiveBudgets(budgets: Budgets, profile: Profile): EffectiveBudgets {
-  const on = profile !== 'off';
+  const airflowConcurrent = Math.max(
+    1,
+    clamp(budgets.airflowApi.maxConcurrent, HARD_MAXIMA.airflowConcurrent),
+  );
+  if (profile === 'off')
+    return {
+      airflow: 0,
+      airflowBackground: 0,
+      airflowConcurrent,
+      monitoring: 0,
+      monitoringBackground: 0,
+      composer: 0,
+    };
+  const airflow = clamp(budgets.airflowApi[profile], HARD_MAXIMA.airflowPerMinute);
+  const monitoringConfigured = clamp(budgets.monitoringPerProjectPerMinute, HARD_MAXIMA.monitoringPerMinute);
+  const monitoring = monitoringConfigured * GOOGLE_PROFILE_SHARE[profile];
+  const composer = clamp(budgets.composerApiPerMinute, HARD_MAXIMA.composerPerMinute);
   return {
-    airflow: on ? clamp(budgets.airflowApi[profile], HARD_MAXIMA.airflowPerMinute) : 0,
-    airflowBackground: on ? clamp(budgets.airflowApi.background, HARD_MAXIMA.airflowPerMinute) : 0,
-    airflowConcurrent: Math.max(1, clamp(budgets.airflowApi.maxConcurrent, HARD_MAXIMA.airflowConcurrent)),
-    monitoring: on ? clamp(budgets.monitoringPerProjectPerMinute, HARD_MAXIMA.monitoringPerMinute) : 0,
-    composer: on ? clamp(budgets.composerApiPerMinute, HARD_MAXIMA.composerPerMinute) : 0,
+    airflow,
+    airflowBackground: guaranteed(
+      clamp(budgets.airflowApi.background, HARD_MAXIMA.airflowPerMinute),
+      airflow,
+    ),
+    airflowConcurrent,
+    monitoring,
+    monitoringBackground: guaranteed(monitoringConfigured * GOOGLE_PROFILE_SHARE.background, monitoring),
+    composer: composer * GOOGLE_PROFILE_SHARE[profile],
   };
 }
 
@@ -113,7 +159,7 @@ export interface BudgetGateOptions {
   readonly clock: Clock;
   readonly sleeper: Sleeper;
   readonly bucket: TokenBucket;
-  /** Background requests also take a token here (the Airflow API's `background` budget class). */
+  /** The guaranteed share of background work; background requests also take a token here. */
   readonly backgroundBucket?: TokenBucket;
   readonly maxConcurrent: () => number;
 }
@@ -202,12 +248,18 @@ export class BudgetGate {
     return this.inFlight < this.options.maxConcurrent();
   }
 
-  /** When a request of this priority could take its tokens. */
+  /**
+   * When a request of this priority could take its tokens. Background work: within its guaranteed share
+   * whenever a token is free, beyond it only while the bucket is at least half full (spare capacity).
+   */
   private tokensAt(priority: Priority, now: number): number {
     const { bucket, backgroundBucket } = this.options;
     if (priority !== 'background') return bucket.availableAt(now, 1);
     const half = Math.max(1, Math.ceil(bucket.capacity() / 2));
-    return Math.max(bucket.availableAt(now, half), backgroundBucket?.availableAt(now, 1) ?? now);
+    const spare = bucket.availableAt(now, half);
+    if (!backgroundBucket) return spare;
+    const share = Math.max(bucket.availableAt(now, 1), backgroundBucket.availableAt(now, 1));
+    return Math.min(spare, share);
   }
 
   private grant(w: Waiter, now: number): void {

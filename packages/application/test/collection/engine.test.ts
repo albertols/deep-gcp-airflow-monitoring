@@ -232,9 +232,11 @@ describe('budgets (FR-COLL-06, NFR-OBS-05)', () => {
     expect(maxInWindow(airflow('acme-composer-dev'))).toBe(4);
     expect(maxInWindow(airflow('acme-emulator'))).toBe(60);
     for (const [envId, peak] of fake.airflowPeak) expect(peak, envId).toBeLessThanOrEqual(2);
-    // Composer per environment (6/min); Monitoring per project (30/min, shared by prod and etl).
-    for (const env of environments.slice(0, 3))
+    // Composer per environment (6/min, eco 2/min); Monitoring per project (30/min, shared by prod and etl;
+    // 10/min for the eco environment's own project), as §7.11 lowers them per profile.
+    for (const env of environments.slice(0, 2))
       expect(maxInWindow(times((c) => c.envId === env.id && c.api === 'composer'))).toBeLessThanOrEqual(6);
+    expect(maxInWindow(times((c) => c.envId === 'acme-composer-dev' && c.api === 'composer'))).toBe(2);
     expect(
       maxInWindow(
         times(
@@ -243,8 +245,31 @@ describe('budgets (FR-COLL-06, NFR-OBS-05)', () => {
         ),
       ),
     ).toBe(30);
-    expect(maxInWindow(times((c) => c.envId === 'acme-composer-dev' && c.api === 'monitoring'))).toBe(30);
+    expect(maxInWindow(times((c) => c.envId === 'acme-composer-dev' && c.api === 'monitoring'))).toBe(10);
+    const budgetOf = (envId: string, api: string) =>
+      engine
+        .status()
+        .environments.find((e) => e.env_id === envId)
+        ?.footprint.find((f) => f.api === api)?.budget_per_minute;
+    expect(budgetOf('acme-composer-dev', 'monitoring')).toBe(10);
+    expect(budgetOf('acme-composer-dev', 'composer')).toBe(2);
+    expect(budgetOf('acme-composer-etl', 'monitoring')).toBe(30);
     expect(time.pending).toBe(0);
+  });
+
+  it('FR-COLL-06: a project whose environments all run eco gets the eco Monitoring budget', async () => {
+    const environments = [
+      composerEnv('acme-composer-dev', 'eco', 'acme-dev-456'),
+      composerEnv('acme-composer-test', 'eco', 'acme-dev-456'),
+    ];
+    const { time, fake, engine } = setup({
+      environments,
+      collectors: [greedy(manifest({ id: 'mon.core', maxRequestsPerCycle: 1_000 }))],
+    });
+    engine.start();
+    await time.advance(10 * 60_000);
+    await time.settle(engine.stop());
+    expect(maxInWindow(fake.calls.filter((c) => c.api === 'monitoring').map((c) => c.at))).toBe(10);
   });
 
   it('FR-COLL-06: a cycle stops at its request maximum and reports reduced fidelity, not a failure', async () => {
