@@ -17,7 +17,9 @@
  * Cron times are evaluated in UTC, so a logical date the cron does not produce in UTC (a DAG in another
  * time zone) gives no interval rather than a wrong one.
  *
- * @implements HM-009, HM-002, FR-BOTL-03
+ * Also the planned starts of a window (HM-010 24-hour forecast): the cron times between two instants, UTC.
+ *
+ * @implements HM-009, HM-002, HM-010, FR-BOTL-03
  */
 import type { DagMeta } from './model';
 
@@ -198,6 +200,28 @@ function nextCronTime(c: Cron, after: number): number | null {
     else return t;
   }
   return null;
+}
+
+/**
+ * HM-010: the cron times of a schedule in `[from, to)`, UTC, ascending; `null` for schedules without cron times
+ * (`None`, `@once`, timedeltas, assets). One pass per UTC day of the window: O(days × hours × minutes).
+ */
+export function cronTimesBetween(schedule: string, from: number, to: number): number[] | null {
+  const cron = parseCron(schedule);
+  if (!cron) return null;
+  const hours = [...cron.hours].sort((a, b) => a - b);
+  const minutes = [...cron.minutes].sort((a, b) => a - b);
+  const out: number[] = [];
+  for (let day = Math.floor(from / DAY_MS) * DAY_MS; day < to; day += DAY_MS) {
+    const d = new Date(day);
+    if (!cron.months.has(d.getUTCMonth() + 1) || !dayMatches(cron, d)) continue;
+    for (const h of hours)
+      for (const m of minutes) {
+        const t = day + h * 3_600_000 + m * MIN_MS;
+        if (t >= from && t < to) out.push(t);
+      }
+  }
+  return out;
 }
 
 /** Python's `str(timedelta)` as the Airflow API adapter prints it (`0:07:00`, `1 day, 0:00:00`), in ms. */

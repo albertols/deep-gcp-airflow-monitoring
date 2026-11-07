@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { collisionDensity, dailyStartsByMinute, withStartMinute, type DagMeta } from '../src/index';
+import {
+  collisionDensity,
+  cronTimesBetween,
+  dailyStartsByMinute,
+  withStartMinute,
+  type DagMeta,
+} from '../src/index';
 
 const sum = (xs: readonly number[]) => xs.reduce((s, x) => s + x, 0);
 
@@ -87,5 +93,32 @@ describe('HM-009 stagger helper (FR-BOTL-04)', () => {
   it('REC-SCHED-01: leaves schedules with several or no fixed minutes alone', () => {
     for (const s of ['*/15 * * * *', '0,30 * * * *', '0-5 * * * *', '@once', 'None'])
       expect(withStartMinute(s, 7)).toBeNull();
+  });
+});
+
+describe('HM-010 planned starts in a window', () => {
+  const at = (day: number, hour: number, minute = 0) => Date.UTC(2026, 10, day, hour, minute);
+
+  it('HM-010: a daily cron starts once in the next 24 h, at its UTC time', () => {
+    expect(cronTimesBetween('30 1 * * *', at(5, 12), at(6, 12))).toEqual([at(6, 1, 30)]);
+    expect(cronTimesBetween('@daily', at(5, 12), at(6, 12))).toEqual([at(6, 0)]);
+  });
+
+  it('HM-010: the window includes its start and excludes its end', () => {
+    expect(cronTimesBetween('0 * * * *', at(5, 11), at(5, 13))).toEqual([at(5, 11), at(5, 12)]);
+    expect(cronTimesBetween('0 * * * *', at(5, 10, 30), at(5, 11))).toEqual([]);
+  });
+
+  it('HM-010: day-of-week and day-of-month restrictions hold, and combine with OR when both are set', () => {
+    // Friday 6 to Sunday 8 November 2026: weekdays only means Friday's eight quarter-hours.
+    const friday = cronTimesBetween('*/15 9-10 * * 1-5', at(6, 0), at(8, 0));
+    expect(friday).toEqual([0, 15, 30, 45, 60, 75, 90, 105].map((m) => at(6, 9) + m * 60_000));
+    // Sunday 1 November is day 1; Mondays 2 and 9.
+    expect(cronTimesBetween('0 0 1 * 1', at(1, 0), at(10, 0))).toEqual([at(1, 0), at(2, 0), at(9, 0)]);
+  });
+
+  it('HM-010: schedules without cron times give null (their demand is in the baseline)', () => {
+    for (const s of ['None', '@once', '1:00:00', 'acme_orders_ready', '* * *'])
+      expect(cronTimesBetween(s, at(5, 0), at(6, 0))).toBeNull();
   });
 });
