@@ -21,3 +21,18 @@ describe('FR-SETUP-02 dcam.config.example.yaml (§17.6)', () => {
     });
   });
 });
+
+const emulator = fileURLToPath(
+  new URL('../../../../tools/emulator/dcam.config.emulator.yaml', import.meta.url),
+);
+
+describe('FR-EMU-02 tools/emulator/dcam.config.emulator.yaml (§20)', () => {
+  it('FR-EMU-02: the emulator configuration loads with no issues and no warnings', async () => {
+    const result = await loadWorkspaceConfig({ flagPath: emulator, env: {}, cwd: tempDir(), homeDir: HOME });
+    if (!result.ok) throw new Error(JSON.stringify(result.issues, null, 2));
+    expect(result.warnings).toEqual([]);
+    expect(result.config.environments.map((e) => [e.id, e.source.kind])).toEqual([
+      ['acme-emulator', 'airflow'],
+    ]);
+  });
+});

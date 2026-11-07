@@ -9,7 +9,6 @@
 version: 1
 
 workspace:
-  name: acme-emulator
   # Kept apart from the data of real environments.
   dataDir: ~/.dcam/emulator-data
 
