@@ -25,3 +25,4 @@ export * from './reliability';
 export * from './critical-path';
 export * from './capacity';
 export * from './dag-load';
+export * from './forecast';

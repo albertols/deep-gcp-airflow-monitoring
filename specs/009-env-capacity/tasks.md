@@ -8,7 +8,7 @@ Test tasks come before the code they cover.
       (FR-ENV-02, HM-011, HM-012)
 - [x] T-901 Test + code: DAG × hour-of-day load for the top N DAGs from task tries (FR-DAGX-06)
 - [x] T-902 Test + code: cron times in a window (HM-010)
-- [ ] T-903 Test + code: run profiles, planned runs, baseline, p10/p50/p90, saturation windows, pools,
+- [x] T-903 Test + code: run profiles, planned runs, baseline, p10/p50/p90, saturation windows, pools,
       low confidence under 14 days (HM-010, FR-BOTL-05)
 
 ## Application, contract, server
