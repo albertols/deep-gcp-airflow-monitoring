@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import {
+  attributeWaiting,
   poolActivity,
   type EnvironmentConfig,
   type LiveSnapshot,
@@ -92,6 +93,32 @@ describe('FR-ENV-08 pool activity', () => {
   it('FR-ENV-08: starved time is zero open slots while ready work waited; buckets without snapshots are gaps', () => {
     expect(pool?.starvedMs).toBe(60 * SEC);
     expect(pool?.starvedByBucket).toEqual([60 * SEC, 0, null]);
+  });
+
+  it('FR-ENV-08: the cadence is that of raw snapshots: thinned ones (one per 5 min) do not stretch the raw ones', () => {
+    // 20 h thinned, then 2 h raw every 30 s, then the collector stops 20 min before the end.
+    const starved = etl(2, 0);
+    const thinned = Array.from({ length: 240 }, (_, k) => ({
+      ...snap(T0 + k * 5 * MIN, starved, [ti('a')]),
+      spanMs: 5 * MIN,
+    }));
+    const rawFrom = T0 + 20 * 60 * MIN;
+    const raw = Array.from({ length: 240 }, (_, k) => snap(rawFrom + k * 30 * SEC, starved, [ti('a')]));
+    const to = rawFrom + 140 * MIN;
+    const [p] = poolActivity([...thinned, ...raw], config, { ...opts, to, bucketMs: 60 * MIN });
+    // Each raw snapshot stands for 30 s, the last one too: the 20 min after it are a collection gap.
+    expect(p?.observedMs).toBe(20 * 60 * MIN + 120 * MIN);
+    expect(p?.starvedMs).toBe(20 * 60 * MIN + 120 * MIN);
+    const a = attributeWaiting(
+      [...thinned, ...raw],
+      { config, dagMaxActiveTasks: new Map() },
+      {
+        ...opts,
+        to,
+        bucketMs: 60 * MIN,
+      },
+    );
+    expect(a.coveredMs).toBe(p?.observedMs);
   });
 
   it('FR-ENV-08: a pool never seen in a snapshot has no means (no data, never zero)', () => {

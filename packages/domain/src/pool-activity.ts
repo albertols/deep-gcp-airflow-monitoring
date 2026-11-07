@@ -1,8 +1,8 @@
 /**
  * Pools over a range (FR-ENV-08, the pools section of S-16): how many slots each pool ran and queued, how
  * much ready and queued work waited in it, when it starved, and which DAGs waited most. Each live snapshot
- * stands for the real gap to the next one, capped at two cadences (`snapshot-time.ts`), as in the HM-006
- * attribution, so both add up over the same time.
+ * stands for the real gap to the next one, capped at two cadences of the raw snapshots (`snapshot-time.ts`), as
+ * in the HM-006 attribution, so both add up over the same time.
  *
  * "Starved" means zero open slots while ready (`scheduled`) work waited for the pool, the rule REC-CONC-02
  * and the attribution use. Deferred slots are not part of DCAM's snapshots and are not reported.
@@ -10,7 +10,7 @@
  * @implements FR-ENV-08
  */
 import type { EnvironmentConfig, LiveSnapshot } from './model';
-import { observedCadenceMs, snapshotSpans } from './snapshot-time';
+import { rawCadenceMs, snapshotSpans } from './snapshot-time';
 
 export interface PoolActivityOptions {
   readonly from: number;
@@ -80,7 +80,9 @@ export function poolActivity(
     ]),
   );
   const inWindow = snapshots.filter((s) => s.at >= opts.from && s.at < opts.to);
-  const spans = snapshotSpans(inWindow, observedCadenceMs(inWindow) ?? opts.fallbackCadenceMs, opts.to);
+  // Thinned snapshots (FR-STORE-07) carry their own span and say nothing about the af.live cadence: five
+  // minutes between them would let a raw snapshot stand for up to ten (as in the HM-006 attribution).
+  const spans = snapshotSpans(inWindow, rawCadenceMs(inWindow) ?? opts.fallbackCadenceMs, opts.to);
 
   inWindow.forEach((s, i) => {
     const span = spans[i] ?? 0;
