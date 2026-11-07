@@ -6,6 +6,7 @@ export * from './snapshot-time';
 export * from './attribution';
 export * from './pool-activity';
 export * from './noisy-neighbours';
+export * from './priority-fairness';
 export * from './health';
 export * from './dag-runs';
 export * from './dag-league';
