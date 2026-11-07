@@ -4,6 +4,7 @@ export * from './model';
 export * from './waiting';
 export * from './snapshot-time';
 export * from './attribution';
+export * from './pool-activity';
 export * from './health';
 export * from './dag-runs';
 export * from './dag-league';

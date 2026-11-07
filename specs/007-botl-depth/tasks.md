@@ -5,7 +5,7 @@ Test tasks come before the code they cover.
 ## Domain
 
 - [x] T-700 Test + code: top pools per HM-006 reason with shares (FR-BOTL-01, HM-006)
-- [ ] T-701 Test + code: pool activity per pool and bucket (FR-ENV-08)
+- [x] T-701 Test + code: pool activity per pool and bucket (FR-ENV-08)
 - [ ] T-702 Test + code: HM-017 noisy neighbours, golden and property tests (HM-017, FR-BOTL-06)
 - [ ] T-703 Test + code: HM-023 priority bands with observed waits (HM-023)
 - [ ] T-704 Test + code: planned and actual start heatmaps, top colliding minutes and schedules (HM-009,
