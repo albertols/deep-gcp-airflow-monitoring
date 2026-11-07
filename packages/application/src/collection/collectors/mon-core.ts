@@ -24,17 +24,32 @@
  * - Windows (FR-COLL-07): they end at now minus the ingestion delay (120 s; database metrics 180 s),
  *   on a minute boundary, and each cycle re-reads the trailing 10 minutes (§7.7 L717) so late points
  *   replace earlier ones (`saveWorkerSamples` upserts by minute). The first window covers an hour;
- *   backfill is FR-COLL-04 (M2). Alignment periods are at least 60 s (Monitoring API rule).
+ *   older history is `mon.backfill`'s (FR-COLL-04). Alignment periods are at least 60 s (Monitoring API
+ *   rule). The worker type, limits and the per-minute join are shared with it (`worker-samples.ts`).
  * - A minute without one of its inputs is left out rather than filled with zero (NFR-DATA-03). Without
  *   an autoscaler point the target is the current worker count (no scale-up evidence).
  *
  * @implements FR-COLL-01, FR-COLL-06, FR-COLL-07, HM-011, HM-012, HM-028, NFR-OBS-06
  */
-import { quantile, type EnvironmentConfig, type PlatformHealth, type WorkerSample } from '@dcam/domain';
-import { SourceError, type Aligner, type MetricQuery, type MetricSeries, type Reducer } from '@dcam/ports';
+import { quantile, type PlatformHealth, type WorkerSample } from '@dcam/domain';
+import { SourceError, type Aligner, type MetricQuery, type Reducer } from '@dcam/ports';
 import { BudgetExhaustedError, type Collector } from '../types';
+import {
+  discoverWorkerType,
+  environmentBase,
+  floorMinute,
+  maxOf,
+  metricQuery,
+  readWorkerLimits,
+  readWorkerSamples,
+  values,
+  workloadBase,
+  type MetricBase,
+  type WorkerLimits,
+} from './worker-samples';
 
-const PREFIX = 'composer.googleapis.com/';
+export { targetWorkers, workerTypeOf } from './worker-samples';
+
 const MIN = 60_000;
 /** "Data is not visible for up to 120 seconds" for most Composer metrics (Appendix A.1). */
 export const MON_INGESTION_DELAY_MS = 120_000;
@@ -47,65 +62,17 @@ const LIMITS_EVERY_MS = 60 * MIN;
 /** Discovery, six sample queries, two limits and seven health queries. */
 const MAX_REQUESTS = 16;
 
-type Base = Pick<MetricQuery, 'projectId' | 'resourceType' | 'resourceLabels'>;
-
 interface EnvState {
   lastEnd?: number;
   workerType?: string;
-  limits?: { readonly cores: number; readonly memoryBytes: number; readonly at: number };
+  limits?: WorkerLimits & { readonly at: number };
   healthAt?: number;
 }
 
-const floorMinute = (ms: number) => Math.floor(ms / MIN) * MIN;
 const round6 = (x: number) => Math.round(x * 1e6) / 1e6;
-const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
-
-/** Points by minute; several series (which the reducers should prevent) merge with `merge`. */
-function byMinute(
-  series: readonly MetricSeries[],
-  merge: (a: number, b: number) => number,
-): Map<number, number> {
-  const out = new Map<number, number>();
-  for (const s of series)
-    for (const p of s.points) {
-      const at = Math.round(p.at / MIN) * MIN;
-      const prev = out.get(at);
-      out.set(at, prev === undefined ? p.value : merge(prev, p.value));
-    }
-  return out;
-}
-const values = (series: readonly MetricSeries[]) => series.flatMap((s) => s.points.map((p) => p.value));
 const mean = (xs: readonly number[]) =>
   xs.length ? round6(xs.reduce((a, b) => a + b, 0) / xs.length) : null;
-const maxOf = (xs: readonly number[]) => (xs.length ? Math.max(...xs) : null);
 const sumOf = (xs: readonly number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) : null);
-
-/** The Celery worker type among the `type` label values seen (⚠️ VERIFY the actual values). */
-export function workerTypeOf(types: readonly string[]): string | null {
-  const lower = (t: string) => t.toLowerCase();
-  return (
-    types.find((t) => lower(t).includes('celery')) ??
-    types.find((t) => lower(t) === 'worker') ??
-    types.find((t) => lower(t).includes('worker') && !/kubernetes|k8s/.test(lower(t))) ??
-    null
-  );
-}
-
-/**
- * Target workers from `scale_factor_target`. ⚠️ VERIFY: Google describes it only as "Scale factor for
- * Airflow workers count", calculated from current workers, queued tasks, idle workers and
- * `worker_concurrency`, applied through the Kubernetes Horizontal Pod Autoscaler
- * (https://docs.cloud.google.com/composer/docs/composer-3/environment-scaling). DCAM reads it as a
- * ratio, desired = ceil(current × factor), clamped to `min_count`…`max_count`; the M1 spike confirms it.
- */
-export function targetWorkers(
-  workers: number,
-  factor: number,
-  config: Pick<EnvironmentConfig, 'minWorkers' | 'maxWorkers'> | null,
-): number {
-  const desired = Math.ceil(workers * factor - 1e-9);
-  return config ? Math.min(config.maxWorkers, Math.max(config.minWorkers, desired)) : desired;
-}
 
 export function monCoreCollector(): Collector {
   const states = new Map<string, EnvState>();
@@ -139,28 +106,16 @@ export function monCoreCollector(): Collector {
         ctx.countSeries(series.length);
         return series;
       };
-      const environment: Base = {
-        projectId: source.projectId,
-        resourceType: 'cloud_composer_environment',
-        resourceLabels: { location: source.location, environment_name: source.environment },
-      };
+      const environment = environmentBase(source);
       const metric = (
-        base: Base,
+        base: MetricBase,
         name: string,
         from: number,
         to: number,
         aligner: Aligner,
         reducer: Reducer,
         alignmentPeriodSeconds = 60,
-      ): MetricQuery => ({
-        ...base,
-        metricType: PREFIX + name,
-        from,
-        to,
-        alignmentPeriodSeconds,
-        aligner,
-        reducer,
-      });
+      ): MetricQuery => metricQuery(base, name, from, to, aligner, reducer, alignmentPeriodSeconds);
 
       let dataAsOf: number | null = null;
       try {
@@ -189,21 +144,9 @@ export function monCoreCollector(): Collector {
       }
       return { dataAsOf };
 
-      async function workload(): Promise<Base | null> {
-        const base: Base = { ...environment, resourceType: 'cloud_composer_workload' };
+      async function workload(): Promise<MetricBase | null> {
         if (state.workerType === undefined) {
-          const series = await query({
-            ...metric(
-              base,
-              'workload/memory/bytes_used',
-              end - MON_TRAILING_MS,
-              end,
-              'ALIGN_MAX',
-              'REDUCE_MAX',
-            ),
-            groupBy: ['resource.labels.type'],
-          });
-          const type = workerTypeOf(series.map((s) => s.resourceLabels.type ?? '').filter((t) => t !== ''));
+          const type = await discoverWorkerType(query, environment, end - MON_TRAILING_MS, end);
           if (type === null) {
             ctx.reducedFidelity(
               'No Celery worker workload metrics were found, so worker CPU and memory are unknown.',
@@ -212,7 +155,7 @@ export function monCoreCollector(): Collector {
           }
           state.workerType = type;
         }
-        return { ...base, resourceLabels: { ...base.resourceLabels, type: state.workerType } };
+        return workloadBase(environment, state.workerType);
       }
 
       async function readSamples(): Promise<WorkerSample[]> {
@@ -224,97 +167,16 @@ export function monCoreCollector(): Collector {
         const workers = await workload();
         if (!workers) return [];
         if (!state.limits || now - state.limits.at >= LIMITS_EVERY_MS) {
-          const recent = end - MON_TRAILING_MS;
-          const cores = maxOf(
-            values(
-              await query(
-                metric(workers, 'workload/cpu/reserved_cores', recent, end, 'ALIGN_MAX', 'REDUCE_MAX'),
-              ),
-            ),
-          );
-          const memory = maxOf(
-            values(
-              await query(metric(workers, 'workload/memory/quota', recent, end, 'ALIGN_MAX', 'REDUCE_MAX')),
-            ),
-          );
-          if (cores === null || memory === null || cores <= 0 || memory <= 0) {
+          const limits = await readWorkerLimits(query, workers, end - MON_TRAILING_MS, end);
+          if (limits === null) {
             ctx.reducedFidelity('Worker CPU and memory limits are not reported yet, so worker samples wait.');
             return [];
           }
-          state.limits = { cores, memoryBytes: memory, at: now };
+          state.limits = { ...limits, at: now };
         }
-        const max = Math.max;
-        const sum = (a: number, b: number) => a + b;
-        const count = byMinute(
-          await query(
-            metric(environment, 'environment/num_celery_workers', from, end, 'ALIGN_MAX', 'REDUCE_MAX'),
-          ),
-          max,
-        );
-        const factor = byMinute(
-          await query(
-            metric(
-              environment,
-              'environment/worker/scale_factor_target',
-              from,
-              end,
-              'ALIGN_MAX',
-              'REDUCE_MAX',
-            ),
-          ),
-          max,
-        );
-        const running = byMinute(
-          await query(
-            metric(environment, 'environment/executor/running_tasks', from, end, 'ALIGN_MAX', 'REDUCE_SUM'),
-          ),
-          sum,
-        );
-        const queued = byMinute(
-          await query(
-            metric(environment, 'environment/executor/queued_tasks', from, end, 'ALIGN_MAX', 'REDUCE_SUM'),
-          ),
-          sum,
-        );
-        const cpu = byMinute(
-          await query(metric(workers, 'workload/cpu/usage_time', from, end, 'ALIGN_RATE', 'REDUCE_MAX')),
-          max,
-        );
-        const memory = byMinute(
-          await query(metric(workers, 'workload/memory/bytes_used', from, end, 'ALIGN_MAX', 'REDUCE_MAX')),
-          max,
-        );
-
-        const config = await ctx.store.config(envId);
         const limits = state.limits;
-        if (!limits) return [];
-        const samples: WorkerSample[] = [];
-        for (const [at, w] of [...count].sort((a, b) => a[0] - b[0])) {
-          const r = running.get(at);
-          const q = queued.get(at);
-          const c = cpu.get(at);
-          const m = memory.get(at);
-          if (
-            at <= from ||
-            at > end ||
-            r === undefined ||
-            q === undefined ||
-            c === undefined ||
-            m === undefined
-          )
-            continue;
-          const current = Math.round(w);
-          const f = factor.get(at);
-          samples.push({
-            at,
-            workers: current,
-            target: f === undefined ? current : targetWorkers(current, f, config),
-            running: Math.round(r),
-            queued: Math.round(q),
-            cpu: round6(clamp01(c / limits.cores)),
-            memory: round6(clamp01(m / limits.memoryBytes)),
-          });
-        }
+        const config = await ctx.store.config(envId);
+        const samples = await readWorkerSamples(query, environment, workers, from, end, limits, config);
         state.lastEnd = end;
         return samples;
       }

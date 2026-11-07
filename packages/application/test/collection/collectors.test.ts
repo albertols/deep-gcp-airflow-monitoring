@@ -11,6 +11,7 @@ describe('FR-COLL-01 the M1 collector set', () => {
       'af.facts',
       'af.backfill',
       'mon.core',
+      'mon.backfill',
     ]);
     for (const { manifest } of collectors) {
       expect(manifest.maxRequestsPerCycle).toBeGreaterThan(0);

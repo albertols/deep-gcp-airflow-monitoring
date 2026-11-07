@@ -11,6 +11,7 @@ import { afFactsCollector } from './af-facts';
 import { afInventoryCollector } from './af-inventory';
 import { afLiveCollector } from './af-live';
 import { composerConfigCollector } from './composer-config';
+import { monBackfillCollector } from './mon-backfill';
 import { monCoreCollector } from './mon-core';
 
 export {
@@ -23,6 +24,7 @@ export {
 export { afBackfillCollector } from './af-backfill';
 export { FactWindowReader, type FactWindowReaderOptions } from './fact-windows';
 export { afInventoryCollector } from './af-inventory';
+export { monBackfillCollector } from './mon-backfill';
 export { afLiveCollector } from './af-live';
 export { composerConfigCollector } from './composer-config';
 export {
@@ -53,5 +55,6 @@ export function createCollectors(): readonly Collector[] {
     afFactsCollector(),
     afBackfillCollector(),
     monCoreCollector(),
+    monBackfillCollector(),
   ];
 }
