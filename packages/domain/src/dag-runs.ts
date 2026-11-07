@@ -121,7 +121,9 @@ export function triesByTaskInstanceOf<T extends Pick<TaskTry, 'dagId' | 'runId' 
 /**
  * HM-015 flakiness of one task instance: its latest try succeeded after a failed try.
  * - `observed`: an earlier failed try is stored.
- * - `inferred`: only the successful latest try is stored and its try number is above 1. The backfill and
+ * - `inferred`: the latest try succeeded, its try number is above 1, and no earlier try is stored, or only
+ *   earlier tries the store closed without a state (`NULL`: it stopped showing as running before its row was
+ *   read, `closeRunningTries`). The backfill and
  *   `af.facts` read the current row of a task instance, so an earlier try retried before DCAM read it is
  *   never stored (spec 004). ⚠️ VERIFY: in Airflow 2.10+ clearing a task instance also raises `try_number`,
  *   so an inferred count is an upper bound.
@@ -136,7 +138,8 @@ export function flakiness(taskInstanceTries: readonly DagTaskTry[]): Flakiness |
   const last = final;
   const earlier = taskInstanceTries.filter((t) => t.tryNumber < last.tryNumber);
   if (earlier.some(isFailedTry)) return 'observed';
-  return earlier.length === 0 && last.tryNumber > 1 ? 'inferred' : null;
+  // An earlier try the store closed without a state (its row never read) says no more than a missing one.
+  return last.tryNumber > 1 && earlier.every((t) => t.state === null) ? 'inferred' : null;
 }
 
 /** The latest try of each task instance among the given tries. */

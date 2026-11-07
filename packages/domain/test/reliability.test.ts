@@ -26,6 +26,23 @@ describe('HM-015 flakiness of one task instance', () => {
     expect(flakiness([tryAt({ tryNumber: 2, start: 3, end: 4, state: 'success' })])).toBe('inferred');
   });
 
+  it('HM-015: an earlier try closed by the store without a state, then a successful try 2, is flaky, inferred', () => {
+    // The store ends a try that stopped showing as running, estimated and with state NULL, until its row is read.
+    expect(
+      flakiness([
+        tryAt({ start: 0, end: 1, state: null }),
+        tryAt({ tryNumber: 2, start: 3, end: 4, state: 'success' }),
+      ]),
+    ).toBe('inferred');
+    expect(
+      flakiness([
+        tryAt({ start: 0, end: 1, state: null }),
+        tryAt({ tryNumber: 2, start: 2, end: 3, state: 'failed' }),
+        tryAt({ tryNumber: 3, start: 4, end: 5, state: 'success' }),
+      ]),
+    ).toBe('observed');
+  });
+
   it('HM-015: a first-try success, a final failure, or a re-run after a success is not flaky', () => {
     expect(flakiness([tryAt({ start: 0, end: 1 })])).toBeNull();
     expect(
