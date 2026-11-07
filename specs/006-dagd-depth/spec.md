@@ -6,7 +6,7 @@
 - **Requirements:** HM-016, FR-TASK-01, HM-015, FR-TASK-02 (part), HM-007, FR-DAGD-03 (critical path), FR-DAGD-04
   (baseline delta), FR-DAGX-02 (retries and flakiness column), FR-UI-05, FR-UI-07, FR-UI-08, NFR-DATA-03,
   NFR-DATA-04, NFR-PERF
-- **Status:** implemented
+- **Status:** implemented (browser validation and code review pending)
 
 ## Requirements extracted from docs/spec/dcam-spec.md
 
