@@ -86,8 +86,15 @@ function clippedInterval(t: TaskTry, w: SweepWindow, weight = 1): Interval | nul
   return to > from ? { from, to, weight } : null;
 }
 
-/** HM-003: executor and pool slot-seconds per DAG and pool, clipped to the window. */
-export function slotSeconds(tries: readonly TaskTry[], w: SweepWindow): SlotSecondsResult {
+/**
+ * HM-003: executor and pool slot-seconds per DAG and pool, clipped to the window. `key` groups `byDag` by
+ * something else, such as the task ID (one DAG's tasks).
+ */
+export function slotSeconds(
+  tries: readonly TaskTry[],
+  w: SweepWindow,
+  key: (t: TaskTry) => string = (t) => t.dagId,
+): SlotSecondsResult {
   const byDag = new Map<string, { executorSlotSeconds: number; poolSlotSeconds: number }>();
   const byPool = new Map<string, number>();
   let totalMs = 0;
@@ -100,10 +107,11 @@ export function slotSeconds(tries: readonly TaskTry[], w: SweepWindow): SlotSeco
     }
     if (iv === null) continue;
     const seconds = (iv.to - iv.from) / 1000;
-    const dag = byDag.get(t.dagId) ?? { executorSlotSeconds: 0, poolSlotSeconds: 0 };
+    const k = key(t);
+    const dag = byDag.get(k) ?? { executorSlotSeconds: 0, poolSlotSeconds: 0 };
     dag.executorSlotSeconds += seconds;
     dag.poolSlotSeconds += seconds * t.poolSlots;
-    byDag.set(t.dagId, dag);
+    byDag.set(k, dag);
     byPool.set(t.pool, (byPool.get(t.pool) ?? 0) + seconds * t.poolSlots);
     totalMs += iv.to - iv.from;
   }

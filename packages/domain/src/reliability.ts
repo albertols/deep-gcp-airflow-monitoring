@@ -20,10 +20,9 @@
 import { MIN_SAMPLES_FOR_RATE, runsInWindow } from './dag-league';
 import {
   flakiness,
-  groupBy,
   isFailedTry,
   startedIn,
-  taskInstanceKey,
+  triesByTaskInstanceOf,
   type DagTaskTry,
   type RunOptions,
 } from './dag-runs';
@@ -85,7 +84,7 @@ interface Outages {
  * Outages along one timeline of finished outcomes, ordered by end: a failure that started in the window
  * opens one (unless one is open), the next success closes it.
  */
-function outages(events: ReadonlyArray<{ end: number; failed: boolean; inWindow: boolean }>): Outages {
+function outages(events: readonly Event[]): Outages {
   const sorted = [...events].sort((a, b) => a.end - b.end);
   const recoveries: number[] = [];
   let openAt: number | null = null;
@@ -102,47 +101,79 @@ function outages(events: ReadonlyArray<{ end: number; failed: boolean; inWindow:
 
 const mean = (xs: readonly number[]) => (xs.length > 0 ? xs.reduce((s, v) => s + v, 0) / xs.length : null);
 
-/** Try outcomes of one task as a timeline: failed tries and successes, finished ones only. */
-function tryOutages(tries: readonly DagTaskTry[], w: Span): Outages {
-  const events: Array<{ end: number; failed: boolean; inWindow: boolean }> = [];
-  for (const t of tries) {
-    if (t.startAt === null || t.endAt === null) continue;
-    const failed = isFailedTry(t);
-    if (!failed && t.state !== 'success') continue;
-    events.push({ end: t.endAt, failed, inWindow: startedIn(t, w) });
-  }
-  return outages(events);
+type Event = { end: number; failed: boolean; inWindow: boolean };
+
+/** Counts of one task, or of every task together, before rates are derived. */
+interface Tally {
+  tries: number;
+  failedTries: number;
+  taskInstances: number;
+  retried: number;
+  flaky: number;
+  flakyInferred: number;
+  readonly events: Event[];
 }
 
-function reliabilityOf(tries: readonly DagTaskTry[], w: Span, outage: Outages): TaskReliability {
-  const started = tries.filter((t) => startedIn(t, w));
-  const byTi = groupBy(tries, taskInstanceKey);
-  const keys = new Set(started.map(taskInstanceKey));
-  let retried = 0;
-  let flaky = 0;
-  let inferred = 0;
-  for (const k of keys) {
-    const tiTries = byTi.get(k) ?? [];
-    if (tiTries.some((t) => t.tryNumber > 1)) retried++;
-    const f = flakiness(tiTries);
-    if (f !== null) flaky++;
-    if (f === 'inferred') inferred++;
-  }
-  const failedTries = started.filter(isFailedTry).length;
+const newTally = (): Tally => ({
+  tries: 0,
+  failedTries: 0,
+  taskInstances: 0,
+  retried: 0,
+  flaky: 0,
+  flakyInferred: 0,
+  events: [],
+});
+
+function reliabilityOf(t: Tally, outage: Outages): TaskReliability {
   return {
-    tries: started.length,
-    failedTries,
-    tryFailureRate: rate(failedTries, started.length),
-    taskInstances: keys.size,
-    retried,
-    retryRate: rate(retried, keys.size),
-    flaky,
-    flakyInferred: inferred,
-    flakyRate: rate(flaky, keys.size),
+    tries: t.tries,
+    failedTries: t.failedTries,
+    tryFailureRate: rate(t.failedTries, t.tries),
+    taskInstances: t.taskInstances,
+    retried: t.retried,
+    retryRate: rate(t.retried, t.taskInstances),
+    flaky: t.flaky,
+    flakyInferred: t.flakyInferred,
+    flakyRate: rate(t.flaky, t.taskInstances),
     recoveries: outage.recoveries.length,
     unrecovered: outage.unrecovered,
     mttrSeconds: mean(outage.recoveries),
   };
+}
+
+/**
+ * Per task in one pass over the tries: tries and failed tries starting in the window, and the timeline of
+ * finished outcomes (failed tries and successes) for the outages; then per task instance with a try
+ * starting in the window: retried and flaky.
+ */
+function tallyByTask(tries: readonly DagTaskTry[], w: Span): Map<string, Tally> {
+  const tallies = new Map<string, Tally>();
+  const tally = (taskId: string) => {
+    let t = tallies.get(taskId);
+    if (!t) tallies.set(taskId, (t = newTally()));
+    return t;
+  };
+  for (const t of tries) {
+    const started = startedIn(t, w);
+    const failed = isFailedTry(t);
+    if (started) {
+      const s = tally(t.taskId);
+      s.tries++;
+      if (failed) s.failedTries++;
+    }
+    if (t.startAt !== null && t.endAt !== null && (failed || t.state === 'success'))
+      tally(t.taskId).events.push({ end: t.endAt, failed, inWindow: started });
+  }
+  for (const tiTries of triesByTaskInstanceOf(tries)) {
+    if (!tiTries.some((t) => startedIn(t, w))) continue;
+    const s = tally((tiTries[0] as DagTaskTry).taskId);
+    s.taskInstances++;
+    if (tiTries.some((t) => t.tryNumber > 1)) s.retried++;
+    const f = flakiness(tiTries);
+    if (f !== null) s.flaky++;
+    if (f === 'inferred') s.flakyInferred++;
+  }
+  return tallies;
 }
 
 /** HM-015 for one DAG over `w`: `tries` are its tries, including those of runs that began before `w`. */
@@ -152,14 +183,22 @@ export function dagReliability(
   options: RunOptions = {},
 ): DagReliability {
   const byTask = new Map<string, TaskReliability>();
+  const all = newTally();
   const allRecoveries: number[] = [];
   let allUnrecovered = 0;
-  for (const [taskId, taskTries] of groupBy(tries, (t) => t.taskId)) {
-    if (!taskTries.some((t) => startedIn(t, w))) continue;
-    const outage = tryOutages(taskTries, w);
+  for (const [taskId, t] of tallyByTask(tries, w)) {
+    // Only tasks with a try starting in the window are reported.
+    if (t.tries === 0) continue;
+    const outage = outages(t.events);
     allRecoveries.push(...outage.recoveries);
     allUnrecovered += outage.unrecovered;
-    byTask.set(taskId, reliabilityOf(taskTries, w, outage));
+    byTask.set(taskId, reliabilityOf(t, outage));
+    all.tries += t.tries;
+    all.failedTries += t.failedTries;
+    all.taskInstances += t.taskInstances;
+    all.retried += t.retried;
+    all.flaky += t.flaky;
+    all.flakyInferred += t.flakyInferred;
   }
   const finished = runsInWindow(tries, w, options).filter((r) => r.state !== 'running');
   const failedRuns = finished.filter((r) => r.state === 'failed').length;
@@ -177,7 +216,7 @@ export function dagReliability(
     runRecoveries: runOutage.recoveries.length,
     runUnrecovered: runOutage.unrecovered,
     runMttrSeconds: mean(runOutage.recoveries),
-    tasks: reliabilityOf(tries, w, { recoveries: allRecoveries, unrecovered: allUnrecovered }),
+    tasks: reliabilityOf(all, { recoveries: allRecoveries, unrecovered: allUnrecovered }),
     byTask,
   };
 }

@@ -11,10 +11,10 @@
 import {
   flakiness,
   groupBy,
-  runKey,
   startedIn,
   summariseRun,
-  taskInstanceKey,
+  triesByRun,
+  triesByTaskInstanceOf,
   type DagTaskTry,
   type RunOptions,
   type RunSummary,
@@ -119,11 +119,10 @@ export function runsInWindow(
   w: Pick<SweepWindow, 'from' | 'to'>,
   options: RunOptions = {},
 ): RunSummary[] {
-  const byRun = groupBy(tries, (t) => runKey(t.dagId, t.runId));
-  const keys = new Set(tries.filter((t) => startedIn(t, w)).map((t) => runKey(t.dagId, t.runId)));
   const runs: RunSummary[] = [];
-  for (const k of keys) {
-    const run = summariseRun(byRun.get(k) ?? [], options);
+  for (const runTries of triesByRun(tries)) {
+    if (!runTries.some((t) => startedIn(t, w))) continue;
+    const run = summariseRun(runTries, options);
     if (run) runs.push(run);
   }
   return runs;
@@ -147,10 +146,13 @@ export function dagWindowStats(
     const runs = runsInWindow(dagTries, w, options);
     const finished = runs.filter((r) => r.state !== 'running');
     const failedRuns = finished.filter((r) => r.state === 'failed').length;
-    const byTi = groupBy(dagTries, taskInstanceKey);
-    const tiKeys = new Set(started.map(taskInstanceKey));
+    let taskInstances = 0;
     let flaky = 0;
-    for (const k of tiKeys) if (flakiness(byTi.get(k) ?? []) !== null) flaky++;
+    for (const ti of triesByTaskInstanceOf(dagTries)) {
+      if (!ti.some((t) => startedIn(t, w))) continue;
+      taskInstances++;
+      if (flakiness(ti) !== null) flaky++;
+    }
     const durations = finished.map((r) => r.durationSeconds as number);
     result.set(dagId, {
       dagId,
@@ -160,8 +162,8 @@ export function dagWindowStats(
       successRate: finished.length > 0 ? (finished.length - failedRuns) / finished.length : null,
       tries: started.length,
       retries: started.filter((t) => t.tryNumber > 1).length,
-      taskInstances: tiKeys.size,
-      flakyRate: tiKeys.size >= MIN_SAMPLES_FOR_RATE ? flaky / tiKeys.size : null,
+      taskInstances,
+      flakyRate: taskInstances >= MIN_SAMPLES_FOR_RATE ? flaky / taskInstances : null,
       runDurationP50: quantile(durations, 0.5),
       runDurationP95: quantile(durations, 0.95),
       executorSlotSeconds: slot,

@@ -7,7 +7,15 @@ export const MIN_SAMPLES_FOR_TAIL = 20;
 
 /** Linear-interpolation percentile (type 7) over finite values; `p` in [0, 1]. */
 export function percentile(values: readonly number[], p: number): number | null {
-  const sorted = values.filter(Number.isFinite).sort((a, b) => a - b);
+  return percentileOfSorted(sortedFinite(values), p);
+}
+
+/** The finite values, ascending: sort once, then read several percentiles with {@link percentileOfSorted}. */
+export const sortedFinite = (values: readonly number[]): number[] =>
+  values.filter(Number.isFinite).sort((a, b) => a - b);
+
+/** {@link percentile} of finite values already sorted ascending. */
+export function percentileOfSorted(sorted: readonly number[], p: number): number | null {
   if (sorted.length === 0) return null;
   const rank = Math.min(Math.max(p, 0), 1) * (sorted.length - 1);
   const lo = Math.floor(rank);

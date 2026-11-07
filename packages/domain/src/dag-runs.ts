@@ -51,6 +51,55 @@ export function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<s
   return groups;
 }
 
+/*
+ * Grouping by run and task instance without composite keys. Maps are nested on the tries' own `dagId`,
+ * `runId` and `taskId` strings, whose hashes V8 caches; a concatenated key is a new string to hash for every
+ * try, which made grouping the largest cost of DAG detail over a week (NFR-PERF).
+ */
+
+/** The tries of each run (DAG and run ID), in order of each run's first try in the input. */
+export function triesByRun<T extends Pick<TaskTry, 'dagId' | 'runId'>>(tries: readonly T[]): T[][] {
+  const byDag = new Map<string, Map<string, T[]>>();
+  const groups: T[][] = [];
+  for (const t of tries) {
+    let runs = byDag.get(t.dagId);
+    if (!runs) byDag.set(t.dagId, (runs = new Map<string, T[]>()));
+    let list = runs.get(t.runId);
+    if (!list) {
+      runs.set(t.runId, (list = []));
+      groups.push(list);
+    }
+    list.push(t);
+  }
+  return groups;
+}
+
+/** The tries of each task instance among the tries of one run (task ID and map index). */
+export function triesByTaskInstance<T extends Pick<TaskTry, 'taskId' | 'mapIndex'>>(
+  runTries: readonly T[],
+): T[][] {
+  const byTask = new Map<string, Map<number, T[]>>();
+  const groups: T[][] = [];
+  for (const t of runTries) {
+    let indexes = byTask.get(t.taskId);
+    if (!indexes) byTask.set(t.taskId, (indexes = new Map<number, T[]>()));
+    let list = indexes.get(t.mapIndex);
+    if (!list) {
+      indexes.set(t.mapIndex, (list = []));
+      groups.push(list);
+    }
+    list.push(t);
+  }
+  return groups;
+}
+
+/** The tries of each task instance (DAG, run, task and map index). */
+export function triesByTaskInstanceOf<T extends Pick<TaskTry, 'dagId' | 'runId' | 'taskId' | 'mapIndex'>>(
+  tries: readonly T[],
+): T[][] {
+  return triesByRun(tries).flatMap((run) => triesByTaskInstance(run));
+}
+
 /**
  * HM-015 flakiness of one task instance: its latest try succeeded after a failed try.
  * - `observed`: an earlier failed try is stored.
@@ -122,7 +171,12 @@ export function summariseRun(tries: readonly DagTaskTry[], options: RunOptions =
     else endAt = Math.max(endAt, t.endAt);
   }
   const running = open || (options.inProgress?.(first.dagId, first.runId) ?? false);
-  const failed = finalTries(started).some((t) => t.state !== null && FAILED_FINAL_STATES.has(t.state));
+  let failed = false;
+  for (const ti of triesByTaskInstance(started)) {
+    let latest = ti[0] as DagTaskTry;
+    for (const t of ti) if (t.tryNumber > latest.tryNumber) latest = t;
+    if (latest.state !== null && FAILED_FINAL_STATES.has(latest.state)) failed = true;
+  }
   const state: RunState = running ? 'running' : failed ? 'failed' : 'success';
   const end = state === 'running' ? null : endAt;
   return {

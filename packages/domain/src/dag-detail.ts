@@ -9,8 +9,8 @@ import {
   groupBy,
   isFailedTry,
   logicalDateFromRunId,
-  runKey,
   startedIn,
+  triesByRun,
   type DagTaskTry,
   type RunOptions,
   type RunSummary,
@@ -174,23 +174,28 @@ export interface TaskStats {
 
 /** FR-DAGD-04: statistics per task of one DAG, by contribution to run duration (largest first). */
 export function taskStats(tries: readonly DagTaskTry[], w: SweepWindow): TaskStats[] {
-  const runs = runsInWindow(tries, w);
-  const runKeys = new Set(runs.map((r) => runKey(r.dagId, r.runId)));
+  // Running time per task over the runs with a try starting in the window, measured whole.
+  const runningMsByTask = new Map<string, number>();
+  let runCount = 0;
+  for (const runTries of triesByRun(tries)) {
+    if (!runTries.some((t) => startedIn(t, w))) continue;
+    runCount++;
+    for (const t of runTries)
+      if (t.startAt !== null)
+        runningMsByTask.set(
+          t.taskId,
+          (runningMsByTask.get(t.taskId) ?? 0) + Math.max(0, (t.endAt ?? w.now) - t.startAt),
+        );
+  }
   // HM-003 per task: the same clipping as per DAG, keyed by task.
-  const perTask = slotSeconds(
-    tries.map((t) => ({ ...t, dagId: t.taskId })),
-    w,
-  ).byDag;
+  const perTask = slotSeconds(tries, w, (t) => t.taskId).byDag;
   let dagSeconds = 0;
   for (const s of perTask.values()) dagSeconds += s.executorSlotSeconds;
 
   const stats: TaskStats[] = [];
   for (const [taskId, taskTries] of groupBy(tries, (t) => t.taskId)) {
     const started = taskTries.filter((t) => startedIn(t, w));
-    let runningMs = 0;
-    for (const t of taskTries)
-      if (t.startAt !== null && runKeys.has(runKey(t.dagId, t.runId)))
-        runningMs += Math.max(0, (t.endAt ?? w.now) - t.startAt);
+    const runningMs = runningMsByTask.get(taskId) ?? 0;
     if (started.length === 0 && runningMs === 0 && !perTask.has(taskId)) continue;
     const durations = started
       .filter((t) => t.startAt !== null && t.endAt !== null && t.endAt >= t.startAt)
@@ -206,7 +211,7 @@ export function taskStats(tries: readonly DagTaskTry[], w: SweepWindow): TaskSta
       failureRate:
         started.length >= MIN_SAMPLES_FOR_RATE ? started.filter(isFailedTry).length / started.length : null,
       slotSecondsShare: dagSeconds > 0 ? Math.min(1, seconds / dagSeconds) : 0,
-      contributionSeconds: runs.length > 0 ? runningMs / 1000 / runs.length : 0,
+      contributionSeconds: runCount > 0 ? runningMs / 1000 / runCount : 0,
     });
   }
   return stats.sort((a, b) => b.contributionSeconds - a.contributionSeconds || byId(a.taskId, b.taskId));

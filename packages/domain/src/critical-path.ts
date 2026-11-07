@@ -16,8 +16,7 @@
  *
  * @implements HM-007 (timing method), FR-DAGD-03 (critical path)
  */
-import { runsInWindow } from './dag-league';
-import { groupBy, runKey, taskInstanceKey, type DagTaskTry, type RunOptions } from './dag-runs';
+import { startedIn, summariseRun, triesByRun, type DagTaskTry, type RunOptions } from './dag-runs';
 
 export interface CriticalStep {
   readonly taskId: string;
@@ -43,7 +42,6 @@ export interface CriticalPath {
 
 type Finished = DagTaskTry & { readonly startAt: number; readonly endAt: number };
 
-const tryKey = (t: DagTaskTry) => `${taskInstanceKey(t)}\u0000${t.tryNumber}`;
 const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const byEnd = (a: Finished, b: Finished) =>
   a.endAt - b.endAt ||
@@ -75,28 +73,35 @@ export function criticalPath(runTries: readonly DagTaskTry[]): CriticalPath | nu
   if (finished.length === 0) return null;
   const sorted = [...finished].sort(byEnd);
   const runStart = started.reduce((m, t) => Math.min(m, t.startAt as number), Infinity);
-  const byTi = groupBy(finished, taskInstanceKey);
 
-  const visited = new Set<string>();
+  const visited = new Set<Finished>();
   const chain: Finished[] = [];
   let current: Finished | undefined = sorted.at(-1);
   while (current) {
     const step: Finished = current;
     chain.push(step);
-    visited.add(tryKey(step));
+    visited.add(step);
+    let previous: Finished | undefined;
     // A retry follows its own earlier try (the retry exists because that try failed).
-    let previous: Finished | undefined = (byTi.get(taskInstanceKey(step)) ?? [])
-      .filter((t) => t.tryNumber < step.tryNumber && t.endAt <= step.startAt && !visited.has(tryKey(t)))
-      .sort((a, b) => b.tryNumber - a.tryNumber)[0];
-    if (!previous) {
+    if (step.tryNumber > 1)
+      for (const t of finished)
+        if (
+          t.taskId === step.taskId &&
+          t.mapIndex === step.mapIndex &&
+          t.tryNumber < step.tryNumber &&
+          t.endAt <= step.startAt &&
+          !visited.has(t) &&
+          (!previous || t.tryNumber > previous.tryNumber)
+        )
+          previous = t;
+    if (!previous)
       for (let i = lastEndingBy(sorted, readyBound(step)); i >= 0; i--) {
         const candidate = sorted[i] as Finished;
-        if (!visited.has(tryKey(candidate))) {
+        if (!visited.has(candidate)) {
           previous = candidate;
           break;
         }
       }
-    }
     current = previous;
   }
   chain.reverse();
@@ -142,12 +147,14 @@ export function criticalPathFrequency(
   w: { readonly from: number; readonly to: number },
   options: RunOptions = {},
 ): CriticalPathFrequency {
-  const byRun = groupBy(tries, (t) => runKey(t.dagId, t.runId));
   const byTask = new Map<string, number>();
   let runs = 0;
-  for (const run of runsInWindow(tries, w, options)) {
-    if (run.state === 'running') continue;
-    const path = criticalPath(byRun.get(runKey(run.dagId, run.runId)) ?? []);
+  for (const runTries of triesByRun(tries)) {
+    // The window rule: a run counts in the window one of its tries started in.
+    if (!runTries.some((t) => startedIn(t, w))) continue;
+    const run = summariseRun(runTries, options);
+    if (!run || run.state === 'running') continue;
+    const path = criticalPath(runTries);
     if (!path) continue;
     runs++;
     for (const taskId of new Set(path.steps.map((s) => s.taskId)))
