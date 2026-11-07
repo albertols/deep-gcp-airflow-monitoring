@@ -208,3 +208,67 @@ describe('collector health (FR-COLL-11, NFR-OBS-06)', () => {
     expect(environment(engine, 'acme-composer-prod').series_24h).toBe(35);
   });
 });
+
+describe('backfill progress (FR-COLL-04)', () => {
+  const DAY = 24 * HOUR;
+  it('FR-COLL-04: each backfill shows as waiting before its first cycle, then as its collector reports it', async () => {
+    const prod = { ...composerEnv('acme-composer-prod'), backfill: { taskInstancesDays: 7, metricsDays: 0 } };
+    let cycles = 0;
+    const { time, engine } = setup(
+      [prod, airflowEnv('acme-emulator', 'live')],
+      [
+        collector(manifest({ id: 'af.backfill' }), async (ctx) => {
+          cycles++;
+          ctx.reportBackfill({
+            state: 'running',
+            days: 7,
+            from: T0 - 7 * DAY,
+            to: T0,
+            coveredFrom: T0 - 2 * DAY,
+            itemsRead: 40_000,
+            requestsUsed: 520,
+            etaSeconds: 9_000,
+          });
+          return { dataAsOf: null };
+        }),
+        collector(manifest({ id: 'mon.backfill' })),
+      ],
+    );
+    expect(environment(engine, 'acme-composer-prod').backfill).toEqual([
+      {
+        collector_id: 'af.backfill',
+        kind: 'task_instances',
+        state: 'waiting',
+        days: 7,
+        from: null,
+        to: null,
+        covered_from: null,
+        items_read: 0,
+        requests_used: 0,
+        eta_seconds: null,
+      },
+      expect.objectContaining({ collector_id: 'mon.backfill', kind: 'metrics', state: 'disabled', days: 0 }),
+    ]);
+    // A self-managed Airflow has no Cloud Monitoring: no metrics backfill.
+    expect(environment(engine, 'acme-emulator').backfill?.map((b) => b.collector_id)).toEqual([
+      'af.backfill',
+    ]);
+
+    engine.start();
+    await time.advance(1_000);
+    await time.settle(engine.stop());
+    expect(cycles).toBeGreaterThan(0);
+    expect(environment(engine, 'acme-emulator').backfill?.[0]).toEqual({
+      collector_id: 'af.backfill',
+      kind: 'task_instances',
+      state: 'running',
+      days: 7,
+      from: new Date(T0 - 7 * DAY).toISOString(),
+      to: new Date(T0).toISOString(),
+      covered_from: new Date(T0 - 2 * DAY).toISOString(),
+      items_read: 40_000,
+      requests_used: 520,
+      eta_seconds: 9_000,
+    });
+  });
+});

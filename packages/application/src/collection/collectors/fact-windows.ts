@@ -94,7 +94,7 @@ export interface FactWindowResult {
   /** Where the history waits for an incomplete dense second, if anywhere. */
   readonly stuckAt: number | null;
   /** A source error other than the budget: the caller commits the rows, then rethrows it. */
-  readonly error: unknown;
+  readonly error: Error | null;
 }
 
 class Stop extends Error {}
@@ -168,7 +168,7 @@ export class FactWindowReader {
     let requests = 0;
     let blocked: number | null = null;
     let stop: FactWindowResult['stop'] = 'done';
-    let error: unknown = null;
+    let error: Error | null = null;
 
     const request = async (w: FactWindow, offset: number) => {
       if (requests >= maxRequests) throw new Stop();
@@ -298,7 +298,7 @@ export class FactWindowReader {
       else if (e instanceof BudgetExhaustedError) stop = 'budget';
       else {
         stop = 'error';
-        error = e;
+        error = e instanceof Error ? e : new Error('The task instance list failed.', { cause: e });
       }
     }
     return {

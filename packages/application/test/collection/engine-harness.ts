@@ -308,6 +308,26 @@ export const manifest = (
       outputs: ['samples', 'health'],
       sourceKinds: ['composer'],
     },
+    'af.backfill': {
+      source: 'SRC-AF-API',
+      api: 'airflow',
+      cadence: 'airflowFacts',
+      priority: 'background',
+      maxRequestsPerCycle: 20,
+      outputs: ['tries'],
+      sourceKinds: ['composer', 'airflow'],
+      backfill: 'task_instances',
+    },
+    'mon.backfill': {
+      source: 'SRC-MON',
+      api: 'monitoring',
+      cadence: 'monitoring',
+      priority: 'background',
+      maxRequestsPerCycle: 9,
+      outputs: ['samples'],
+      sourceKinds: ['composer'],
+      backfill: 'metrics',
+    },
   };
   return { ...defaults[overrides.id], ...overrides };
 };

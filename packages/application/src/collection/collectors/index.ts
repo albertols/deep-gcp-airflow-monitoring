@@ -1,11 +1,12 @@
 /**
- * The M1 collectors (feature 002). The orchestrator passes {@link createCollectors} to the engine.
+ * The M1 collectors (feature 002) and the backfill on first add (feature 004). The orchestrator passes {@link createCollectors} to the engine.
  * Collectors keep small per-environment state in memory (paging positions), so create one set per
  * engine.
  *
- * @implements FR-COLL-01
+ * @implements FR-COLL-01, FR-COLL-04
  */
 import type { Collector } from '../types';
+import { afBackfillCollector } from './af-backfill';
 import { afFactsCollector } from './af-facts';
 import { afInventoryCollector } from './af-inventory';
 import { afLiveCollector } from './af-live';
@@ -19,6 +20,8 @@ export {
   FACTS_SETTLE_MS,
   FIRST_FACTS_WINDOW_MS,
 } from './af-facts';
+export { afBackfillCollector } from './af-backfill';
+export { FactWindowReader, type FactWindowReaderOptions } from './fact-windows';
 export { afInventoryCollector } from './af-inventory';
 export { afLiveCollector } from './af-live';
 export { composerConfigCollector } from './composer-config';
@@ -48,6 +51,7 @@ export function createCollectors(): readonly Collector[] {
     afInventoryCollector(),
     afLiveCollector(),
     afFactsCollector(),
+    afBackfillCollector(),
     monCoreCollector(),
   ];
 }

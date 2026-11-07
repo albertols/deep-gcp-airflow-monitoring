@@ -3,7 +3,7 @@
  * collectors, enforces budgets and records their health; a collector runs one cycle against budgeted
  * sources and writes what it found to the store.
  *
- * @implements FR-COLL-01
+ * @implements FR-COLL-01, FR-COLL-04 (backfill progress)
  */
 import type {
   AirflowApi,
@@ -15,7 +15,10 @@ import type {
 } from '@dcam/ports';
 import type { SourceId } from '@dcam/contracts';
 
-export type CollectorId = 'composer.config' | 'af.inventory' | 'af.live' | 'af.facts' | 'mon.core';
+export type CollectorId =
+  'composer.config' | 'af.inventory' | 'af.live' | 'af.facts' | 'mon.core' | 'af.backfill' | 'mon.backfill';
+/** What a backfill on first add reads (FR-COLL-04). */
+export type BackfillKind = 'task_instances' | 'metrics';
 export type ApiId = 'airflow' | 'composer' | 'monitoring';
 
 /** What a collector declares; the engine refuses one without a budget or an output (FR-COLL-01). */
@@ -33,6 +36,24 @@ export interface CollectorManifest {
   readonly outputs: ReadonlyArray<'config' | 'dags' | 'health' | 'snapshots' | 'samples' | 'tries'>;
   /** Source kinds it applies to; others show it as disabled. */
   readonly sourceKinds: ReadonlyArray<EnvironmentEntry['source']['kind']>;
+  /** A backfill on first add (FR-COLL-04): the engine shows its progress from {@link CollectorContext.reportBackfill}. */
+  readonly backfill?: BackfillKind;
+}
+
+/** Progress of a backfill as its collector last reported it (FR-COLL-04); times are epoch ms. */
+export interface BackfillReport {
+  /** `waiting`: not started (it waits for live collection's first window); `disabled`: 0 days configured. */
+  readonly state: 'waiting' | 'running' | 'complete' | 'disabled';
+  /** Days configured. */
+  readonly days: number;
+  readonly from: number | null;
+  readonly to: number | null;
+  /** History is complete from here to `to`. */
+  readonly coveredFrom: number | null;
+  readonly itemsRead: number;
+  readonly requestsUsed: number;
+  /** From the rate observed in the last 30 min; `null` while it cannot be estimated honestly. */
+  readonly etaSeconds: number | null;
 }
 
 /**
@@ -70,6 +91,8 @@ export interface CollectorContext {
   reducedFidelity(reason: string): void;
   /** Count Cloud Monitoring time series returned (NFR-OBS-06). */
   countSeries(n: number): void;
+  /** Report a backfill's progress for the health page (FR-COLL-04); other collectors never call it. */
+  reportBackfill(report: BackfillReport): void;
 }
 
 export interface CollectorResult {

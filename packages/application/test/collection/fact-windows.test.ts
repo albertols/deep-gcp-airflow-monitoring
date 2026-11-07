@@ -29,7 +29,7 @@ async function drain(reader: FactWindowReader, airflow: FakeAirflow, cycles = 50
     const r = await reader.read(airflow, ENV);
     for (const [k, v] of r.rows) stored.set(k, v);
     results.push(r);
-    if (r.error !== null) throw r.error instanceof Error ? r.error : new Error('the reader failed');
+    if (r.error !== null) throw r.error;
   }
   return { results, stored };
 }

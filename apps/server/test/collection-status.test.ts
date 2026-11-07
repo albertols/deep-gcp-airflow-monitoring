@@ -166,6 +166,34 @@ const collectors: Collector[] = [
       return { dataAsOf: null };
     },
   },
+  {
+    manifest: {
+      ...manifest({
+        id: 'af.backfill',
+        source: 'SRC-AF-API',
+        api: 'airflow',
+        cadence: 'airflowFacts',
+        sourceKinds: ['composer', 'airflow'],
+      }),
+      priority: 'background',
+      outputs: ['tries'],
+      backfill: 'task_instances',
+    },
+    collect: async (ctx) => {
+      await ctx.airflow().taskInstances({ limit: 100, offset: 0 });
+      ctx.reportBackfill({
+        state: 'running',
+        days: 7,
+        from: NOW - 7 * 86_400_000,
+        to: NOW - 60_000,
+        coveredFrom: NOW - 3 * 86_400_000,
+        itemsRead: 81_250,
+        requestsUsed: 1_090,
+        etaSeconds: 21_600,
+      });
+      return { dataAsOf: null };
+    },
+  },
 ];
 
 /** Sleeps end only when the engine aborts them (on stop). */
@@ -226,17 +254,44 @@ describe('collection status (FR-COLL-11, FR-SELF-01, HM-030)', () => {
       'composer.config': 'degraded',
       'af.live': 'waiting',
       'mon.core': 'ok',
+      'af.backfill': 'waiting',
     });
     expect(states('acme-emulator')).toEqual({
       'composer.config': 'disabled',
       'af.live': 'ok',
       'mon.core': 'disabled',
+      'af.backfill': 'ok',
     });
     expect(states('acme-composer-dev')).toEqual({
       'composer.config': 'disabled',
       'af.live': 'disabled',
       'mon.core': 'disabled',
+      'af.backfill': 'disabled',
     });
+    // FR-COLL-04: backfill progress, waiting before the first report; none while collection is off.
+    expect(byId.get('acme-composer-prod')?.backfill).toMatchObject([{ state: 'waiting', days: 7 }]);
+    expect(byId.get('acme-emulator')?.backfill).toEqual([
+      {
+        collector_id: 'af.backfill',
+        kind: 'task_instances',
+        state: 'running',
+        days: 7,
+        from: new Date(NOW - 7 * 86_400_000).toISOString(),
+        to: new Date(NOW - 60_000).toISOString(),
+        covered_from: new Date(NOW - 3 * 86_400_000).toISOString(),
+        items_read: 81_250,
+        requests_used: 1_090,
+        eta_seconds: 21_600,
+      },
+    ]);
+    expect(byId.get('acme-composer-dev')?.backfill).toEqual([]);
+    const backfill = byId.get('acme-emulator')?.backfill?.[0];
+    expect(
+      conforms('Collection', {
+        ...status,
+        environments: [{ ...env, backfill: [{ ...backfill, extra: 1 }] }],
+      }),
+    ).not.toBe(true);
     expect(byId.get('acme-composer-prod')?.series_24h).toBe(3);
     expect(byId.get('acme-emulator')?.series_24h).toBeNull();
     expect(byId.get('acme-emulator')?.footprint).toEqual([

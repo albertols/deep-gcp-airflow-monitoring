@@ -700,6 +700,55 @@ export interface components {
             footprint: components["schemas"]["ApiFootprint"][];
             /** @description Cloud Monitoring time series returned in the last 24 h (NFR-OBS-06); null without Monitoring. */
             series_24h: number | null;
+            /**
+             * @description The backfills on first add (FR-COLL-04) that apply to this environment, in collector order. Left out by
+             *     servers older than feature 004.
+             */
+            backfill?: components["schemas"]["BackfillStatus"][];
+        };
+        /** @description Progress of one backfill on first add (FR-COLL-04), read newest first in the background. */
+        BackfillStatus: {
+            /** @description af.backfill or mon.backfill. */
+            collector_id: string;
+            /**
+             * @description task_instances: finished task instances, and so DAG runs, from the Airflow REST API. metrics: one-minute
+             *     worker samples from Cloud Monitoring.
+             * @enum {string}
+             */
+            kind: "task_instances" | "metrics";
+            /**
+             * @description waiting: not started yet (it waits for live collection's first window). running: reading history.
+             *     complete: every configured day is read. disabled: 0 days configured.
+             * @enum {string}
+             */
+            state: "waiting" | "running" | "complete" | "disabled";
+            /** @description Days of history configured. */
+            days: number;
+            /**
+             * Format: date-time
+             * @description The oldest time the backfill reads back to; null before it starts.
+             */
+            from: string | null;
+            /**
+             * Format: date-time
+             * @description Where live collection starts, so where the backfill ends; null before it starts.
+             */
+            to: string | null;
+            /**
+             * Format: date-time
+             * @description History is complete from here to `to` (and live collection continues from `to`); equal to `to` until the
+             *     first window is read; null before the backfill starts. History before it is missing, not zero.
+             */
+            covered_from: string | null;
+            /** @description Rows the backfill stored: task instance tries, or one-minute worker samples. */
+            items_read: number;
+            /** @description Requests the backfill made, across restarts. */
+            requests_used: number;
+            /**
+             * @description Time left at the rate observed over the last 30 min; null while it cannot be estimated (less than 5 min
+             *     observed, no progress, or the work left not counted yet).
+             */
+            eta_seconds: number | null;
         };
         CollectorStatus: {
             /** @description Collector ID, for example af.live. */

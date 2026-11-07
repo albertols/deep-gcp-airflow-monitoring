@@ -16,14 +16,16 @@
  *   project's budget, which the project's environments share.
  * - `series_24h`: Cloud Monitoring time series returned in the last 24 h (NFR-OBS-06); `null` without
  *   Monitoring.
+ * - `backfill`: every backfill collector that applies to the environment, with its last report (FR-COLL-04);
+ *   `waiting` until its first cycle reports.
  *
- * @implements FR-COLL-11, FR-COLL-06, FR-SELF-01, HM-030, NFR-OBS-06
+ * @implements FR-COLL-11, FR-COLL-06, FR-COLL-04, FR-SELF-01, HM-030, NFR-OBS-06
  */
-import type { ApiFootprint, CollectionEnvironment, CollectorStatus } from '@dcam/contracts';
+import type { ApiFootprint, BackfillStatus, CollectionEnvironment, CollectorStatus } from '@dcam/contracts';
 import type { EnvironmentEntry } from '@dcam/ports';
 import type { EffectiveBudgets } from './budget';
 import { HOUR_MINUTES, type FootprintCounter, type MinuteBuckets, type RollingSum } from './footprint';
-import type { ApiId, CollectorManifest } from './types';
+import type { ApiId, BackfillReport, CollectorManifest } from './types';
 
 /** Cycles that fail in a row before a collector is `failing` (FR-COLL-11). */
 export const FAILING_AFTER = 3;
@@ -56,6 +58,8 @@ export interface TaskView {
   lastError: LastError | null;
   /** Finished cycles per minute, over the last hour. */
   readonly cycles: MinuteBuckets<CycleCounts>;
+  /** A backfill collector's last progress report (FR-COLL-04); `null` for other collectors. */
+  backfill: BackfillReport | null;
 }
 
 export interface EnvironmentView<T extends TaskView = TaskView> {
@@ -136,5 +140,28 @@ export function environmentStatus<T extends TaskView>(
     collectors: env.tasks.map((t) => collectorStatus(t, now, extras(t))),
     footprint,
     series_24h: env.series === null ? null : env.series.total(now),
+    backfill: env.tasks.flatMap((t) => {
+      const kind = t.manifest.backfill;
+      return kind && !t.disabled && t.backfill ? [backfillStatus(t.manifest.id, kind, t.backfill)] : [];
+    }),
+  };
+}
+
+export function backfillStatus(
+  collectorId: string,
+  kind: BackfillStatus['kind'],
+  r: BackfillReport,
+): BackfillStatus {
+  return {
+    collector_id: collectorId,
+    kind,
+    state: r.state,
+    days: r.days,
+    from: isoOrNull(r.from),
+    to: isoOrNull(r.to),
+    covered_from: isoOrNull(r.coveredFrom),
+    items_read: r.itemsRead,
+    requests_used: r.requestsUsed,
+    eta_seconds: r.etaSeconds === null ? null : Math.max(0, r.etaSeconds),
   };
 }

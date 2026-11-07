@@ -4,8 +4,16 @@
  * the check that they agree lives here.
  */
 import { describe, expect, it } from 'vitest';
-import { HARD_MAXIMA as ENGINE } from '@dcam/application';
-import { HARD_MAXIMA as SCHEMA } from '@dcam/config-file';
+import {
+  BACKFILL_MAXIMA as ENGINE_BACKFILL_MAXIMA,
+  DEFAULT_BACKFILL as ENGINE_BACKFILL,
+  HARD_MAXIMA as ENGINE,
+} from '@dcam/application';
+import {
+  BACKFILL_MAXIMA as SCHEMA_BACKFILL_MAXIMA,
+  DEFAULT_BACKFILL as SCHEMA_BACKFILL,
+  HARD_MAXIMA as SCHEMA,
+} from '@dcam/config-file';
 
 describe('FR-COLL-06 hard maxima (§7.11)', () => {
   it('FR-COLL-06: the config schema and the engine declare the same hard maxima', () => {
@@ -22,5 +30,12 @@ describe('FR-COLL-06 hard maxima (§7.11)', () => {
       monitoringPerMinute: 120,
       composerPerMinute: 30,
     });
+  });
+
+  it('FR-COLL-04: the config schema and the collectors declare the same backfill defaults and maxima', () => {
+    expect({ ...SCHEMA_BACKFILL }).toEqual(ENGINE_BACKFILL);
+    expect({ ...SCHEMA_BACKFILL_MAXIMA }).toEqual(ENGINE_BACKFILL_MAXIMA);
+    // §17.2 `environments[].backfill: { taskInstancesDays: 7, metricsDays: 14 }`.
+    expect(ENGINE_BACKFILL).toEqual({ taskInstancesDays: 7, metricsDays: 14 });
   });
 });

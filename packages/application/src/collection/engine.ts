@@ -39,8 +39,11 @@
  * minute buckets (`footprint.ts`). One token is taken per source call, while the footprint counts HTTP
  * requests, so a paged Monitoring query shows every page there.
  *
- * @implements FR-COLL-01, FR-COLL-02, FR-COLL-06, FR-COLL-11, FR-AUTH-06, FR-SELF-01, HM-030, NFR-OBS-05,
- *   NFR-OBS-06
+ * Backfills (FR-COLL-04): a collector whose manifest declares `backfill` reports its progress through
+ * `reportBackfill`; the status shows it, `waiting` (or `disabled` with 0 days) until the first report.
+ *
+ * @implements FR-COLL-01, FR-COLL-02, FR-COLL-04, FR-COLL-06, FR-COLL-11, FR-AUTH-06, FR-SELF-01, HM-030,
+ *   NFR-OBS-05, NFR-OBS-06
  */
 import type { Collection } from '@dcam/contracts';
 import {
@@ -61,10 +64,13 @@ import {
   type BudgetGateOptions,
   type EffectiveBudgets,
 } from './budget';
+import { backfillDays } from './backfill';
 import { CircuitBreaker } from './breaker';
 import {
   BudgetExhaustedError,
   type ApiId,
+  type BackfillKind,
+  type BackfillReport,
   type Collector,
   type CollectorContext,
   type CollectorManifest,
@@ -299,6 +305,7 @@ export function createCollectionEngine(deps: CollectionEngineDeps): CollectionEn
         consecutiveFailures: 0,
         lastError: null,
         cycles: new MinuteBuckets<CycleCounts>(HOUR_MINUTES, () => ({ cycles: 0, failures: 0 })),
+        backfill: m.backfill ? waitingBackfill(entry, m.backfill) : null,
         abort: null,
         wake: null,
       });
@@ -475,6 +482,9 @@ export function createCollectionEngine(deps: CollectionEngineDeps): CollectionEn
       countSeries: (n) => {
         env.series?.add(clock.now(), n);
       },
+      reportBackfill: (report) => {
+        if (c.task.manifest.backfill) c.task.backfill = report;
+      },
     };
   };
 
@@ -598,6 +608,22 @@ export function createCollectionEngine(deps: CollectionEngineDeps): CollectionEn
         wake(task);
       }
     },
+  };
+}
+
+/** A backfill before its first cycle: waiting, or disabled with 0 days configured (FR-COLL-04). */
+function waitingBackfill(entry: EnvironmentEntry, kind: BackfillKind): BackfillReport {
+  const days = backfillDays(entry);
+  const n = kind === 'task_instances' ? days.taskInstancesDays : days.metricsDays;
+  return {
+    state: n === 0 ? 'disabled' : 'waiting',
+    days: n,
+    from: null,
+    to: null,
+    coveredFrom: null,
+    itemsRead: 0,
+    requestsUsed: 0,
+    etaSeconds: null,
   };
 }
 

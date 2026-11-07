@@ -24,7 +24,12 @@ import {
   type TaskInstanceQuery,
   type TryKey,
 } from '@dcam/ports';
-import { BudgetExhaustedError, type CollectorContext, type SharedEnvironmentState } from '../../src/index';
+import {
+  BudgetExhaustedError,
+  type BackfillReport,
+  type CollectorContext,
+  type SharedEnvironmentState,
+} from '../../src/index';
 
 export const T0 = Date.UTC(2026, 10, 5, 12, 0, 0);
 export const MIN = 60_000;
@@ -374,6 +379,8 @@ export const emulatorEntry: EnvironmentEntry = {
 export interface FakeContext extends CollectorContext {
   readonly fidelity: string[];
   readonly seriesCounted: number[];
+  /** Every backfill progress report, oldest first. */
+  readonly reports: BackfillReport[];
   /** Advances the fake clock. */
   advance(ms: number): void;
 }
@@ -397,6 +404,7 @@ export function fakeContext(o: {
   };
   const fidelity: string[] = [];
   const seriesCounted: number[] = [];
+  const reports: BackfillReport[] = [];
   return {
     env,
     now: () => now,
@@ -411,8 +419,10 @@ export function fakeContext(o: {
     shared,
     reducedFidelity: (reason) => fidelity.push(reason),
     countSeries: (n) => seriesCounted.push(n),
+    reportBackfill: (r) => reports.push(r),
     fidelity,
     seriesCounted,
+    reports,
     advance(ms) {
       now += ms;
     },
