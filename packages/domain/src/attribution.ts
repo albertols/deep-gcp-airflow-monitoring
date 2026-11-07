@@ -3,6 +3,8 @@
  * instance in a live snapshot stands for the time that snapshot stands for (the real gap to the next
  * snapshot, capped at two cadences: `snapshot-time.ts`), attributed to its HM-006 reason.
  *
+ * Top contributors per reason are kept per DAG and per pool (HM-006 output, spec L1088).
+ *
  * @implements FR-BOTL-01, HM-006, HM-011, HM-012
  */
 import {
@@ -48,6 +50,8 @@ export interface Attribution {
   readonly buckets: readonly AttributionBucket[];
   /** Per reason: DAG → waiting ms, largest first. */
   readonly byReasonDag: ReadonlyMap<WaitReasonId, ReadonlyMap<string, number>>;
+  /** Per reason: pool of the waiting task instance → waiting ms, largest first (top contributors). */
+  readonly byReasonPool: ReadonlyMap<WaitReasonId, ReadonlyMap<string, number>>;
   readonly pools: ReadonlyMap<string, PoolPressure>;
   /** Per reason: waiting ms while workers were at `max_count`. */
   readonly atMaxWorkersMs: ReadonlyMap<WaitReasonId, number>;
@@ -68,6 +72,7 @@ export function attributeWaiting(
   const { config } = ctx;
   const totals = new Map<WaitReasonId, number>();
   const byReasonDag = new Map<WaitReasonId, Map<string, number>>();
+  const byReasonPool = new Map<WaitReasonId, Map<string, number>>();
   const atMax = new Map<WaitReasonId, number>();
   const pools = new Map<string, { waitingMs: number; starvedMs: number; utilisation: number[] }>(
     config.pools.map((p) => [p.name, { waitingMs: 0, starvedMs: 0, utilisation: [] }]),
@@ -100,6 +105,9 @@ export function attributeWaiting(
       const dags = byReasonDag.get(c.reason) ?? new Map<string, number>();
       add(dags, c.ti.dagId, span);
       byReasonDag.set(c.reason, dags);
+      const byPool = byReasonPool.get(c.reason) ?? new Map<string, number>();
+      add(byPool, c.ti.pool, span);
+      byReasonPool.set(c.reason, byPool);
       if (workersAtMax) add(atMax, c.reason, span);
       if (c.reason === 'pool-exhausted') {
         const p = pools.get(c.ti.pool);
@@ -132,6 +140,7 @@ export function attributeWaiting(
       slotsUsed: b.n && slotsKnown ? b.slotsUsed / b.n : null,
     })),
     byReasonDag: new Map([...byReasonDag].map(([r, m]) => [r, sortDesc(m)])),
+    byReasonPool: new Map([...byReasonPool].map(([r, m]) => [r, sortDesc(m)])),
     pools,
     atMaxWorkersMs: atMax,
     latest,
