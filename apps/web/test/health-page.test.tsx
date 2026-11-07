@@ -15,6 +15,8 @@ import {
   FOOTPRINT_COLUMNS,
   HEALTH_EXPLANATIONS,
   HEALTH_PANELS,
+  STORE_EXPLANATIONS,
+  STORE_PANELS,
 } from '../src/pages/health/explanations';
 
 const NOW = Date.UTC(2026, 10, 5, 12, 0, 0);
@@ -153,6 +155,34 @@ const LIVE: Collection = {
   ],
 };
 const DEMO: Collection = { mode: 'demo', generated_at: at(0), environments: [] };
+
+type Storage = NonNullable<Collection['storage']>;
+const STORAGE: Storage = {
+  measured_at: at(600),
+  file_bytes: 1_500_000_000,
+  used_bytes: 1_200_000_000,
+  budget_bytes: 5_000_000_000,
+  warn_share: 0.9,
+  state: 'ok',
+  last_run: {
+    kind: 'retention',
+    started_at: at(600),
+    finished_at: at(590),
+    deleted_rows: 12_345,
+    thinned_snapshots: 0,
+    error: null,
+  },
+  next_run_at: at(-3_000),
+  budget_action: null,
+};
+const withStorage = (over: Partial<Storage> = {}): Collection => ({
+  ...LIVE,
+  storage: { ...STORAGE, ...over },
+  environments: LIVE.environments.map((e, i) =>
+    i === 0 ? { ...e, retention: { raw_task_instances_days: 90, raw_metric_points_days: 14 } } : e,
+  ),
+});
+const day = (days: number) => at(days * 86_400);
 
 const reject = () => Promise.reject(new Error('not in this test'));
 function fakeApi(getCollection: DcamApi['getCollection']): DcamApi {
@@ -422,5 +452,109 @@ describe('DCAM health page (FR-SELF-01, FR-COLL-11, HM-030)', () => {
       expect(
         within(prod).getByRole('button', { name: `About ${HEALTH_EXPLANATIONS[id].title}` }),
       ).toBeInTheDocument();
+  });
+});
+
+describe('DCAM health page: local store (FR-STORE-02, FR-STORE-07)', () => {
+  it('FR-STORE-07: shows the store size against its disk budget, the file on disk and the last maintenance run', async () => {
+    renderPage(fakeApi(async () => withStorage()));
+    const store = await screen.findByRole('region', { name: 'Local store' });
+    expect(store).toHaveTextContent('1.2 GB in use of 5 GB');
+    expect(within(store).getByRole('progressbar', { name: 'Store use of its disk budget' })).toHaveAttribute(
+      'aria-valuenow',
+      '24',
+    );
+    expect(store).toHaveTextContent(/24% of the budget/);
+    expect(store).toHaveTextContent(/File on disk: 1\.5 GB/);
+    expect(store).toHaveTextContent(/Last maintenance 10m ago: 12,345 expired rows deleted/);
+    expect(store).toHaveTextContent(/Next check in 50m/);
+    // FR-UI-08: source and time of the measurement.
+    expect(store).toHaveTextContent(/Source: DCAM's DuckDB store · measured /);
+    expect(within(store).queryByRole('alert')).toBeNull();
+  });
+
+  it('FR-STORE-07: at 90 % of the budget it warns, says what DCAM does and how to keep more history', async () => {
+    renderPage(fakeApi(async () => withStorage({ used_bytes: 4_600_000_000, state: 'warning' })));
+    const store = await screen.findByRole('region', { name: 'Local store' });
+    const alert = within(store).getByText('Store near its disk budget').closest('[role="alert"]');
+    expect(alert).toHaveTextContent(/92% of its 5 GB disk budget/);
+    expect(alert).toHaveTextContent(/thins live snapshots older than 24 hours to one per 5 minutes/);
+    expect(alert).toHaveTextContent(/then deletes the oldest data, never the last 8 days/);
+    expect(alert).toHaveTextContent(/retention\.diskBudgetGb/);
+  });
+
+  it('FR-STORE-07: says what the disk budget thinned and deleted, and when only the last 8 days are left', async () => {
+    renderPage(
+      fakeApi(async () =>
+        withStorage({
+          state: 'warning',
+          used_bytes: 4_800_000_000,
+          budget_action: { at: at(600), thinned_before: day(1), deleted_before: day(8), floor_reached: true },
+        }),
+      ),
+    );
+    const store = await screen.findByRole('region', { name: 'Local store' });
+    expect(store).toHaveTextContent(
+      `To stay within its disk budget, DCAM thinned live snapshots older than ${new Date(day(1)).toUTCString()}`,
+    );
+    expect(store).toHaveTextContent(`and deleted data older than ${new Date(day(8)).toUTCString()}`);
+    expect(store).toHaveTextContent(/waiting before then is an estimate/);
+    const full = within(store).getByText('Disk budget too small').closest('[role="alert"]');
+    expect(full).toHaveTextContent(/only the last 8 days are left/);
+    expect(full).toHaveTextContent(/raise retention\.diskBudgetGb/);
+  });
+
+  it('FR-STORE-06: a maintenance run that stopped early says why and that the next run resumes it', async () => {
+    renderPage(
+      fakeApi(async () =>
+        withStorage({
+          last_run: { ...(STORAGE.last_run as NonNullable<Storage['last_run']>), error: 'disk I/O error' },
+        }),
+      ),
+    );
+    const store = await screen.findByRole('region', { name: 'Local store' });
+    expect(store).toHaveTextContent(/stopped early: disk I\/O error\. The next run resumes it\./);
+  });
+
+  it('FR-UI-07: before the first measurement the store says when it will be measured', async () => {
+    renderPage(
+      fakeApi(async () =>
+        withStorage({
+          measured_at: null,
+          file_bytes: null,
+          used_bytes: null,
+          state: 'unknown',
+          last_run: null,
+        }),
+      ),
+    );
+    const store = await screen.findByRole('region', { name: 'Local store' });
+    expect(store).toHaveTextContent(
+      /Not measured yet\. DCAM measures its store when it starts and every hour\./,
+    );
+    expect(within(store).queryByRole('progressbar')).toBeNull();
+  });
+
+  it('FR-STORE-02: each environment says how long its data is kept', async () => {
+    renderPage(fakeApi(async () => withStorage()));
+    const prod = await screen.findByRole('region', { name: 'acme-prod' });
+    expect(prod).toHaveTextContent(/Task tries 90 days · snapshots, worker samples and ready times 14 days/);
+    const dev = screen.getByRole('region', { name: 'acme-dev' });
+    expect(dev).toHaveTextContent(/Retention not reported/);
+  });
+
+  it('FR-UI-05: the store panel shows each of its (i) explanations', async () => {
+    renderPage(fakeApi(async () => withStorage()));
+    const store = await screen.findByRole('region', { name: 'Local store' });
+    for (const id of STORE_PANELS)
+      expect(
+        within(store).getByRole('button', { name: `About ${STORE_EXPLANATIONS[id].title}` }),
+      ).toBeInTheDocument();
+  });
+
+  it('FR-STORE-07: a status without the store (an older DCAM) shows no store panel', async () => {
+    renderPage(fakeApi(async () => LIVE));
+    await screen.findByRole('region', { name: 'acme-prod' });
+    expect(screen.queryByRole('region', { name: 'Local store' })).toBeNull();
   });
 });

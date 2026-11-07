@@ -2,13 +2,16 @@
  * (i) explanations for the DCAM health page (FR-UI-05, spec §12.9): one per panel and one per number
  * column of the collector and footprint tables.
  *
- * @implements FR-UI-05, FR-SELF-01, FR-COLL-04, FR-COLL-11, HM-030, NFR-OBS-06
+ * The local store panel has its own entries ({@link STORE_EXPLANATIONS}): it appears once, not per environment.
+ *
+ * @implements FR-UI-05, FR-SELF-01, FR-COLL-04, FR-COLL-11, HM-030, NFR-OBS-06, FR-STORE-02, FR-STORE-07
  */
 import type { Explanation } from '@dcam/ui-kit';
 import { COLLECTION_POLL_MS } from '../../components/collection';
 import { WIKI_SLUGS, wikiHref } from '../wiki/content/slugs';
 
 const ENGINE = "DCAM's collection engine";
+const STORE = "DCAM's DuckDB store";
 const REQUEST_LOG = "DCAM's own request log";
 const FRESHNESS = `Refreshed every ${COLLECTION_POLL_MS / 1000} s`;
 /** The glossary defines the observer budget; there is no page of its own yet. */
@@ -53,6 +56,17 @@ export const HEALTH_EXPLANATIONS = {
     sources: [REQUEST_LOG],
     freshness: FRESHNESS,
     wiki: OBSERVER_BUDGET_WIKI,
+  },
+  'health-retention': {
+    id: 'health-retention',
+    title: 'Retention',
+    summary:
+      "How long DCAM keeps this environment's data: task tries, and live snapshots, worker samples and ready times (FR-STORE-02).",
+    whyItMatters:
+      'A page over a longer range has no data before that; it says from when, and never shows the gap as zero.',
+    howToRead:
+      'Set retention in dcam.config.yaml, for the workspace or for one environment, then restart DCAM. Expired data is deleted when DCAM starts and every 24 hours.',
+    sources: ['dcam.config.yaml'],
   },
   'health-series': {
     id: 'health-series',
@@ -256,3 +270,34 @@ export const FOOTPRINT_COLUMNS = [
   'health-bytes-24h',
   'health-p95-latency',
 ] as const satisfies readonly HealthExplanationId[];
+
+/** (i) explanations of the local store panel (FR-UI-05). */
+export const STORE_EXPLANATIONS = {
+  'store-usage': {
+    id: 'store-usage',
+    title: 'Disk budget use',
+    summary:
+      "How much of its disk budget DCAM's store uses: the database blocks that hold data, plus the write-ahead log (FR-STORE-07).",
+    formula: 'use = bytes in use ÷ (retention.diskBudgetGb × 10⁹)',
+    whyItMatters:
+      'From 90 % of the budget DCAM thins live snapshots older than 24 hours to one per 5 minutes, then deletes the oldest data, so its store never fills your disk.',
+    howToRead:
+      'The file on disk can be larger than what is in use: the space deleted data leaves is reused before the file grows, and the file does not shrink.',
+    sources: [STORE, 'dcam.config.yaml'],
+    freshness: 'Measured when DCAM starts and every hour',
+    caveats: ['Decimal units: 1 GB is 1,000,000,000 bytes.'],
+  },
+  'store-maintenance': {
+    id: 'store-maintenance',
+    title: 'Maintenance',
+    summary:
+      'DCAM deletes data older than its retention when it starts and every 24 hours, and checks the disk budget every hour (FR-STORE-02).',
+    howToRead:
+      'Deletes run in small batches, each its own transaction, so collection never waits for long. A run that stops early is finished by the next one.',
+    sources: [STORE],
+  },
+} as const satisfies Record<string, Explanation>;
+
+export type StoreExplanationId = keyof typeof STORE_EXPLANATIONS;
+/** Every explanation of the local store panel. */
+export const STORE_PANELS = Object.keys(STORE_EXPLANATIONS) as StoreExplanationId[];

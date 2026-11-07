@@ -2,7 +2,7 @@
 
 - **Epic / milestone:** STORE · M2 requirements pulled forward for long unattended live runs (spec §22.2)
 - **Requirements:** FR-STORE-02, FR-STORE-07, FR-STORE-06 (resumable maintenance)
-- **Status:** done
+- **Status:** done (rollups, cold tier and the bottlenecks page note are follow-ups)
 
 ## Intent
 

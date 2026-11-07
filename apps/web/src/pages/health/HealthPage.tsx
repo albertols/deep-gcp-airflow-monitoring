@@ -1,11 +1,13 @@
 /**
  * DCAM health: what DCAM collects from each environment, how fresh it is, what fails and how many
- * requests DCAM itself makes. Demo mode has no collectors, so the page says that nothing is collected.
+ * requests DCAM itself makes, and in live mode its local store against the disk budget and how long each
+ * environment's data is kept. Demo mode has no collectors, so the page says that nothing is collected.
  *
  * The history backfill panel shows each backfill on first add (FR-COLL-04): how many days it read, where
  * the history is complete from, and an ETA from the observed rate, in words while it cannot be estimated.
  *
- * @implements FR-SELF-01, FR-COLL-04, FR-COLL-11, FR-COLL-06, HM-030, NFR-OBS-06, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements FR-SELF-01, FR-COLL-04, FR-COLL-11, FR-COLL-06, HM-030, NFR-OBS-06, FR-UI-05, FR-UI-07, FR-UI-08,
+ *   FR-STORE-02, FR-STORE-06, FR-STORE-07
  */
 import { useQuery } from '@tanstack/react-query';
 import type { ComponentType } from 'react';
@@ -13,6 +15,7 @@ import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
 import Box from '@mui/material/Box';
 import Chip, { type ChipProps } from '@mui/material/Chip';
+import LinearProgress from '@mui/material/LinearProgress';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import type { SvgIconProps } from '@mui/material/SvgIcon';
@@ -29,7 +32,13 @@ import DoNotDisturbOnOutlined from '@mui/icons-material/DoNotDisturbOnOutlined';
 import ErrorOutlined from '@mui/icons-material/ErrorOutlined';
 import HourglassTopOutlined from '@mui/icons-material/HourglassTopOutlined';
 import WarningAmberOutlined from '@mui/icons-material/WarningAmberOutlined';
-import type { ApiFootprint, BackfillStatus, CollectionEnvironment, CollectorStatus } from '@dcam/contracts';
+import type {
+  ApiFootprint,
+  BackfillStatus,
+  CollectionEnvironment,
+  CollectionStorage,
+  CollectorStatus,
+} from '@dcam/contracts';
 import { InfoPopover } from '@dcam/ui-kit';
 import {
   BACKFILL_KIND,
@@ -39,12 +48,12 @@ import {
   formatLongDuration,
 } from '../../components/backfill';
 import { COLLECTION_POLL_MS, useCollection } from '../../components/collection';
-import { formatBytes, formatDuration, formatInt, formatShare } from '../../components/format';
+import { clause, formatBytes, formatDuration, formatInt, formatShare } from '../../components/format';
 import { PageHeader } from '../../components/PageHeader';
 import { PanelTitle, QueryState, SOURCE_NAMES } from '../../components/Panel';
 import { SnippetBlock } from '../advisor/SnippetBlock';
 import type { PageProps } from '../types';
-import { HEALTH_EXPLANATIONS as X, type HealthExplanationId } from './explanations';
+import { HEALTH_EXPLANATIONS as X, STORE_EXPLANATIONS as S, type HealthExplanationId } from './explanations';
 
 type State = CollectorStatus['state'];
 const STATE: Readonly<
@@ -359,6 +368,125 @@ function FootprintTable({ env }: { env: CollectionEnvironment }) {
   );
 }
 
+/** How long the environment's data is kept (FR-STORE-02); a server before feature 005 does not say. */
+function Retention({ env }: { env: CollectionEnvironment }) {
+  const r = env.retention;
+  return (
+    <Box>
+      <PanelTitle explanation={X['health-retention']} component="h3" />
+      <Typography variant="body2">
+        {r === undefined
+          ? 'Retention not reported by this DCAM server.'
+          : `Task tries ${formatInt(r.raw_task_instances_days)} days · snapshots, worker samples and ready times ${formatInt(r.raw_metric_points_days)} days`}
+      </Typography>
+    </Box>
+  );
+}
+
+const utc = (iso: string) => new Date(iso).toUTCString();
+
+/** What the disk budget made DCAM thin or delete since it started, and what it means for the pages. */
+function BudgetAction({ action }: { action: NonNullable<CollectionStorage['budget_action']> }) {
+  const { thinned_before: thinned, deleted_before: deleted } = action;
+  const done = [
+    thinned === null ? null : `thinned live snapshots older than ${utc(thinned)}`,
+    deleted === null ? null : `deleted data older than ${utc(deleted)}`,
+  ].filter((part) => part !== null);
+  if (done.length === 0) return null;
+  return (
+    <Typography variant="body2">
+      To stay within its disk budget, DCAM {done.join(' and ')}. On the bottlenecks page,{' '}
+      {thinned === null ? '' : 'waiting before then is an estimate from one snapshot per 5 minutes'}
+      {thinned !== null && deleted !== null ? ', and ' : ''}
+      {deleted === null ? '' : 'waiting before the deletion is unknown'}.
+    </Typography>
+  );
+}
+
+/** The local store against its disk budget, and what maintenance did (FR-STORE-07, FR-STORE-02). */
+function StorePanel({ storage, reference }: { storage: CollectionStorage; reference: number }) {
+  const { used_bytes: used, file_bytes: file, budget_bytes: budget, last_run: run } = storage;
+  const action = storage.budget_action;
+  const share = used === null ? null : used / budget;
+  return (
+    <Paper component="section" aria-labelledby="health-store" sx={{ p: 4 }}>
+      <Stack spacing={3}>
+        <Stack direction="row" sx={{ alignItems: 'center', gap: 2 }}>
+          <Typography id="health-store" variant="h2" component="h2">
+            Local store
+          </Typography>
+          <InfoPopover explanation={S['store-usage']} />
+        </Stack>
+
+        {used === null || share === null ? (
+          <Typography variant="body2" color="text.secondary">
+            Not measured yet. DCAM measures its store when it starts and every hour.
+          </Typography>
+        ) : (
+          <Stack spacing={1}>
+            <Typography sx={{ fontSize: '1.5rem', ...numeric }}>
+              {formatBytes(used)}{' '}
+              <Typography component="span" variant="body1" color="text.secondary">
+                in use of {formatBytes(budget)}
+              </Typography>
+            </Typography>
+            <LinearProgress
+              variant="determinate"
+              value={Math.min(100, Math.round(share * 100))}
+              color={storage.state === 'warning' ? 'warning' : 'primary'}
+              aria-label="Store use of its disk budget"
+              sx={{ maxWidth: 480 }}
+            />
+            <Typography variant="body2" color="text.secondary" sx={numeric}>
+              {formatShare(share)} of the budget · File on disk: {file === null ? '—' : formatBytes(file)}
+            </Typography>
+          </Stack>
+        )}
+
+        {storage.state === 'warning' && (
+          <Alert severity="warning" variant="outlined">
+            <AlertTitle>Store near its disk budget</AlertTitle>
+            The store uses {formatShare(share)} of its {formatBytes(budget)} disk budget. DCAM thins live
+            snapshots older than 24 hours to one per 5 minutes, then deletes the oldest data, never the last 8
+            days. To keep more history, raise <code>retention.diskBudgetGb</code> in dcam.config.yaml.
+          </Alert>
+        )}
+        {action?.floor_reached === true && (
+          <Alert severity="error" variant="outlined">
+            <AlertTitle>Disk budget too small</AlertTitle>
+            The store stays at or above {formatShare(storage.warn_share)} of its disk budget although only the
+            last 8 days are left, which DCAM never deletes for the budget. To fix it, raise{' '}
+            <code>retention.diskBudgetGb</code> or lower <code>retention.rawMetricPointsDays</code> in
+            dcam.config.yaml, then restart DCAM.
+          </Alert>
+        )}
+        {action !== null && <BudgetAction action={action} />}
+
+        <Box>
+          <PanelTitle explanation={S['store-maintenance']} component="h3" />
+          <Typography variant="body2">
+            {run === null ? (
+              'No maintenance run yet.'
+            ) : (
+              <>
+                Last maintenance <Ago iso={run.started_at} reference={reference} />:{' '}
+                {formatInt(run.deleted_rows)} expired rows deleted
+                {run.thinned_snapshots > 0 ? `, ${formatInt(run.thinned_snapshots)} snapshots thinned` : ''}
+                {run.error === null ? '' : ` · stopped early: ${clause(run.error)}. The next run resumes it.`}
+              </>
+            )}{' '}
+            · Next check <NextRun iso={storage.next_run_at} reference={reference} />
+          </Typography>
+        </Box>
+        <Typography variant="caption" color="text.secondary" component="footer">
+          Source: DCAM&apos;s DuckDB store · measured{' '}
+          {storage.measured_at === null ? 'not yet' : utc(storage.measured_at)}
+        </Typography>
+      </Stack>
+    </Paper>
+  );
+}
+
 function EnvironmentHealth({
   env,
   name,
@@ -409,6 +537,7 @@ function EnvironmentHealth({
           <PanelTitle explanation={X['health-footprint']} component="h3" />
           <FootprintTable env={env} />
         </Box>
+        <Retention env={env} />
         <Box>
           <PanelTitle explanation={X['health-series']} component="h3" />
           <Typography sx={{ fontSize: '1.5rem', fontVariantNumeric: 'tabular-nums' }}>
@@ -473,6 +602,9 @@ export function HealthPage({ api, envId }: PageProps) {
       {c?.mode === 'demo' && <DemoNote />}
       {c?.mode === 'live' && (
         <>
+          {c.storage !== undefined && (
+            <StorePanel storage={c.storage} reference={Date.parse(c.generated_at)} />
+          )}
           {c.environments.length === 0 ? (
             <Typography color="text.secondary">
               No environments are configured. Add one to dcam.config.yaml, then restart DCAM.
