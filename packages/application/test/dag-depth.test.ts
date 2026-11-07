@@ -190,6 +190,31 @@ describe('HM-016 / FR-TASK-01 duration against the 28-day baseline in DAG detail
   });
 });
 
+describe('HM-016 baseline coverage does not depend on the store', () => {
+  // The environment's history starts 20 days ago with another DAG; this DAG was first seen 3 days ago.
+  const firstSeen = hourly(
+    Array.from({ length: 72 }, (_, i) => 72 - i),
+    () => 300,
+  );
+  const older = tryOf('other', runAt(NOW - 20 * D), 'x', NOW - 20 * D, NOW - 20 * D + M);
+  const rows = [...firstSeen, older];
+  const historyStart = async () => NOW - 20 * D;
+
+  it('HM-016: a DAG first seen 3 days ago is dated from the environment history, with either store', async () => {
+    const coverage = async (store: TaskInstanceStore) => {
+      const result = await getDagDetail({ store, model, clock }, query);
+      if (result.kind !== 'ok') throw new Error(result.kind);
+      return result.detail.baseline;
+    };
+    const fallback = await coverage(storeOf(rows).store);
+    // The baseline is the 28 days before the range: [NOW − 29 D, NOW − D); history covers its last 19 days.
+    expect(fallback).toMatchObject({ history_from: iso(NOW - 20 * D), coverage: 19 / 28 });
+    // The DuckDB store: a per-DAG baseline read, and the environment's history start.
+    expect(await coverage({ ...storeOf(rows, true).store, historyStart })).toEqual(fallback);
+    expect(await coverage({ ...storeOf(rows).store, historyStart })).toEqual(fallback);
+  });
+});
+
 describe('HM-015 failures, retries and flakiness in DAG detail', () => {
   it('HM-015: run and try outcomes for the DAG and per task, with counts and rates', async () => {
     const flaky = Array.from({ length: 24 }, (_, i) => {

@@ -45,6 +45,7 @@ import {
 } from '@dcam/domain';
 import type { Clock, EnvironmentModelSource, StoredTaskTry, TaskInstanceStore } from '@dcam/ports';
 import { DEFAULT_SNAPSHOT_CADENCE_MS } from './bottlenecks';
+import { earliestTry, historyStartOf, readHistoryStart } from './history';
 import { paretoCount } from './overview';
 
 const RANGE_MS: Record<Range, number> = {
@@ -108,21 +109,15 @@ export interface DagLeagueQuery {
 }
 
 /**
- * Share of the previous window with collected task history. History starts at the earliest stored try:
- * `af.facts` reads one hour before DCAM's first cycle, and `af.backfill` (FR-COLL-04) reads the days before
- * that newest first, so the stored history stays contiguous back to that try. A quiet start of the window
- * reads as uncovered, so DCAM says "no data" rather than claim a DAG did not run.
+ * Share of a window with collected task history, from where the environment's history starts. History
+ * starts at the earliest stored try of the environment (`history.ts`): `af.facts` reads one hour before
+ * DCAM's first cycle, and `af.backfill` (FR-COLL-04) reads the days before that newest first, so the stored
+ * history stays contiguous back to that try. A quiet start of the window reads as uncovered, so DCAM says
+ * "no data" rather than claim a DAG did not run.
  */
-function historyCoverage(tries: readonly StoredTaskTry[], w: SweepWindow): number {
-  const earliest = earliestTry(tries);
-  if (earliest === null) return 0;
-  return Math.min(1, Math.max(0, (w.to - Math.max(w.from, earliest)) / (w.to - w.from)));
-}
-
-/** Where the stored task history starts: the earliest try's start (or queued time); `null` without one. */
-function earliestTry(tries: readonly StoredTaskTry[]): number | null {
-  const earliest = tries.reduce((m, t) => Math.min(m, t.startAt ?? t.queuedAt ?? Infinity), Infinity);
-  return Number.isFinite(earliest) ? earliest : null;
+function historyCoverage(historyFrom: number | null, w: SweepWindow): number {
+  if (historyFrom === null) return 0;
+  return Math.min(1, Math.max(0, (w.to - Math.max(w.from, historyFrom)) / (w.to - w.from)));
 }
 
 export async function getDagLeague(deps: DagsDeps, q: DagLeagueQuery): Promise<DagLeague> {
@@ -172,7 +167,7 @@ export async function getDagLeague(deps: DagsDeps, q: DagLeagueQuery): Promise<D
     env_id: q.envId,
     range: { from: iso(current.from), to: iso(current.to) },
     previous_range: { from: iso(previous.from), to: iso(previous.to) },
-    previous_coverage: historyCoverage(tries, previous),
+    previous_coverage: historyCoverage(earliestTry(tries), previous),
     data_as_of: iso(now),
     sources: [...q.sources],
     total_executor_slot_seconds: league.totalExecutorSlotSeconds,
@@ -314,10 +309,11 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
   };
   // Tries from the previous range too, so runs that began before the range are seen whole; older ones of
   // this DAG for its baseline.
-  const [tries, snapshots, older] = await Promise.all([
+  const [tries, snapshots, older, storedHistory] = await Promise.all([
     deps.store.taskTries(q.envId, previous.from, now),
     deps.model.snapshots(q.envId, current.from, now + 1),
     olderTries(deps.store, q.envId, q.dagId, baselineWindow.from, previous.from),
+    readHistoryStart(deps.store, q.envId),
   ]);
   const dagTries = tries.filter((t) => t.dagId === q.dagId);
   if (q.runId !== undefined && !dagTries.some((t) => t.runId === q.runId)) return { kind: 'unknown-run' };
@@ -346,7 +342,9 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
       ? null
       : criticalPath(dagTries.filter((t) => t.runId === ganttRunId));
   const rowIndex = new Map(gantt.map((g, i) => [`${g.taskId}\u0000${g.mapIndex}\u0000${g.tryNumber}`, i]));
-  const historyFrom = earliestTry([...older, ...tries]);
+  // The environment's history, not this DAG's: a DAG first seen 3 days ago did not run before (HM-016). The
+  // per-DAG read holds this DAG's tries only, so without the store's history start it does not date it.
+  const historyFrom = historyStartOf(storedHistory, deps.store.dagTaskTries ? tries : [...older, ...tries]);
 
   return {
     kind: 'ok',
@@ -412,7 +410,7 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
         from: iso(baselineWindow.from),
         to: iso(baselineWindow.to),
         history_from: historyFrom === null ? null : iso(historyFrom),
-        coverage: historyFrom === null ? 0 : historyCoverage([...older, ...tries], baselineWindow),
+        coverage: historyCoverage(historyFrom, baselineWindow),
         margin: DURATION_REGRESSION_RULE.margin,
       },
       regression: toRegression(regression.run),

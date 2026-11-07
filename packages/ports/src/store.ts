@@ -83,7 +83,8 @@ export interface TaskInstanceStore {
   taskTries(envId: string, from: number, to: number): Promise<StoredTaskTry[]>;
   /**
    * The same rows as {@link taskTries} for one DAG only. Optional: DAG detail reads 28 days of one DAG for its
-   * baseline (HM-016) and falls back to `taskTries` filtered by DAG where a store does not offer it.
+   * baseline (HM-016) and falls back to `taskTries` filtered by DAG where a store does not offer it. A store
+   * that offers it should offer {@link historyStart} too: one DAG's tries do not date the environment's history.
    */
   dagTaskTries?(envId: string, dagId: string, from: number, to: number): Promise<StoredTaskTry[]>;
   countTaskTries(envId: string): Promise<number>;
