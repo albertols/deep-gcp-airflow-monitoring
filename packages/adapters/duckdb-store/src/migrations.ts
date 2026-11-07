@@ -171,11 +171,15 @@ export const MIGRATIONS: readonly Migration[] = [
   },
   {
     // Retention and the disk budget (feature 005, FR-STORE-02, FR-STORE-07). 0006 is the backfill feature's.
-    // `span_ms`: the time a thinned snapshot stands for (null on a raw snapshot). `retention_horizon`: how far
-    // back each environment's data of a family is kept and unthinned, so pages can say what was deleted.
+    // `span_ms`: the time a thinned snapshot stands for (null on a raw snapshot). `complete`: whether the
+    // snapshot read every task instance (its coverage), so thinning can prefer it without parsing payloads.
+    // `retention_horizon`: how far back each environment's data of a family is kept and unthinned.
     id: '0007_retention',
     sql: `
       ALTER TABLE fact.live_snapshot ADD COLUMN span_ms DOUBLE;
+      ALTER TABLE fact.live_snapshot ADD COLUMN complete BOOLEAN DEFAULT true;
+      UPDATE fact.live_snapshot SET complete = false
+        WHERE json_extract(payload, '$.coverage.complete')::BOOLEAN = false;
       CREATE TABLE meta.retention_horizon (
         env_id         VARCHAR NOT NULL,
         family         VARCHAR NOT NULL,   -- task-tries, ready-times, snapshots, worker-samples

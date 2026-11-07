@@ -1,7 +1,8 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { LiveSnapshot } from '@dcam/domain';
-import { openFileStore, openStore, type DuckDbStore } from '../src/index';
+import { DuckDBInstance } from '@duckdb/node-api';
+import { DB_FILE_NAME, MIGRATIONS, openFileStore, openStore, type DuckDbStore } from '../src/index';
 import { ENV, T0, sample, snapshot, tempDir, tryRow } from './fixtures';
 
 const MIN = 60_000;
@@ -140,6 +141,75 @@ describe(
       expect(raw.every((s) => s.spanMs === undefined)).toBe(true);
       expect(await store.snapshots(OTHER, start, start + HOUR)).toHaveLength(60);
       expect(await store.snapshotHorizon(ENV)).toEqual({ deletedBefore: null, thinnedBefore: before });
+      store.close();
+    });
+
+    it('FR-STORE-07: thinning keeps a complete snapshot over a sample, also one stored before migration 0007', async () => {
+      const sampled = (at: number) => ({
+        ...snapshot(at),
+        coverage: { read: 100, total: 250, complete: false },
+      });
+      const complete = (at: number) => ({
+        ...snapshot(at),
+        coverage: { read: 50, total: 50, complete: true },
+      });
+      const dir = tempDir();
+      const old = await openFileStore({
+        dataDir: dir,
+        migrations: MIGRATIONS.filter((m) => m.id !== '0007_retention'),
+      });
+      old.close();
+      // Written by the payload alone, as DCAM before migration 0007 did.
+      const raw = await DuckDBInstance.create(join(dir, DB_FILE_NAME));
+      const con = await raw.connect();
+      const first = T0 - (T0 % (5 * MIN));
+      await con.run(`INSERT INTO fact.live_snapshot VALUES ($1, to_timestamp($2), $3)`, [
+        ENV,
+        first / 1000,
+        JSON.stringify(sampled(first)),
+      ]);
+      con.closeSync();
+      raw.closeSync();
+      const store = await openFileStore({ dataDir: dir });
+      const start = T0 - (T0 % (5 * MIN));
+      await store.saveSnapshots(ENV, [
+        complete(start + MIN),
+        sampled(start + 2 * MIN),
+        sampled(start + 5 * MIN),
+      ]);
+      await store.thinSnapshots(ENV, { ...THIN, before: start + 10 * MIN });
+      const kept = await store.snapshots(ENV, start, start + 10 * MIN);
+      expect(kept.map((s) => [s.at - start, s.coverage?.complete, s.spanMs])).toEqual([
+        // 60 + 60 + 120 s (the 3-minute gap is capped at two 60 s cadences); the lone sample stands for 60 s.
+        [MIN, true, 4 * MIN],
+        [5 * MIN, false, MIN],
+      ]);
+      store.close();
+    });
+
+    it('FR-STORE-02: at reference scale one delete batch holds the write queue for well under a second', async () => {
+      // About two days of tries at 2,000 DAGs (NFR-SCALE-02: up to 200,000 a day); half of them expired.
+      const store = await openStore({ path: ':memory:' });
+      for (let part = 0; part < 4; part++)
+        await store.upsertTaskTries(
+          Array.from({ length: 25_000 }, (_, i) => {
+            const end = T0 - DAY + (part * 25_000 + i) * 1_000;
+            return tryRow({ taskId: `t${part}_${i}`, startAt: end - 60_000, endAt: end });
+          }),
+        );
+      const slowest = { ms: 0 };
+      let batches = 0;
+      for (;;) {
+        const started = performance.now();
+        const deleted = await store.deleteExpired(ENV, 'task-tries', T0 - DAY + 50_000_000, 5_000);
+        slowest.ms = Math.max(slowest.ms, performance.now() - started);
+        batches++;
+        if (deleted < 5_000) break;
+      }
+      expect(batches).toBe(11);
+      expect(await store.countTaskTries(ENV)).toBe(50_000);
+      // Regression bound, not a benchmark (tens of ms a batch on a laptop).
+      expect(slowest.ms).toBeLessThan(2_000);
       store.close();
     });
 

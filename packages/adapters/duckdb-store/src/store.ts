@@ -806,7 +806,7 @@ export class DuckDbStore implements Store, CollectionStore, RetentionStore {
       const to = Math.min(from + DAY_MS, end);
       const slice = await read(
         `SELECT epoch_ms(taken_at)::DOUBLE AS t, span_ms,
-                coalesce(json_extract(payload, '$.coverage.complete')::BOOLEAN, true) AS complete
+                coalesce(complete, true) AS complete
          FROM fact.live_snapshot
          WHERE env_id = $1 AND taken_at >= to_timestamp($2) AND taken_at < to_timestamp($3) ORDER BY taken_at`,
         [envId, seconds(from), seconds(to)],
@@ -886,7 +886,10 @@ export class DuckDbStore implements Store, CollectionStore, RetentionStore {
   }
 }
 
-/** Inserts or replaces one snapshot; a thinned snapshot's span goes to `span_ms`, not into the payload. */
+/**
+ * Inserts or replaces one snapshot; a thinned snapshot's span goes to `span_ms`, not into the payload, and its
+ * coverage's `complete` is copied to a column for thinning (a demo snapshot has no coverage and is complete).
+ */
 async function insertSnapshot(
   con: DuckDBConnection,
   envId: string,
@@ -894,9 +897,9 @@ async function insertSnapshot(
 ): Promise<void> {
   const { spanMs, ...rest } = snapshot;
   await con.run(
-    `INSERT OR REPLACE INTO fact.live_snapshot (env_id, taken_at, payload, span_ms)
-     VALUES ($1, to_timestamp($2), $3, $4)`,
-    [envId, seconds(snapshot.at), JSON.stringify(rest), spanMs ?? null],
+    `INSERT OR REPLACE INTO fact.live_snapshot (env_id, taken_at, payload, span_ms, complete)
+     VALUES ($1, to_timestamp($2), $3, $4, $5)`,
+    [envId, seconds(snapshot.at), JSON.stringify(rest), spanMs ?? null, snapshot.coverage?.complete ?? true],
   );
 }
 
