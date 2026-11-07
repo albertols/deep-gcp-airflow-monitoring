@@ -2,7 +2,7 @@
  * (i) explanations for the DCAM health page (FR-UI-05, spec §12.9): one per panel and one per number
  * column of the collector and footprint tables.
  *
- * @implements FR-UI-05, FR-SELF-01, FR-COLL-11, HM-030, NFR-OBS-06
+ * @implements FR-UI-05, FR-SELF-01, FR-COLL-04, FR-COLL-11, HM-030, NFR-OBS-06
  */
 import type { Explanation } from '@dcam/ui-kit';
 import { COLLECTION_POLL_MS } from '../../components/collection';
@@ -64,6 +64,23 @@ export const HEALTH_EXPLANATIONS = {
     sources: [REQUEST_LOG],
     caveats: ['A monthly series budget and its month-to-date estimate come in a later release.'],
     docs: [MONITORING_PRICING_DOC],
+  },
+
+  'health-backfill': {
+    id: 'health-backfill',
+    title: 'History backfill',
+    summary:
+      'When DCAM first collects an environment, it reads the history before that in the background: 7 days of finished task instances and 14 days of worker metrics by default (FR-COLL-04).',
+    whyItMatters:
+      'Until the backfill is complete, pages whose range starts earlier show only part of that range. The missing part is a gap, never zero.',
+    howToRead:
+      'Newest history comes first, so "covered from" moves back in time. The backfill yields to live collection and stays within the request budget; it resumes where it stopped after a restart.',
+    caveats: [
+      'Retried tries of a task instance before its last try are not backfilled; DCAM reads them only while it runs.',
+      'To finish sooner, use the live profile for this environment for a while, or raise budgets.airflowApi.background in dcam.config.yaml.',
+    ],
+    sources: [ENGINE, 'dcam.config.yaml'],
+    freshness: FRESHNESS,
   },
 
   // Collector columns.
@@ -156,6 +173,49 @@ export const HEALTH_EXPLANATIONS = {
     howToRead: 'Decimal units: 1 kB is 1,000 bytes, 1 MB is 1,000,000 bytes.',
     sources: [REQUEST_LOG],
   },
+  // Backfill columns.
+  'health-backfill-days': {
+    id: 'health-backfill-days',
+    title: 'Days read',
+    summary: 'Days of history read so far, of the days configured for this environment.',
+    formula: 'days read = (where live collection starts − covered from) ÷ 1 day',
+    howToRead:
+      'Set backfill.taskInstancesDays and backfill.metricsDays for the environment in dcam.config.yaml; 0 turns a backfill off.',
+    sources: [ENGINE, 'dcam.config.yaml'],
+  },
+  'health-backfill-covered': {
+    id: 'health-backfill-covered',
+    title: 'Covered from',
+    summary:
+      'History is complete from this time on. Before it, the pages of this environment have no data from the backfill yet.',
+    howToRead: 'Hover over the time for the exact date and time (UTC).',
+    sources: [ENGINE],
+  },
+  'health-backfill-rows': {
+    id: 'health-backfill-rows',
+    title: 'Rows read',
+    summary:
+      'Rows the backfill stored: task instance tries, or one-minute worker samples. Rows already collected live are stored once.',
+    sources: [ENGINE],
+  },
+  'health-backfill-requests': {
+    id: 'health-backfill-requests',
+    title: 'Requests',
+    summary:
+      'Requests the backfill made so far, across restarts. They count against the request budget above.',
+    sources: [REQUEST_LOG],
+  },
+  'health-backfill-eta': {
+    id: 'health-backfill-eta',
+    title: 'Time left',
+    summary: 'When the backfill should finish at the pace it had over the last 30 minutes.',
+    formula: 'time left = work left ÷ rate observed over the last 30 min',
+    howToRead:
+      '"Not known yet" until DCAM has seen 5 minutes of progress and has counted the work left. The pace changes with the budget and with how much live collection needs.',
+    caveats: ['An estimate from the observed rate, not a promise.'],
+    sources: [ENGINE],
+  },
+
   'health-p95-latency': {
     id: 'health-p95-latency',
     title: 'p95 latency',
@@ -178,6 +238,14 @@ export const COLLECTOR_COLUMNS = [
   'health-cadence',
   'health-failures',
   'health-error-rate',
+] as const satisfies readonly HealthExplanationId[];
+/** Number columns of the backfill table, in order (FR-COLL-04). */
+export const BACKFILL_COLUMNS = [
+  'health-backfill-days',
+  'health-backfill-covered',
+  'health-backfill-rows',
+  'health-backfill-requests',
+  'health-backfill-eta',
 ] as const satisfies readonly HealthExplanationId[];
 /** Number columns of the footprint table, in order. */
 export const FOOTPRINT_COLUMNS = [

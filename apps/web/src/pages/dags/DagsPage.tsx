@@ -17,6 +17,7 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
 import type { DagLeague, DagLeagueRow, Range } from '@dcam/contracts';
 import { InfoPopover } from '@dcam/ui-kit';
+import { HistoryNote } from '../../components/backfill';
 import { PageHeader } from '../../components/PageHeader';
 import { Kpi, KpiRow, Panel, ProvenanceFooter, QueryState } from '../../components/Panel';
 import { formatInt, formatSlotHours } from '../../components/format';
@@ -244,6 +245,13 @@ export function DagsPage({ api, envId, linkTo }: PageProps) {
             <Treemap rows={filtered} team={team} onTeam={setTeam} linkTo={linkTo} />
           </Panel>
 
+          <HistoryNote
+            api={api}
+            envId={envId}
+            rangeFrom={data.range.from}
+            kinds={['task_instances']}
+            healthHref={linkTo({ page: 'health' })}
+          />
           <ProvenanceFooter
             dataAsOf={data.data_as_of}
             sources={data.sources}

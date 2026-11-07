@@ -20,6 +20,7 @@ import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import type { Bottlenecks, Range, WaitReasonId } from '@dcam/contracts';
 import { InfoPopover } from '@dcam/ui-kit';
+import { HistoryNote } from '../../components/backfill';
 import { Legend, StackedBars, ValueBars } from '../../components/charts';
 import { formatCadence, formatDuration, formatInt, formatShare } from '../../components/format';
 import { PageHeader } from '../../components/PageHeader';
@@ -350,6 +351,13 @@ export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
             </Box>
           </Stack>
 
+          <HistoryNote
+            api={api}
+            envId={envId}
+            rangeFrom={b.range.from}
+            kinds={['task_instances', 'metrics']}
+            healthHref={linkTo({ page: 'health' })}
+          />
           <ProvenanceFooter
             dataAsOf={b.data_as_of}
             sources={b.sources}

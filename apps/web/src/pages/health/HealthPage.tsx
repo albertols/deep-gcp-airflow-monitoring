@@ -2,7 +2,10 @@
  * DCAM health: what DCAM collects from each environment, how fresh it is, what fails and how many
  * requests DCAM itself makes. Demo mode has no collectors, so the page says that nothing is collected.
  *
- * @implements FR-SELF-01, FR-COLL-11, FR-COLL-06, HM-030, NFR-OBS-06, FR-UI-05, FR-UI-07, FR-UI-08
+ * The history backfill panel shows each backfill on first add (FR-COLL-04): how many days it read, where
+ * the history is complete from, and an ETA from the observed rate, in words while it cannot be estimated.
+ *
+ * @implements FR-SELF-01, FR-COLL-04, FR-COLL-11, FR-COLL-06, HM-030, NFR-OBS-06, FR-UI-05, FR-UI-07, FR-UI-08
  */
 import { useQuery } from '@tanstack/react-query';
 import type { ComponentType } from 'react';
@@ -21,12 +24,20 @@ import TableRow from '@mui/material/TableRow';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import CheckCircleOutlined from '@mui/icons-material/CheckCircleOutlined';
+import DownloadingOutlined from '@mui/icons-material/DownloadingOutlined';
 import DoNotDisturbOnOutlined from '@mui/icons-material/DoNotDisturbOnOutlined';
 import ErrorOutlined from '@mui/icons-material/ErrorOutlined';
 import HourglassTopOutlined from '@mui/icons-material/HourglassTopOutlined';
 import WarningAmberOutlined from '@mui/icons-material/WarningAmberOutlined';
-import type { ApiFootprint, CollectionEnvironment, CollectorStatus } from '@dcam/contracts';
+import type { ApiFootprint, BackfillStatus, CollectionEnvironment, CollectorStatus } from '@dcam/contracts';
 import { InfoPopover } from '@dcam/ui-kit';
+import {
+  BACKFILL_KIND,
+  daysRead,
+  formatDays,
+  formatEta,
+  formatLongDuration,
+} from '../../components/backfill';
 import { COLLECTION_POLL_MS, useCollection } from '../../components/collection';
 import { formatBytes, formatDuration, formatInt, formatShare } from '../../components/format';
 import { PageHeader } from '../../components/PageHeader';
@@ -44,6 +55,17 @@ const STATE: Readonly<
   degraded: { label: 'Degraded', color: 'warning', Icon: WarningAmberOutlined },
   failing: { label: 'Failing', color: 'error', Icon: ErrorOutlined },
   disabled: { label: 'Disabled', color: 'default', Icon: DoNotDisturbOnOutlined },
+};
+const BACKFILL_STATE: Readonly<
+  Record<
+    BackfillStatus['state'],
+    { label: string; color: ChipProps['color']; Icon: ComponentType<SvgIconProps> }
+  >
+> = {
+  waiting: { label: 'Waiting', color: 'default', Icon: HourglassTopOutlined },
+  running: { label: 'Filling in', color: 'info', Icon: DownloadingOutlined },
+  complete: { label: 'Complete', color: 'success', Icon: CheckCircleOutlined },
+  disabled: { label: 'Off', color: 'default', Icon: DoNotDisturbOnOutlined },
 };
 const PROFILE: Readonly<Record<CollectionEnvironment['profile'], string>> = {
   live: 'Live profile',
@@ -199,6 +221,80 @@ function CollectorsTable({ env, reference }: { env: CollectionEnvironment; refer
   );
 }
 
+function BackfillTable({ env, reference }: { env: CollectionEnvironment; reference: number }) {
+  const backfill = env.backfill ?? [];
+  if (backfill.length === 0)
+    return (
+      <Typography variant="body2" color="text.secondary">
+        DCAM does not backfill history for this environment: its collection is off, or this DCAM version has
+        no backfill.
+      </Typography>
+    );
+  return (
+    <Box sx={{ overflowX: 'auto' }}>
+      <Table size="small" aria-label={`History backfill for ${env.env_id}`}>
+        <TableHead>
+          <TableRow>
+            <TableCell>History</TableCell>
+            <TableCell>State</TableCell>
+            <HeaderCell id="health-backfill-days" align="right" />
+            <HeaderCell id="health-backfill-covered" />
+            <HeaderCell id="health-backfill-rows" align="right" />
+            <HeaderCell id="health-backfill-requests" align="right" />
+            <HeaderCell id="health-backfill-eta" align="right" />
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {backfill.map((b) => {
+            const state = BACKFILL_STATE[b.state];
+            return (
+              <TableRow key={b.collector_id} sx={{ verticalAlign: 'top' }}>
+                <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                  {BACKFILL_KIND[b.kind]}
+                  <Typography variant="caption" color="text.secondary" component="p" sx={mono}>
+                    {b.collector_id}
+                  </Typography>
+                </TableCell>
+                <TableCell>
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    color={state.color}
+                    icon={<state.Icon fontSize="small" data-testid={`backfill-state-${b.state}`} />}
+                    label={state.label}
+                  />
+                </TableCell>
+                <TableCell align="right" sx={numeric}>
+                  {b.state === 'disabled' ? 'Off' : `${formatDays(daysRead(b))} of ${formatInt(b.days)} days`}
+                </TableCell>
+                <TableCell>
+                  {b.covered_from === null ? (
+                    'Not started'
+                  ) : (
+                    <RelativeTime
+                      iso={b.covered_from}
+                      label={`${formatLongDuration(Math.max(0, (reference - Date.parse(b.covered_from)) / 1000))} ago`}
+                    />
+                  )}
+                </TableCell>
+                <TableCell align="right" sx={numeric}>
+                  {formatInt(b.items_read)}
+                </TableCell>
+                <TableCell align="right" sx={numeric}>
+                  {formatInt(b.requests_used)}
+                </TableCell>
+                <TableCell align="right" sx={numeric}>
+                  {b.state === 'disabled' ? '—' : formatEta(b)}
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </Box>
+  );
+}
+
 /** Requests in a window and their share of the budget for that window. */
 function Requests({ count, perMinute, window }: { count: number; perMinute: number; window: '1h' | '24h' }) {
   const budget = perMinute * MINUTES[window];
@@ -304,6 +400,10 @@ function EnvironmentHealth({
         <Box>
           <PanelTitle explanation={X['health-collectors']} component="h3" />
           <CollectorsTable env={env} reference={reference} />
+        </Box>
+        <Box>
+          <PanelTitle explanation={X['health-backfill']} component="h3" />
+          <BackfillTable env={env} reference={reference} />
         </Box>
         <Box>
           <PanelTitle explanation={X['health-footprint']} component="h3" />

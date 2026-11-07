@@ -10,6 +10,7 @@ import { linkTo } from '../src/router';
 import { COLLECTION_POLL_MS as POLL_MS } from '../src/components/collection';
 import { HealthPage } from '../src/pages/health/HealthPage';
 import {
+  BACKFILL_COLUMNS,
   COLLECTOR_COLUMNS,
   FOOTPRINT_COLUMNS,
   HEALTH_EXPLANATIONS,
@@ -64,11 +65,38 @@ const environment = (over: Partial<CollectionEnvironment>): CollectionEnvironmen
   ...over,
 });
 
+const DAY_S = 86_400;
 const LIVE: Collection = {
   mode: 'live',
   generated_at: at(0),
   environments: [
     environment({
+      backfill: [
+        {
+          collector_id: 'af.backfill',
+          kind: 'task_instances',
+          state: 'running',
+          days: 7,
+          from: at(7 * DAY_S + 3_600),
+          to: at(3_600),
+          covered_from: at(2.5 * DAY_S + 3_600),
+          items_read: 50_120,
+          requests_used: 640,
+          eta_seconds: 5.5 * 3_600,
+        },
+        {
+          collector_id: 'mon.backfill',
+          kind: 'metrics',
+          state: 'waiting',
+          days: 14,
+          from: null,
+          to: null,
+          covered_from: null,
+          items_read: 0,
+          requests_used: 0,
+          eta_seconds: null,
+        },
+      ],
       reduced_fidelity: true,
       failing: true,
       collectors: [
@@ -347,6 +375,42 @@ describe('DCAM health page (FR-SELF-01, FR-COLL-11, HM-030)', () => {
         within(footprint).getByRole('button', { name: `About ${HEALTH_EXPLANATIONS[id].title}` }),
       ).toBeInTheDocument();
     expect(COLLECTOR_COLUMNS.length + FOOTPRINT_COLUMNS.length).toBe(12);
+    const backfill = header('History backfill for acme-prod');
+    for (const id of BACKFILL_COLUMNS)
+      expect(
+        within(backfill).getByRole('button', { name: `About ${HEALTH_EXPLANATIONS[id].title}` }),
+      ).toBeInTheDocument();
+  });
+
+  it('FR-COLL-04: shows each backfill: days read of days configured, covered from, rows, requests and time left', async () => {
+    renderPage(fakeApi(async () => LIVE));
+    const prod = await screen.findByRole('region', { name: 'acme-prod' });
+    const table = within(prod).getByRole('table', { name: 'History backfill for acme-prod' });
+    const tries = within(table).getByRole('row', { name: /Task instances/ });
+    expect(within(tries).getByText('Filling in')).toBeInTheDocument();
+    expect(within(tries).getByTestId('backfill-state-running')).toBeInTheDocument();
+    expect(within(tries).getByText('2.5 of 7 days')).toBeInTheDocument();
+    expect(within(tries).getByText('2d 13h ago').closest('time')).toHaveAttribute(
+      'dateTime',
+      at(2.5 * DAY_S + 3_600),
+    );
+    expect(within(tries).getByText('50,120')).toBeInTheDocument();
+    expect(within(tries).getByText('640')).toBeInTheDocument();
+    expect(within(tries).getByText('about 5h 30m')).toBeInTheDocument();
+  });
+
+  it('FR-COLL-04: a backfill not started yet, and a time left not known yet, are said in words, never as zero', async () => {
+    renderPage(fakeApi(async () => LIVE));
+    const prod = await screen.findByRole('region', { name: 'acme-prod' });
+    const metrics = within(
+      within(prod).getByRole('table', { name: 'History backfill for acme-prod' }),
+    ).getByRole('row', { name: /Worker metrics/ });
+    expect(within(metrics).getByText('Waiting')).toBeInTheDocument();
+    expect(within(metrics).getByText('0 of 14 days')).toBeInTheDocument();
+    expect(within(metrics).getByText('Not started')).toBeInTheDocument();
+    expect(within(metrics).getByText('Not known yet')).toBeInTheDocument();
+    const dev = screen.getByRole('region', { name: 'acme-dev' });
+    expect(within(dev).getByText(/DCAM does not backfill history for this environment/)).toBeInTheDocument();
   });
 
   it('FR-UI-05: every panel has an explanation, and each environment shows its (i) buttons', async () => {
