@@ -13,7 +13,8 @@
  * Window rule as elsewhere: a try, its task instance and its run count in the window the try started in.
  * Rates need 20 samples of their denominator (HM-015); counts are always returned. An outage opens at the end
  * of a failure that started in the window and closes at the end of the next success, which may be after the
- * window. Error signatures need Cloud Logging and are not computed here.
+ * window. A task's outages are tracked per map index (across runs): another map index of a mapped task
+ * succeeding is no recovery. Error signatures need Cloud Logging and are not computed here.
  *
  * @implements HM-015, FR-TASK-02 (failure rate, retry rate, flakiness, MTTR per DAG and task)
  */
@@ -111,7 +112,8 @@ interface Tally {
   retried: number;
   flaky: number;
   flakyInferred: number;
-  readonly events: Event[];
+  /** Finished outcomes per map index: one outage timeline each. */
+  readonly events: Map<number, Event[]>;
 }
 
 const newTally = (): Tally => ({
@@ -121,8 +123,20 @@ const newTally = (): Tally => ({
   retried: 0,
   flaky: 0,
   flakyInferred: 0,
-  events: [],
+  events: new Map(),
 });
+
+/** The outages of one task: each map index's timeline on its own. */
+function taskOutages(events: ReadonlyMap<number, readonly Event[]>): Outages {
+  const recoveries: number[] = [];
+  let unrecovered = 0;
+  for (const timeline of events.values()) {
+    const o = outages(timeline);
+    recoveries.push(...o.recoveries);
+    unrecovered += o.unrecovered;
+  }
+  return { recoveries, unrecovered };
+}
 
 function reliabilityOf(t: Tally, outage: Outages): TaskReliability {
   return {
@@ -161,8 +175,13 @@ function tallyByTask(tries: readonly DagTaskTry[], w: Span): Map<string, Tally> 
       s.tries++;
       if (failed) s.failedTries++;
     }
-    if (t.startAt !== null && t.endAt !== null && (failed || t.state === 'success'))
-      tally(t.taskId).events.push({ end: t.endAt, failed, inWindow: started });
+    if (t.startAt !== null && t.endAt !== null && (failed || t.state === 'success')) {
+      const events = tally(t.taskId).events;
+      const event = { end: t.endAt, failed, inWindow: started };
+      const timeline = events.get(t.mapIndex);
+      if (timeline) timeline.push(event);
+      else events.set(t.mapIndex, [event]);
+    }
   }
   for (const tiTries of triesByTaskInstanceOf(tries)) {
     if (!tiTries.some((t) => startedIn(t, w))) continue;
@@ -189,7 +208,7 @@ export function dagReliability(
   for (const [taskId, t] of tallyByTask(tries, w)) {
     // Only tasks with a try starting in the window are reported.
     if (t.tries === 0) continue;
-    const outage = outages(t.events);
+    const outage = taskOutages(t.events);
     allRecoveries.push(...outage.recoveries);
     allUnrecovered += outage.unrecovered;
     byTask.set(taskId, reliabilityOf(t, outage));

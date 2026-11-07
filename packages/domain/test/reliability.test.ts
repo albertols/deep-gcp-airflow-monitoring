@@ -158,6 +158,22 @@ describe('HM-015 failures, retries and flakiness of one DAG', () => {
     expect(r).toMatchObject({ runRecoveries: 0, runUnrecovered: 1, runMttrSeconds: null });
   });
 
+  it('HM-015: outages are per map index: another map index succeeding is no recovery', () => {
+    const tries = [
+      tryAt({ taskId: 'm', mapIndex: 0, start: 10, end: 20, state: 'failed' }),
+      tryAt({ taskId: 'm', mapIndex: 1, start: 10, end: 20.01 }),
+      tryAt({ taskId: 'm', mapIndex: 2, start: 10, end: 20, state: 'failed' }),
+      tryAt({ taskId: 'm', mapIndex: 2, tryNumber: 2, start: 25, end: 30 }),
+    ];
+    // Index 0 never recovered; index 2 recovered with its retry 10 min after its failure.
+    expect(dagReliability(tries, W).byTask.get('m')).toMatchObject({
+      recoveries: 1,
+      unrecovered: 1,
+      mttrSeconds: 600,
+    });
+    expect(dagReliability(tries, W).tasks).toMatchObject({ recoveries: 1, unrecovered: 1, mttrSeconds: 600 });
+  });
+
   it('HM-015: only tries starting in the window count; a failure before it does not open an outage', () => {
     const tries = [
       tryAt({ runId: run(0), taskId: 'extract', start: -30, end: -28, state: 'failed' }),
