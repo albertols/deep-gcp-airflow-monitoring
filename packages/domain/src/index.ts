@@ -18,3 +18,4 @@ export * from './advisor-model';
 export * from './advisor-signals';
 export * from './advisor-rule';
 export * from './advisor';
+export * from './retention';

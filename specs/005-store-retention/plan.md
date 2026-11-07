@@ -17,16 +17,16 @@ apps/server live workspace
 
 ## Packages touched
 
-| Package                          | Change                                                                                                     |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `packages/domain`                | `retention.ts`: classes, defaults, limits, `thinSnapshots`; `LiveSnapshot.spanMs?`; spans honour it         |
+| Package                          | Change                                                                                                                                              |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/domain`                | `retention.ts`: classes, defaults, limits, `thinSnapshots`; `LiveSnapshot.spanMs?`; spans honour it                                                 |
 | `packages/ports`                 | `RetentionStore`, `RetentionSettings`; optional `WorkspaceConfig.retention`, `EnvironmentEntry.retention`, `EnvironmentModelSource.snapshotHorizon` |
-| `packages/adapters/config-file`  | `retention` section and `environments[].retention`, JSON Schema, example file                              |
-| `packages/adapters/duckdb-store` | migration `0006_retention`; `RetentionStore` implementation                                                 |
-| `packages/application`           | `maintenance/` job and status; `bottlenecks.ts` adds `snapshot_retention` (three lines)                     |
-| `packages/contracts`             | additive: `Collection.storage`, `CollectionEnvironment.retention`, `Bottlenecks.snapshot_retention`        |
-| `apps/server`                    | wires the job in the live workspace, stops it before the store closes                                       |
-| `apps/web`                       | DCAM health page: local store panel, retention per environment                                              |
+| `packages/adapters/config-file`  | `retention` section and `environments[].retention`, JSON Schema, example file                                                                       |
+| `packages/adapters/duckdb-store` | migration `0006_retention`; `RetentionStore` implementation                                                                                         |
+| `packages/application`           | `maintenance/` job and status; `bottlenecks.ts` adds `snapshot_retention` (three lines)                                                             |
+| `packages/contracts`             | additive: `Collection.storage`, `CollectionEnvironment.retention`, `Bottlenecks.snapshot_retention`                                                 |
+| `apps/server`                    | wires the job in the live workspace, stops it before the store closes                                                                               |
+| `apps/web`                       | DCAM health page: local store panel, retention per environment                                                                                      |
 
 ## Thinning and why counts stay right
 

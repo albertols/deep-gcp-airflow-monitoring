@@ -120,6 +120,12 @@ export interface PoolState {
 
 export interface LiveSnapshot {
   readonly at: number;
+  /**
+   * Thinned snapshots only (FR-STORE-07, `retention.ts`): the time, in ms, this snapshot stands for, fixed
+   * when the disk budget thinned its 5-minute bucket to it. Absent on a raw snapshot, which stands for the
+   * gap to the next one (`snapshot-time.ts`).
+   */
+  readonly spanMs?: number;
   /** Ready to run (upstream satisfied), not yet queued: pre-queue waiting. */
   readonly scheduled: readonly SnapshotTaskInstance[];
   /** Queued in the executor, not yet running: post-queue waiting. */

@@ -1,11 +1,12 @@
 /**
  * Waiting attribution over time (FR-BOTL-01) and worker capacity (HM-011, HM-012). Each waiting task
  * instance in a live snapshot stands for the time that snapshot stands for (the real gap to the next
- * snapshot, capped at two cadences: `snapshot-time.ts`), attributed to its HM-006 reason.
+ * snapshot, capped at two cadences, or its stored span when the disk budget thinned it: `snapshot-time.ts`),
+ * attributed to its HM-006 reason.
  *
  * Top contributors per reason are kept per DAG and per pool (HM-006 output, spec L1088).
  *
- * @implements FR-BOTL-01, HM-006, HM-011, HM-012
+ * @implements FR-BOTL-01, HM-006, HM-011, HM-012, FR-STORE-07
  */
 import {
   limitKnown,
@@ -14,7 +15,7 @@ import {
   type WaitReasonId,
   type WorkerSample,
 } from './model';
-import { observedCadenceMs, snapshotSpans } from './snapshot-time';
+import { rawCadenceMs, snapshotSpans } from './snapshot-time';
 import { quantile, type Quantile } from './stats';
 import { classifySnapshot, type ClassifiedWait, type ClassifierContext } from './waiting';
 
@@ -56,7 +57,7 @@ export interface Attribution {
   /** Per reason: waiting ms while workers were at `max_count`. */
   readonly atMaxWorkersMs: ReadonlyMap<WaitReasonId, number>;
   readonly latest: { readonly snapshot: LiveSnapshot; readonly classified: readonly ClassifiedWait[] } | null;
-  /** The observed `af.live` cadence in the window; `null` with fewer than two snapshots. */
+  /** The observed `af.live` cadence in the window; `null` with fewer than two raw (not thinned) snapshots. */
   readonly cadenceMs: number | null;
   /** Time the snapshots stand for together: the observed part of the window (coverage, §13.2). */
   readonly coveredMs: number;
@@ -89,7 +90,8 @@ export function attributeWaiting(
   }));
   let latest: Attribution['latest'] = null;
   const inWindow = snapshots.filter((s) => s.at >= opts.from && s.at < opts.to);
-  const cadenceMs = observedCadenceMs(inWindow);
+  // Thinned snapshots (FR-STORE-07) carry their own span and say nothing about the af.live cadence.
+  const cadenceMs = rawCadenceMs(inWindow);
   const spans = snapshotSpans(inWindow, cadenceMs ?? opts.fallbackCadenceMs, opts.to);
   let coveredMs = 0;
 

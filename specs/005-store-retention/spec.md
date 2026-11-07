@@ -15,12 +15,12 @@ a disk budget (thin first, then delete the oldest data), and says so in the API 
 
 - **FR-STORE-02** (§9.4 L1613): tiered retention, defaults: raw runs and task instances 90 days; raw metric
   points 14 days; 5-minute rollups 90 days; 1-hour rollups 400 days; log signatures 30 days with bounded
-  samples; findings and alert history 400 days. All configurable per environment. *When retention runs, the
-  system shall delete or compact expired data and keep rollups consistent with raw data (golden tests).*
-- **FR-STORE-06** (§9.4 L1617): crash safety through transactional writes. *If the process crashes, then on
-  restart the store shall be consistent* (here: a maintenance run cut short resumes on the next run).
-- **FR-STORE-07** (§9.4 L1618): disk budget. *If usage exceeds 90 % of the configured budget, then the system
-  shall warn and downsample before deleting by age.*
+  samples; findings and alert history 400 days. All configurable per environment. _When retention runs, the
+  system shall delete or compact expired data and keep rollups consistent with raw data (golden tests)._
+- **FR-STORE-06** (§9.4 L1617): crash safety through transactional writes. _If the process crashes, then on
+  restart the store shall be consistent_ (here: a maintenance run cut short resumes on the next run).
+- **FR-STORE-07** (§9.4 L1618): disk budget. _If usage exceeds 90 % of the configured budget, then the system
+  shall warn and downsample before deleting by age._
 - **§11.7 Retention and tiering** (L2219): a nightly (and on-start) maintenance job applies FR-STORE-02, runs
   `CHECKPOINT` and enforces the disk budget. (The Parquet cold tier, FR-STORE-03, is M8.)
 - **§17.2** (L3478–3485): `retention.rawTaskInstancesDays: 90`, `rawMetricPointsDays: 14`, `rollup5mDays: 90`,
@@ -29,16 +29,16 @@ a disk budget (thin first, then delete the oldest data), and says so in the API 
 
 ## Tables and their retention class
 
-| Table (migration)                                  | Holds                            | Class (default)               | Age of a row                                                             |
-| -------------------------------------------------- | -------------------------------- | ----------------------------- | ------------------------------------------------------------------------ |
-| `fact.task_instance` (0001)                        | task instance tries              | raw task instances (90 days)  | its end; a try that never started: queued, ready or ingested time; open tries are never deleted |
-| `fact.ready_time` (0004)                           | first-seen ready times           | raw metric points (14 days)   | `ready_at` (copied into the try when it is stored)                       |
-| `fact.live_snapshot` (0004)                        | `af.live` snapshots              | raw metric points (14 days)   | `taken_at`; thinned by the disk budget                                   |
-| `fact.worker_sample` (0004)                        | one worker sample a minute       | raw metric points (14 days)   | `sampled_at`; not thinned (about 1 MB per environment per 14 days)       |
-| `dim.environment_config`, `fact.platform_health`   | latest value per environment     | none (one row per environment)| replaced on every save                                                   |
-| `dim.dag` (0004)                                   | latest DAG inventory             | none (one row per DAG)        | replaced by every complete inventory pass; not versioned                 |
-| `meta.watermarks`, `meta.retention_horizon` (0006) | DCAM's own state                 | none                          |                                                                          |
-| `meta.staging_*`                                   | per-batch staging                | none (emptied by every write) |                                                                          |
+| Table (migration)                                  | Holds                        | Class (default)                | Age of a row                                                                                    |
+| -------------------------------------------------- | ---------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `fact.task_instance` (0001)                        | task instance tries          | raw task instances (90 days)   | its end; a try that never started: queued, ready or ingested time; open tries are never deleted |
+| `fact.ready_time` (0004)                           | first-seen ready times       | raw metric points (14 days)    | `ready_at` (copied into the try when it is stored)                                              |
+| `fact.live_snapshot` (0004)                        | `af.live` snapshots          | raw metric points (14 days)    | `taken_at`; thinned by the disk budget                                                          |
+| `fact.worker_sample` (0004)                        | one worker sample a minute   | raw metric points (14 days)    | `sampled_at`; not thinned (about 1 MB per environment per 14 days)                              |
+| `dim.environment_config`, `fact.platform_health`   | latest value per environment | none (one row per environment) | replaced on every save                                                                          |
+| `dim.dag` (0004)                                   | latest DAG inventory         | none (one row per DAG)         | replaced by every complete inventory pass; not versioned                                        |
+| `meta.watermarks`, `meta.retention_horizon` (0006) | DCAM's own state             | none                           |                                                                                                 |
+| `meta.staging_*`                                   | per-batch staging            | none (emptied by every write)  |                                                                                                 |
 
 Rollups, log signatures, findings and alert history are not stored yet, so their settings are validated and
 reported as not used. Data of environments no longer in the configuration expires with the workspace defaults.

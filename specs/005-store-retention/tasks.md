@@ -2,7 +2,7 @@
 
 Test tasks come before the code they cover.
 
-- [ ] T-500 Domain: retention classes, defaults and limits; `thinSnapshots`; `snapshotSpans` and the observed
+- [x] T-500 Domain: retention classes, defaults and limits; `thinSnapshots`; `snapshotSpans` and the observed
       cadence honour `spanMs` (FR-STORE-02, FR-STORE-07)
 - [ ] T-501 Config: `retention` with defaults and hard limits, `environments[].retention`, unused classes
       warned, JSON Schema and example regenerated (FR-STORE-02)

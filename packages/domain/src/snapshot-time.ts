@@ -5,11 +5,21 @@
  * the real gap to the next one, capped at {@link SNAPSHOT_GAP_CADENCES} cadences: a longer gap is a
  * collection gap, unknown, never waiting. The last snapshot stands for one cadence, up to the window end.
  *
- * @implements FR-BOTL-01, HM-006
+ * A snapshot thinned by the disk budget (FR-STORE-07, `retention.ts`) carries `spanMs`, the time its
+ * 5-minute bucket stood for when it was thinned; it stands for that, up to the window end. The cadence is
+ * observed on raw snapshots only: five minutes between thinned snapshots is not a cadence.
+ *
+ * @implements FR-BOTL-01, HM-006, FR-STORE-07
  */
 
 /** A gap longer than this many cadences is a collection gap; the snapshot before it stands for the cap. */
 export const SNAPSHOT_GAP_CADENCES = 2;
+
+/** What the span of a snapshot depends on: its time and, when thinned, its stored span. */
+export interface TimedSnapshot {
+  readonly at: number;
+  readonly spanMs?: number;
+}
 
 /** The `af.live` cadence as observed: the median gap between consecutive snapshots, oldest first. */
 export function observedCadenceMs(snapshots: readonly { readonly at: number }[]): number | null {
@@ -24,14 +34,16 @@ export function observedCadenceMs(snapshots: readonly { readonly at: number }[])
   return gaps.length % 2 ? (gaps[mid] as number) : ((gaps[mid - 1] as number) + (gaps[mid] as number)) / 2;
 }
 
+/** The observed cadence of the raw (not thinned) snapshots among `snapshots`. */
+export function rawCadenceMs(snapshots: readonly TimedSnapshot[]): number | null {
+  return observedCadenceMs(snapshots.filter((s) => s.spanMs === undefined));
+}
+
 /** Milliseconds each snapshot (oldest first) stands for, given the cadence and the window end. */
-export function snapshotSpans(
-  snapshots: readonly { readonly at: number }[],
-  cadenceMs: number,
-  to: number,
-): number[] {
+export function snapshotSpans(snapshots: readonly TimedSnapshot[], cadenceMs: number, to: number): number[] {
   const cap = SNAPSHOT_GAP_CADENCES * cadenceMs;
   return snapshots.map((s, i) => {
+    if (s.spanMs !== undefined) return Math.max(0, Math.min(s.spanMs, to - s.at));
     const next = snapshots[i + 1];
     const span = next ? Math.min(next.at - s.at, cap) : Math.min(cadenceMs, to - s.at);
     return Math.max(0, span);
