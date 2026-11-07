@@ -143,7 +143,7 @@ describe('HM-016 / HM-015 / HM-007 demo stories in DAG detail', () => {
     },
   );
 
-  it('HM-016: the task of search_ranking_refresh that got slower 18 h ago is a regression over 24 h', async () => {
+  it('HM-016: the task of search_ranking_refresh that got slower 20 h ago is a regression over 24 h', async () => {
     const detail = (await get(`${ENV}/acme-prod/dags/search_ranking_refresh?range=24h`)).json<DagDetail>();
     // The demo holds 48 h: the baseline covers the day before the range, not 28 days, and says so.
     expect(detail.baseline?.coverage).toBeGreaterThan(0);

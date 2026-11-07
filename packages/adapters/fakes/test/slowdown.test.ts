@@ -72,10 +72,11 @@ describe('FR-EMU-03 / HM-016 a step change in task duration', () => {
     expect(tries.filter(before)).toEqual(plain.tries.filter(before));
   });
 
-  it('FR-EMU-03 acme-prod: the demo has a DAG whose task got slower 18 h ago', () => {
+  it('FR-EMU-03 acme-prod: the demo has a DAG whose task got slower 20 h ago, steady before', () => {
     const story = prod.dags(() => 0.5).find((d) => d.slowdown !== undefined);
     expect(story?.meta.dagId).toBe('search_ranking_refresh');
-    expect(story?.slowdown).toMatchObject({ hoursBeforeNow: 18 });
+    expect(story?.slowdown).toMatchObject({ hoursBeforeNow: 20 });
+    expect(story?.durationSigma).toBeLessThan(0.5);
     expect(story?.slowdown?.factor).toBeGreaterThanOrEqual(2);
   });
 });

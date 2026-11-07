@@ -57,6 +57,8 @@ export interface DagBlueprint {
   readonly cpu: number;
   /** The first task is a poke-mode sensor that holds its slot while it waits. */
   readonly sensorWaitMs?: number;
+  /** Spread (σ of the log) of task durations around `medianTaskMs`; 0.5 by default. */
+  readonly durationSigma?: number;
   /**
    * A step change in duration (HM-016 demo story): tries of these tasks that start in the last
    * `hoursBeforeNow` hours of the simulation run `factor` × longer. Draws no extra random numbers.
@@ -340,7 +342,7 @@ export function simulateEnvironment(options: SimulationOptions): SimulationResul
           slow && t >= now - slow.hoursBeforeNow * HOUR && slow.taskIds.includes(ti.taskId) ? slow.factor : 1;
         const duration = ti.sensor
           ? logNormal(random, dag.sensorWaitMs as number, 0.35)
-          : logNormal(random, dag.medianTaskMs) * factor;
+          : logNormal(random, dag.medianTaskMs, dag.durationSigma) * factor;
         ti.failed = !ti.sensor && random() < dag.failureRate;
         ti.endAt = t + Math.max(SECOND, Math.round(ti.failed ? duration * 0.3 : duration));
         add(poolQueued, dag.pool, -dag.poolSlots);

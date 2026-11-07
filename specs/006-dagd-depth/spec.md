@@ -73,7 +73,8 @@
 5. The league shows a "Flaky" column (flaky rate, retries in the tooltip).
 6. Every new panel has an (i) entry, empty, partial and stale states, a provenance footer, units and labelled
    estimates. Loading and error come from the page query.
-7. Demo: `search_ranking_refresh` regressed 18 h ago; `fraud_scoring_hourly` is flaky.
+7. Demo: one task of `search_ranking_refresh` got 3 × slower 20 h ago (flagged at any demo start time over 24 h,
+   "low sample" over 6 h); `fraud_scoring_hourly` is flaky.
 8. Performance: DAG detail for a DAG of 50 tasks × 96 runs a day with 7 days stored answers in < 1 s in the
    application layer.
 
