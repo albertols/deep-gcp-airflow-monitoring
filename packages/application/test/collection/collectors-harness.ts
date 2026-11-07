@@ -93,7 +93,8 @@ export class MemoryStore implements CollectionStore {
       if (next === null) continue;
       this.tries.set(k, {
         ...t,
-        endAt: greatest(t.startAt, t.seenRunningAt, next),
+        // Seen running: ended when last seen, not at the retry, so the retry delay is no slot time.
+        endAt: t.seenRunningAt != null ? greatest(t.startAt, t.seenRunningAt) : greatest(t.startAt, next),
         endEstimated: true,
         state: t.state === 'running' ? null : t.state,
       });

@@ -71,8 +71,10 @@ export interface TaskInstanceStore {
    * Upserts on the natural key; when a batch repeats a key, a row with a true end wins, else the last row.
    * A row without `endAt` never replaces a stored try whose end is true (not estimated): a running row read
    * before the try finished must not undo its finished row. Afterwards, a stored try still open while a
-   * later try of its task instance exists ends at that try's earliest known time (ready, queued or
-   * start), estimated: a failed try rescheduled before its own row was read would otherwise run forever.
+   * later try of its task instance exists ends, estimated, when it was last seen running (`seenRunningAt`,
+   * never before it started); a try never seen running ends at the later try's earliest known time (ready,
+   * queued or start). A failed try rescheduled before its own row was read would otherwise run forever,
+   * and ending it at the retry would count the retry delay as slot time.
    * A row without `readyAt` takes the recorded first-seen ready time, else keeps the stored one.
    */
   upsertTaskTries(rows: readonly StoredTaskTry[]): Promise<void>;

@@ -244,9 +244,13 @@ export class DuckDbStore implements Store, CollectionStore {
    *   replaced, so a try that runs again (resumed from deferral) is open again.
    * - A row without `readyAt` takes the first-seen ready time, else keeps the ready time the stored try already
    *   has: an unknown value never erases a known one (HM-006).
-   * - Then every try of the batch's task instances that is still open while a later try exists ends at the
-   *   later try's earliest known time (never before it started or was last seen running), estimated: a failed
-   *   try rescheduled before `af.facts` read its row is no longer in the task instance list (HM-003).
+   * - Then every try of the batch's task instances that is still open while a later try exists ends,
+   *   estimated, when it was last seen running (never before it started), as `closeRunningTries` ends it: a
+   *   failed try rescheduled before `af.facts` read its row is no longer in the task instance list (HM-003).
+   *   The later try's earliest known time would count the retry delay as slot time (Airflow's default
+   *   `[core] default_task_retry_delay` is 300 s,
+   *   https://airflow.apache.org/docs/apache-airflow/2.11.1/configurations-ref.html#default-task-retry-delay),
+   *   so it is only the bound of a try never seen running.
    */
   private async mergeTries(con: DuckDBConnection, rows: readonly StoredTaskTry[]): Promise<void> {
     await con.run('DELETE FROM meta.staging_task_instance');
@@ -297,8 +301,10 @@ export class DuckDbStore implements Store, CollectionStore {
        SET end_at = e.end_at, end_estimated = true, state = CASE WHEN p.state = 'running' THEN NULL ELSE p.state END
        FROM (
          SELECT o.env_id, o.dag_id, o.run_id, o.task_id, o.map_index, o.try_number,
-                greatest(any_value(o.start_at), any_value(o.seen_running_at),
-                         min(least(n.ready_at, n.queued_at, n.start_at, n.end_at))) AS end_at
+                CASE WHEN any_value(o.seen_running_at) IS NOT NULL
+                  THEN greatest(any_value(o.start_at), any_value(o.seen_running_at))
+                  ELSE greatest(any_value(o.start_at), min(least(n.ready_at, n.queued_at, n.start_at, n.end_at)))
+                END AS end_at
          FROM fact.task_instance o
          JOIN fact.task_instance n ON ${sameInstance('n', 'o')} AND n.try_number > o.try_number
          WHERE o.end_at IS NULL

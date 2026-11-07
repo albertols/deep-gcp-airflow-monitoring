@@ -182,9 +182,32 @@ export const STORE_CONTRACT: readonly StoreContractCase[] = [
     },
   },
   {
-    name: 'HM-003: a later try closes the open earlier try at its earliest known time, estimated',
+    name: 'HM-003: a later try ends an earlier try seen running when it was last seen running, so the retry delay is no slot time',
     async run(store, expect) {
-      await store.upsertTaskTries([runningRow({ taskId: 'flaky' })]);
+      // Try 1 was last seen running at T0 + 2 min, then failed; try 2 waited out the retry delay (Airflow's
+      // default `[core] default_task_retry_delay` is 300 s) and was queued at T0 + 8 min.
+      await store.upsertTaskTries([runningRow({ taskId: 'flaky' }, T0 + 2 * MIN)]);
+      await store.upsertTaskTries([
+        tryRow({
+          taskId: 'flaky',
+          tryNumber: 2,
+          readyAt: T0 + 7 * MIN + 30 * S,
+          queuedAt: T0 + 8 * MIN,
+          startAt: T0 + 8 * MIN,
+          endAt: T0 + 9 * MIN,
+        }),
+      ]);
+      expect((await all(store)).get('flaky#1')).toMatchObject({
+        state: null,
+        endAt: T0 + 2 * MIN,
+        endEstimated: true,
+      });
+    },
+  },
+  {
+    name: 'HM-003: a later try closes an open earlier try never seen running at its earliest known time, estimated',
+    async run(store, expect) {
+      await store.upsertTaskTries([runningRow({ taskId: 'flaky', seenRunningAt: null })]);
       await store.upsertTaskTries([
         tryRow({
           taskId: 'flaky',
@@ -208,7 +231,8 @@ export const STORE_CONTRACT: readonly StoreContractCase[] = [
         runningRow({ taskId: 'flaky', tryNumber: 2, queuedAt: null, startAt: T0 + 8 * MIN }, T0 + 8 * MIN),
       ]);
       await store.upsertTaskTries([runningRow({ taskId: 'flaky' })]);
-      expect((await all(store)).get('flaky#1')).toMatchObject({ endAt: T0 + 8 * MIN, endEstimated: true });
+      // Last seen running at T0 + 1 min, before the later try started.
+      expect((await all(store)).get('flaky#1')).toMatchObject({ endAt: T0 + MIN, endEstimated: true });
       expect((await all(store)).get('flaky#2')).toMatchObject({ endAt: null, endEstimated: false });
     },
   },
