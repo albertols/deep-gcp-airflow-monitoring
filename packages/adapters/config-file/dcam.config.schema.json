@@ -260,7 +260,7 @@
             },
             "background": {
               "default": 2,
-              "description": "Airflow API, background work such as inventory refreshes, in requests per minute (hard maximum 120).",
+              "description": "Airflow API, the share guaranteed to background work (inventory refreshes, backfill) within the profile budget and at most half of it; background work also uses spare capacity, in requests per minute (hard maximum 120).",
               "type": "number",
               "exclusiveMinimum": 0,
               "maximum": 120
@@ -276,13 +276,13 @@
           "additionalProperties": false
         },
         "monitoring": {
-          "description": "Cloud Monitoring budget.",
+          "description": "Cloud Monitoring budget. The eco profile gets a third of it, background work a sixth (spec §7.11).",
           "default": {},
           "type": "object",
           "properties": {
             "perProjectPerMinute": {
               "default": 30,
-              "description": "Cloud Monitoring, per project, in requests per minute (hard maximum 120).",
+              "description": "Cloud Monitoring, per project, on the live and standard profiles, in requests per minute (hard maximum 120).",
               "type": "number",
               "exclusiveMinimum": 0,
               "maximum": 120
@@ -291,13 +291,13 @@
           "additionalProperties": false
         },
         "composerApi": {
-          "description": "Composer API budget.",
+          "description": "Composer API budget. The eco profile gets a third of it (spec §7.11).",
           "default": {},
           "type": "object",
           "properties": {
             "perMinute": {
               "default": 6,
-              "description": "Composer API, per environment, in requests per minute (hard maximum 30).",
+              "description": "Composer API, per environment, on the live and standard profiles, in requests per minute (hard maximum 30).",
               "type": "number",
               "exclusiveMinimum": 0,
               "maximum": 30
@@ -460,7 +460,26 @@
             "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
           },
           "backfill": {
-            "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+            "description": "Backfill on first add (FR-COLL-04): history DCAM reads in the background, within the request budget.",
+            "default": {},
+            "type": "object",
+            "properties": {
+              "taskInstancesDays": {
+                "default": 7,
+                "description": "Days of finished task instances (and so DAG runs) read when DCAM first collects this environment, in days (0 turns it off, maximum 90).",
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 90
+              },
+              "metricsDays": {
+                "default": 14,
+                "description": "Days of Cloud Monitoring worker metrics read when DCAM first collects this environment, in days (0 turns it off, maximum 42).",
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 42
+              }
+            },
+            "additionalProperties": false
           }
         },
         "required": [

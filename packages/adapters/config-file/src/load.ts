@@ -152,6 +152,10 @@ function toWorkspaceConfig(file: ConfigFile, path: string, input: LoadWorkspaceC
       tier: entry.tier,
       profile: entry.profile ?? defaultProfile(entry.tier),
       source: source(entry),
+      backfill: {
+        taskInstancesDays: entry.backfill.taskInstancesDays,
+        metricsDays: entry.backfill.metricsDays,
+      },
     })),
   };
 }

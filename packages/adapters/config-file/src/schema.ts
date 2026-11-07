@@ -51,6 +51,17 @@ export const HARD_MAXIMA = {
   composerApiPerMinute: 30,
 } as const;
 
+/** Backfill on first add (FR-COLL-04, §17.2 `environments[].backfill`), in days. */
+export const DEFAULT_BACKFILL = { taskInstancesDays: 7, metricsDays: 14 } as const;
+
+/**
+ * Longest backfills: task instances up to the raw task instance retention (FR-STORE-02, 90 days; Composer 3
+ * keeps 60 days of metadata by default, spec HM-019), metrics up to Cloud Monitoring's six weeks of Composer
+ * metrics (spec §7.2 "Retention", Appendix A.1). The engine declares them too (`@dcam/application`); a
+ * server test checks that both agree.
+ */
+export const BACKFILL_MAXIMA = { taskInstancesDays: 90, metricsDays: 42 } as const;
+
 export const ENV_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 export const ENV_VAR_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** Hosts on which basic authentication is acceptable (FR-EMU-02). `URL.hostname` keeps IPv6 brackets. */
@@ -96,6 +107,14 @@ const perMinute = (value: number, maximum: number, what: string) =>
     .describe(`${what}, in requests per minute (hard maximum ${maximum}).`);
 
 const count = (what: string) => z.number().int().positive().describe(what);
+const days = (value: number, maximum: number, what: string) =>
+  z
+    .number()
+    .int()
+    .min(0)
+    .max(maximum)
+    .default(value)
+    .describe(`${what}, in days (0 turns it off, maximum ${maximum}).`);
 const envVarName = (what: string) =>
   z
     .string()
@@ -177,7 +196,23 @@ export const environmentEntrySchema = z
     team: NOT_USED_YET,
     impersonateServiceAccount: NOT_USED_YET,
     collectors: NOT_USED_YET,
-    backfill: NOT_USED_YET,
+    backfill: z
+      .strictObject({
+        taskInstancesDays: days(
+          DEFAULT_BACKFILL.taskInstancesDays,
+          BACKFILL_MAXIMA.taskInstancesDays,
+          'Days of finished task instances (and so DAG runs) read when DCAM first collects this environment',
+        ),
+        metricsDays: days(
+          DEFAULT_BACKFILL.metricsDays,
+          BACKFILL_MAXIMA.metricsDays,
+          'Days of Cloud Monitoring worker metrics read when DCAM first collects this environment',
+        ),
+      })
+      .prefault({})
+      .describe(
+        'Backfill on first add (FR-COLL-04): history DCAM reads in the background, within the request budget.',
+      ),
   })
   .describe(
     'One monitored environment: either a Composer environment (projectId, location, environment) or an airflow block.',
@@ -295,7 +330,7 @@ export const configFileSchema = z
             background: perMinute(
               DEFAULT_BUDGETS.airflowApi.background,
               HARD_MAXIMA.airflowApiPerMinute,
-              'Airflow API, background work such as inventory refreshes',
+              'Airflow API, the share guaranteed to background work (inventory refreshes, backfill) within the profile budget and at most half of it; background work also uses spare capacity',
             ),
             maxConcurrent: z
               .number()
@@ -314,20 +349,20 @@ export const configFileSchema = z
             perProjectPerMinute: perMinute(
               DEFAULT_BUDGETS.monitoringPerProjectPerMinute,
               HARD_MAXIMA.monitoringPerProjectPerMinute,
-              'Cloud Monitoring, per project',
+              'Cloud Monitoring, per project, on the live and standard profiles',
             ),
           },
-          'Cloud Monitoring budget.',
+          'Cloud Monitoring budget. The eco profile gets a third of it, background work a sixth (spec §7.11).',
         ),
         composerApi: section(
           {
             perMinute: perMinute(
               DEFAULT_BUDGETS.composerApiPerMinute,
               HARD_MAXIMA.composerApiPerMinute,
-              'Composer API, per environment',
+              'Composer API, per environment, on the live and standard profiles',
             ),
           },
-          'Composer API budget.',
+          'Composer API budget. The eco profile gets a third of it (spec §7.11).',
         ),
         logging: NOT_USED_YET,
         gcs: NOT_USED_YET,

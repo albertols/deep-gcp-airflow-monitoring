@@ -183,6 +183,7 @@ describe('FR-SETUP-05 profiles and budgets (§17.2, §7.11)', () => {
               location: 'europe-west1',
               environment: 'acme-prod',
             },
+            backfill: { taskInstancesDays: 7, metricsDays: 14 },
           },
         ],
       },
@@ -282,7 +283,49 @@ environments:
             workers: 1,
           },
         },
+        backfill: { taskInstancesDays: 7, metricsDays: 14 },
       },
+    ]);
+  });
+
+  it('FR-COLL-04: backfills 7 days of task instances and 14 days of metrics by default; each can be changed or turned off', async () => {
+    const cwd = tempDir();
+    const entry = (id: string, extra: string) =>
+      `  - id: ${id}\n    projectId: acme-data\n    location: europe-west1\n    environment: ${id}\n${extra}`;
+    writeFile(
+      cwd,
+      'dcam.config.yaml',
+      [
+        'version: 1',
+        'environments:',
+        entry('acme-prod', ''),
+        entry('acme-test', '    backfill: { taskInstancesDays: 3 }\n'),
+        entry('acme-dev', '    backfill: { taskInstancesDays: 0, metricsDays: 0 }\n'),
+      ].join('\n'),
+    );
+    const result = await loadWorkspaceConfig({ env: {}, cwd, homeDir: HOME });
+    if (!result.ok) throw new Error(JSON.stringify(result.issues));
+    expect(result.warnings).toEqual([]);
+    expect(result.config.environments.map((e) => [e.id, e.backfill])).toEqual([
+      ['acme-prod', { taskInstancesDays: 7, metricsDays: 14 }],
+      ['acme-test', { taskInstancesDays: 3, metricsDays: 14 }],
+      ['acme-dev', { taskInstancesDays: 0, metricsDays: 0 }],
+    ]);
+  });
+
+  it('FR-COLL-04: refuses backfills longer than the raw task instance retention (90 days) or Monitoring retention (42 days)', async () => {
+    const cwd = tempDir();
+    writeFile(
+      cwd,
+      'dcam.config.yaml',
+      `${MINIMAL}    backfill: { taskInstancesDays: 91, metricsDays: 43 }\n`,
+    );
+    const result = await loadWorkspaceConfig({ env: {}, cwd, homeDir: HOME });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues.map((i) => i.path).sort()).toEqual([
+      'environments.0.backfill.metricsDays',
+      'environments.0.backfill.taskInstancesDays',
     ]);
   });
 

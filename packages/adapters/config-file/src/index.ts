@@ -15,6 +15,8 @@ export {
   DEFAULT_BUDGETS,
   DEFAULT_PROFILES,
   HARD_MAXIMA,
+  BACKFILL_MAXIMA,
+  DEFAULT_BACKFILL,
   configFileSchema,
   configJsonSchema,
   renderConfigJsonSchema,

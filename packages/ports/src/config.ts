@@ -60,6 +60,17 @@ export type EnvironmentSource =
       readonly limits: StaticLimits;
     };
 
+/**
+ * How far back the backfill on first add reads (FR-COLL-04, §17.2 `environments[].backfill`), in days; 0
+ * turns that backfill off.
+ */
+export interface BackfillDays {
+  /** Finished task instances (and so DAG runs, which DCAM derives from them). */
+  readonly taskInstancesDays: number;
+  /** Cloud Monitoring worker samples. */
+  readonly metricsDays: number;
+}
+
 export interface EnvironmentEntry {
   /** DCAM's own slug, used in URLs and the API. */
   readonly id: string;
@@ -67,6 +78,8 @@ export interface EnvironmentEntry {
   readonly tier: Tier;
   readonly profile: Profile;
   readonly source: EnvironmentSource;
+  /** The configuration adapter always sets it; left out, the collectors use the §17.2 defaults (7 and 14). */
+  readonly backfill?: BackfillDays;
 }
 
 export interface WorkspaceConfig {

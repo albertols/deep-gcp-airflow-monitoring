@@ -35,3 +35,7 @@ environments:
     environment: acme-composer-prod # Composer environment name
     tier: prod # dev | test | uat | prod | other
     profile: standard # live | standard | eco | off; defaults to standard for prod, eco otherwise
+    # History DCAM reads in the background when it first collects this environment, within its request
+    # budget: finished task instances (at most 90 days) and Cloud Monitoring worker metrics (at most 42).
+    # 0 turns a backfill off. The DCAM health page shows its progress and when it should finish.
+    backfill: { taskInstancesDays: 7, metricsDays: 14 }

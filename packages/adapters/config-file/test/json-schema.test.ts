@@ -16,6 +16,10 @@ describe('FR-SETUP-02 published JSON Schema (§17.1)', () => {
     expect(schema.required).toEqual(['version', 'environments']);
     expect(schema.properties.budgets.properties.airflowApi.properties.live.maximum).toBe(120);
     expect(schema.properties.budgets.properties.airflowApi.properties.maxConcurrent.maximum).toBe(4);
+    // FR-COLL-04: the backfill of §17.2, with its defaults and maxima.
+    const backfill = schema.properties.environments.items.properties.backfill.properties;
+    expect([backfill.taskInstancesDays.default, backfill.taskInstancesDays.maximum]).toEqual([7, 90]);
+    expect([backfill.metricsDays.default, backfill.metricsDays.maximum]).toEqual([14, 42]);
     expect(schema.properties.environments.items.oneOf).toEqual([
       { required: ['projectId', 'location', 'environment'] },
       { required: ['airflow'] },
