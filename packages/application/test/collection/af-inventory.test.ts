@@ -142,6 +142,32 @@ describe('FR-COLL-06 af.inventory: DAG paging within the budget', () => {
     expect(result.dataAsOf).toBe(T0);
   });
 
+  it('FR-COLL-03: a DAG deleted while the listing is paged drops no live DAG, and the next pass starts soon', async () => {
+    const airflow = new FakeAirflow({ dags: manyDags(2_000) });
+    const store = new MemoryStore();
+    const collector = afInventoryCollector();
+    const ctx = fakeContext({ airflow, store, shared });
+    await collector.collect(ctx);
+    // The file of an already listed DAG is deleted mid-pass: the offsets behind it shift by one.
+    airflow.data.dags.splice(5, 1);
+    for (let i = 0; i < 2; i++) {
+      ctx.advance(10 * 60_000);
+      await collector.collect(ctx);
+    }
+    // The pass is complete, but its offsets shifted: it keeps the stored set and adds what it read.
+    expect(airflow.calls.filter((c) => c.startsWith('dags:')).at(-1)).toBe('dags:1900');
+    const afterPass = new Set((await store.dags('acme-prod')).map((d) => d.dagId));
+    expect(afterPass.has('acme_dag_0005')).toBe(true);
+    expect(ctx.fidelity.at(-1)).toMatch(/changed while it was read/);
+
+    for (let i = 0; i < 2; i++) {
+      ctx.advance(10 * 60_000);
+      await collector.collect(ctx);
+    }
+    const ids = (await store.dags('acme-prod')).map((d) => d.dagId);
+    expect(ids).toEqual(airflow.data.dags.map((d) => d.dagId));
+  });
+
   it('FR-COLL-03: a complete listing replaces the DAG set, so deleted and inactive DAGs drop out', async () => {
     const airflow = new FakeAirflow({ dags: manyDags(3) });
     const store = new MemoryStore();

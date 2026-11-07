@@ -17,7 +17,13 @@
  *
  * Until a pass is complete the stored set is the previous set overlaid with the pages read so far
  * (`saveDags` upserts); a complete pass replaces it in one transaction (`replaceDags`), so deleted and
- * inactive DAGs drop out.
+ * inactive DAGs drop out. `/dags` pages by offset, so a DAG added or deleted during the 20–30 minute
+ * pass shifts the rows behind it: one is read twice or not at all. A pass replaces the set only when
+ * every page's `total_entries` equals the first page's; otherwise it is upserted (a live DAG it missed
+ * stays as stored, a deleted one stays until a pass completes unchanged), the cycle reports reduced
+ * fidelity, and the next pass starts next cycle rather than an hour after this one. Such a pass costs
+ * about 20 more pages, at background priority: it stays within the Airflow `background` budget class and
+ * only takes a token while the bucket is at least half full (`budget.ts`).
  *
  * @implements FR-COLL-01, FR-COLL-03, FR-COLL-06, FR-COLL-08, FR-DAGX-08 (default team rule)
  */
@@ -42,6 +48,10 @@ const PASS_EVERY_MS = 60 * 60_000;
 interface Pass {
   offset: number;
   total: number | null;
+  /** `total_entries` of the pass's first page. */
+  first: number | null;
+  /** Every page so far counted {@link first} DAGs: no DAG was added or deleted while it was paged. */
+  stable: boolean;
   readonly dags: Map<string, DagMeta>;
 }
 
@@ -94,7 +104,7 @@ export function afInventoryCollector(): Collector {
         if (!pass) {
           const started = passStartedAt.get(envId);
           if (started !== undefined && ctx.now() - started < PASS_EVERY_MS) return { dataAsOf: null };
-          pass = { offset: 0, total: null, dags: new Map<string, DagMeta>() };
+          pass = { offset: 0, total: null, first: null, stable: true, dags: new Map<string, DagMeta>() };
           passes.set(envId, pass);
           passStartedAt.set(envId, ctx.now());
         }
@@ -107,6 +117,8 @@ export function afInventoryCollector(): Collector {
             }
             requests++;
             const page = await airflow.dags({ limit: PAGE_SIZE, offset: pass.offset });
+            pass.first ??= page.total;
+            if (page.total !== pass.first) pass.stable = false;
             pass.total = page.total;
             for (const d of page.items) if (d.active) pass.dags.set(d.dagId, dagMetaOf(d, defaults));
             // An empty page before the end: the listing shrank while it was paged, and it ends here.
@@ -128,12 +140,18 @@ export function afInventoryCollector(): Collector {
       if (stopped !== null) ctx.reducedFidelity(stopped);
       return { dataAsOf: wrote ? ctx.now() : null };
 
-      /** A complete pass replaces the stored set in one transaction; pages read so far are upserted. */
+      /**
+       * A complete pass whose count never changed replaces the stored set in one transaction. Pages read so
+       * far, and a pass whose count changed, are upserted; the latter starts the next pass next cycle.
+       */
       async function saveDags(c: CollectorContext, pass: Pass, complete: boolean) {
-        if (complete) {
-          await c.store.replaceDags(envId, [...pass.dags.values()]);
-          passes.delete(envId);
-        } else await c.store.saveDags(envId, [...pass.dags.values()]);
+        if (complete && pass.stable) await c.store.replaceDags(envId, [...pass.dags.values()]);
+        else await c.store.saveDags(envId, [...pass.dags.values()]);
+        if (!complete) return;
+        passes.delete(envId);
+        if (pass.stable) return;
+        passStartedAt.delete(envId);
+        stopped = `The DAG list changed while it was read (${pass.first ?? '?'} to ${pass.total ?? '?'} DAGs): a DAG may be missing, or a deleted one kept, until DCAM reads the list again from the next cycle.`;
       }
     },
   };
