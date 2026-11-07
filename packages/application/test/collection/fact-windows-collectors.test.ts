@@ -76,4 +76,35 @@ describe('FR-COLL-06 one set of window rules for af.facts and af.backfill (fact-
     for (const fidelity of [factsCtx.fidelity, backfillCtx.fidelity])
       expect(fidelity.filter((f) => /missing from the history/.test(f))).toEqual([]);
   });
+
+  it('FR-COLL-03: the cycle that completes a dense second moves the watermark past the later windows stored meanwhile', async () => {
+    /** The budget runs out right after the page that completes the dense second. */
+    class BudgetAfterBurst extends FakeAirflow {
+      override async taskInstances(q: Parameters<FakeAirflow['taskInstances']>[0]) {
+        const page = await super.taskInstances(q);
+        if (q.offset > 0 && q.offset + page.items.length >= page.total) this.budget.limit = this.budget.used;
+        return page;
+      }
+    }
+    const later = ti({ taskId: 'after_burst', updatedAt: A - 10 * MIN });
+    const dense = Array.from({ length: DENSE }, (_, i) =>
+      ti({ taskId: 'mapped', mapIndex: i, state: 'skipped', updatedAt: BURST }),
+    );
+    const airflow = new BudgetAfterBurst({ tis: [...dense, later] });
+    const store = new MemoryStore();
+    const ctx = fakeContext({ airflow, store, shared });
+    const collector = afFactsCollector();
+    let mark: number | null = null;
+    for (let i = 0; i < 20 && store.tries.size < DENSE + 1; i++) {
+      airflow.budget.limit = Number.POSITIVE_INFINITY;
+      await collector.collect(ctx);
+      mark = await store.watermark(ENV, 'af.facts');
+      ctx.advance(MIN);
+    }
+    expect(store.tries.size).toBe(DENSE + 1);
+    // `after_burst` was stored while the dense second waited; with it complete, history is complete past it.
+    expect(mark).toBeGreaterThan(later.updatedAt);
+    for (const t of airflow.data.tis)
+      if (t.updatedAt <= (mark ?? 0)) expect(store.tries.has(storeKey(ENV, t))).toBe(true);
+  });
 });

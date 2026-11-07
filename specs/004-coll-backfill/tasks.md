@@ -20,7 +20,7 @@ Test tasks come before the code they cover.
 
 - [x] T-420 Test + code: a window reader with `af.facts`' rules, forward and backward, with the corrected page-cap
       rule (FR-COLL-06); `af.facts` moves onto it after its own cap fix lands
-- [ ] T-423 Follow-up: `af.facts` reads through `fact-windows.ts` once the parallel cap fix is merged
+- [x] T-423 Follow-up: `af.facts` reads through `fact-windows.ts` once the parallel cap fix is merged
 - [x] T-421 Test + code: `af.backfill` newest first, waiting for `af.facts`, resume, boundary, days changed
       (FR-COLL-04, FR-COLL-03)
 - [x] T-422 Test + code: `mon.backfill` one-day chunks at 60 s, partial chunks, series counted (FR-COLL-04,

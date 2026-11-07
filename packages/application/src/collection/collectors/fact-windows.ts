@@ -1,41 +1,50 @@
 /**
- * Reading finished task instances by closed `updated_at` windows (spec Appendix B.3), oldest first (live facts)
- * or newest first (backfill, FR-COLL-04). The same rules as `af.facts`, in a form both collectors can use:
+ * Reading finished task instances by closed `updated_at` windows (spec Appendix B.3, §7.5 "Pagination and
+ * consistency"), oldest first (`af.facts`) or newest first (`af.backfill`, FR-COLL-04). Both collectors read
+ * through this module, so the rules below live in one place:
  *
  * - Airflow 2.11.1 `GET /dags/~/dagRuns/~/taskInstances` filters on `updated_at_gte` and `updated_at_lte`,
  *   both inclusive, and has no `order_by` and no ORDER BY, so rows come in no defined order
  *   (`airflow/api_connexion/openapi/v1.yaml` and `get_task_instances` with `_apply_range_filter` in
- *   `airflow/api_connexion/endpoints/task_instance_endpoint.py`, tag 2.11.1). Each request is therefore one
- *   page of 100 at offset 0, and a window whose `total_entries` exceeds the page is split (at most in half,
- *   smaller where the count says so) until each part fits. Only a window of the minimum width (1 s, B.3) is
- *   paged by offset.
+ *   `airflow/api_connexion/endpoints/task_instance_endpoint.py`, tag 2.11.1). Offset paging over a changing
+ *   set can skip or repeat rows, so each request is one page of 100 at offset 0, and a window whose
+ *   `total_entries` exceeds the page is split (at most in half, smaller where the count says so) until each
+ *   part fits. Only a window of the minimum width (1 s, B.3) is paged by offset.
  * - Newest first, the part read first is the newer one, and "reached" is the end of the newest window not
  *   read yet: history is complete from there to the end of the plan, across cycles. Oldest first, it is the
  *   start of the oldest window not read yet. With every window read it is the far end of the plan.
  * - Adaptive sizing (backfill): a part's width also follows the density of the last window read, so busy and
  *   quiet hours both get parts of about 80 rows (a count over seven days says little about one hour). Its
  *   width grows at most fourfold from one part to the next.
- * - A dense second (one statement can mark hundreds of mapped task instances skipped) is paged by offset
- *   across cycles; its rows are kept until every key is seen. It gets at most `maxRequests − laterReserve`
- *   requests a cycle while later windows wait, so those are still read. After {@link DENSE_PASSES} full
- *   passes or {@link DENSE_MAX_CYCLES} cycles DCAM keeps what it read and says how many are missing.
- * - Page caps below 100 (Composer's cap is not documented, spec §7.5, VC-11 open): a cap is learned only when
- *   two short pages (fewer rows than asked and than left) agree, raised by any larger page, and forgotten on a
- *   full page. One short page can be a race between the count and the select (rows leaving the window), and
- *   learning from it would cut every window to the minimum width. A window whose page was short is halved
- *   rather than read again, which ends both a race and a cap not learnt yet without repeating a request.
- *   Offsets advance by the rows each page returned.
- *
- * `af.facts` keeps its own copy of these rules for now (its page-cap rule is being corrected separately);
- * once that lands it can read through this module, so that the rules live in one place.
+ * - A dense second (one statement can mark hundreds of mapped task instances skipped) may need more pages
+ *   than a cycle allows. It is paged by offset across cycles, and its rows are kept until every key is seen.
+ *   It gets at most `maxRequests − laterReserve` requests a cycle while later windows wait, so those are
+ *   still read. After {@link DENSE_PASSES} full passes over its offsets or {@link DENSE_MAX_CYCLES} cycles
+ *   DCAM keeps what it read and says how many are missing.
+ * - Page caps below 100: upstream Airflow 2.11.1 does not cap `limit` on this list, but Composer's cap is not
+ *   documented (spec §7.5, VC-11 open). A page shorter than both the limit and the rows left is a cap or a
+ *   race: Airflow counts `total_entries` and selects the page in two queries, so a row that leaves the window
+ *   in between (an `up_for_retry` row rescheduled, a cleared run) makes one page short. A cap is therefore
+ *   learned only when two short pages agree, raised by any larger page, and forgotten on a full page;
+ *   learning from one race would cut every window to the minimum width. A window whose page was short of a
+ *   count that fits a page is halved rather than read again, which ends both a race and a cap not learnt
+ *   yet without repeating a request; a larger count splits it anyway. Offsets advance by the rows each page
+ *   returned, so a cap below 100 neither repeats a window forever nor skips rows.
  *
  * @implements FR-COLL-03, FR-COLL-04, FR-COLL-06
  */
 import type { AirflowApi, AirflowTaskInstance, StoredTaskTry } from '@dcam/ports';
 import { BudgetExhaustedError } from '../types';
-import { FACT_STATES } from './af-facts';
 import { keyString, storedTryOf } from './mapping';
 
+/**
+ * B.3's finished states plus `up_for_retry`, the row of a failed try waiting for its retry, which still carries
+ * that try's number, start and end until the scheduler schedules the next try (Airflow 2.10+ increments
+ * `try_number` at scheduling: RELEASE_NOTES.rst "try_number is no longer incremented during task execution
+ * (#39336)"; `airflow/models/taskinstance.py` and `airflow/models/dagrun.py` at 2.11.1). Without it a retried
+ * try would be lost once rescheduled.
+ */
+export const FACT_STATES = ['success', 'failed', 'upstream_failed', 'skipped', 'up_for_retry'] as const;
 const PAGE_SIZE = 100;
 /** Share of a page a split part aims at, leaving room for rows that arrive while the window is read. */
 const TARGET_SHARE = 0.8;
@@ -76,7 +85,7 @@ export interface FactWindow {
   readonly to: number;
   /** `total` rows were counted over `[countFrom, countTo]`, less the windows inside it read since. */
   known?: { total: number; readonly countFrom: number; readonly countTo: number };
-  /** Its page was short: it is split in half next, never read again whole. */
+  /** Its page was short of a count that fits a page: it is split in half next, never read again whole. */
   halve?: boolean;
   dense?: Dense;
 }
@@ -100,6 +109,14 @@ export interface FactWindowResult {
 class Stop extends Error {}
 
 const iso = (ms: number) => new Date(ms).toISOString();
+/** A copy of `w` with its count; a dense second's rows are shared, kept whichever copy reads them. */
+const copy = (w: FactWindow): FactWindow => {
+  const c: FactWindow = { from: w.from, to: w.to };
+  if (w.known) c.known = { ...w.known };
+  if (w.halve) c.halve = true;
+  if (w.dense) c.dense = w.dense;
+  return c;
+};
 
 /** The largest page the server returns, learned from short pages that agree (see the module comment). */
 class PageCap {
@@ -137,7 +154,24 @@ export class FactWindowReader {
 
   /** Replaces the windows to read, in reading order (a new plan, or after a restart). */
   reset(windows: readonly FactWindow[]): void {
-    this.pending = windows.map((w) => ({ from: w.from, to: w.to }));
+    this.plan(windows.map((w) => ({ from: w.from, to: w.to })));
+  }
+
+  /** The windows still to read, with their counts and dense seconds, for {@link resume}. */
+  snapshot(): FactWindow[] {
+    return this.pending.map(copy);
+  }
+
+  /**
+   * Reads `windows` next (a {@link snapshot}, perhaps extended in reading order), keeping their counts and
+   * dense seconds: a cycle whose rows were not committed is read again from its snapshot.
+   */
+  resume(windows: readonly FactWindow[]): void {
+    this.plan(windows.map(copy));
+  }
+
+  private plan(windows: FactWindow[]): void {
+    this.pending = windows;
     const last = windows.at(-1);
     if (last) this.end = this.options.direction === 'forward' ? last.to : last.from;
   }
@@ -215,7 +249,7 @@ export class FactWindowReader {
       blocked ??= forward ? w.from : w.to;
       settle(w, d.total);
       notes.push(
-        `The ${history} is stuck at ${iso(w.from)}: ${d.total} task instances changed within that second and ${d.seen.size} have been read in ${d.cycles} cycles. Other windows are read meanwhile; that second is read again next cycle, and after ${DENSE_MAX_CYCLES} cycles DCAM keeps what it read.`,
+        `The ${history} is stuck at ${iso(w.from)}: ${d.total} task instances changed within that second and ${d.seen.size} have been read in ${d.cycles} cycles. ${forward ? 'Later' : 'Older'} ones are stored; that second is read again next cycle, and after ${DENSE_MAX_CYCLES} cycles DCAM keeps what it read.`,
       );
     };
     const readDense = async (w: FactWindow, d: Dense, later: boolean) => {
@@ -283,7 +317,9 @@ export class FactWindowReader {
         if (page.total <= page.items.length) accept(i, w, stored(page.items));
         else if (width > MIN_WINDOW_MS) {
           w.known = { total: page.total, countFrom: w.from, countTo: w.to };
-          if (page.items.length < Math.min(PAGE_SIZE, page.total)) w.halve = true;
+          // Short of a count that fits a page: a cap not learnt yet, or a row that left the window between
+          // Airflow's count and its select. A larger count splits the window anyway.
+          if (page.total <= this.pageRows()) w.halve = true;
         } else
           w.dense = {
             seen: new Map(stored(page.items)),
