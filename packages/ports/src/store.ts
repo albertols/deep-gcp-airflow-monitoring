@@ -53,6 +53,11 @@ export interface SnapshotCoverage {
   readonly total: number | null;
   /** `true` when every non-terminal task instance was read; otherwise the snapshot is a sample. */
   readonly complete: boolean;
+  /**
+   * The states whose rows are a sample, in the order scheduled, queued, running; the other states were read
+   * completely. Absent on complete snapshots and on snapshots stored before it existed.
+   */
+  readonly sampled?: readonly ('scheduled' | 'queued' | 'running')[];
 }
 
 /** A live snapshot as collected and stored. `coverage` is absent on demo snapshots, which are complete. */

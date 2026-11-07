@@ -140,20 +140,22 @@ describe('HM-003 af.live: running tries end when they stop running', () => {
     });
   });
 
-  it('HM-003: a sample ends nothing, because a try it did not read may still be running', async () => {
-    const crowd = Array.from({ length: 450 }, (_, i) =>
-      ti({ taskId: `q_${i}`, state: 'queued', endAt: null }),
-    );
+  it('HM-003: a sample of the running state ends nothing, because a try it did not read may still be running', async () => {
+    // More running tries than two pages hold: no cycle reads them all.
+    const crowd = Array.from({ length: 250 }, (_, i) => running(`r_${i}`));
     const airflow = new FakeAirflow({ tis: [running('run_a')], pools: livePools() });
     const store = new MemoryStore();
     const live = afLiveCollector();
     const ctx = fakeContext({ airflow, store, shared });
     await live.collect(ctx);
     airflow.data.tis = crowd;
-    ctx.advance(30_000);
-    await live.collect(ctx);
-    expect((await store.taskTries('acme-prod', T0 - H, T0 + H))[0]).toMatchObject({
-      taskId: 'run_a',
+    for (let i = 0; i < 3; i++) {
+      ctx.advance(30_000);
+      await live.collect(ctx);
+    }
+    expect(
+      (await store.taskTries('acme-prod', T0 - H, T0 + H)).find((t) => t.taskId === 'run_a'),
+    ).toMatchObject({
       endAt: null,
     });
   });
@@ -366,7 +368,7 @@ describe('FR-COLL-06 af.live within the budget', () => {
     expect(ctx.fidelity).toEqual([]);
   });
 
-  it('FR-COLL-06: reads at most /pools and two pages a cycle (spec §7.5), the second for the queued state', async () => {
+  it('FR-COLL-06: reads at most /pools and two pages a cycle (spec §7.5), the second for the running state', async () => {
     const airflow = new FakeAirflow({ tis: busy(), pools: livePools() });
     const live = afLiveCollector();
     await live.collect(fakeContext({ airflow, shared }));
@@ -374,35 +376,45 @@ describe('FR-COLL-06 af.live within the budget', () => {
     expect(airflow.calls).toEqual(['pools', 'taskInstances', 'taskInstances']);
     expect(airflow.tiQueries).toEqual([
       { states: ['scheduled', 'queued', 'running'], limit: 100, offset: 0 },
-      { states: ['queued'], limit: 100, offset: 0 },
+      { states: ['running'], limit: 100, offset: 0 },
     ]);
   });
 
-  it('FR-COLL-06: a sample is labelled with its coverage, its queued count is exact and its running count comes from Monitoring', async () => {
+  it('FR-COLL-06: a sample is labelled with its coverage and sampled states; its running count is exact and its queued count comes from Monitoring', async () => {
     const airflow = new FakeAirflow({ tis: busy(), pools: livePools() });
     const store = new MemoryStore();
     await store.saveWorkerSamples('acme-prod', [sample]);
     const ctx = fakeContext({ airflow, store, shared });
     await afLiveCollector().collect(ctx);
     const s = store.snaps[0];
-    // The first page holds 34 queued, 33 running and 33 scheduled rows; the queued page adds 66 more queued.
-    expect(s?.coverage).toEqual({ read: 166, total: 480, complete: false });
-    expect(s?.queued).toHaveLength(100);
-    // Queued from `total_entries` of the queued page; running from the fresh Cloud Monitoring sample.
-    expect(s?.executor).toEqual({ queued: 300, running: 118 });
-    expect(ctx.fidelity).toEqual([expect.stringMatching(/read 166 of 480 .* it is a sample/)]);
+    // The first page holds 34 queued, 33 running and 33 scheduled rows; the running page holds 100 of 120.
+    expect(s?.coverage).toEqual({
+      read: 167,
+      total: 480,
+      complete: false,
+      sampled: ['scheduled', 'queued', 'running'],
+    });
+    expect(s?.queued).toHaveLength(34);
+    // Running from `total_entries` of the running page; queued from the fresh Cloud Monitoring sample.
+    expect(s?.executor).toEqual({ queued: 290, running: 120 });
+    expect(ctx.fidelity).toEqual([
+      expect.stringMatching(
+        /read 167 of 480 .* its scheduled, queued and running task instances are a sample/,
+      ),
+    ]);
   });
 
-  it('FR-COLL-06: while the snapshot is a sample, the next cycle reads queued first, then scheduled and running', async () => {
-    const airflow = new FakeAirflow({ tis: busy(), pools: livePools() });
+  it('FR-COLL-06: while the snapshot is a sample, the next cycle reads the running state first, then scheduled and queued', async () => {
+    const tis = [...crowd(300, 'queued'), ...crowd(60, 'running'), ...crowd(60, 'scheduled')];
+    const airflow = new FakeAirflow({ tis, pools: livePools() });
     const live = afLiveCollector();
     const ctx = fakeContext({ airflow, shared });
     await live.collect(ctx);
     ctx.advance(30_000);
     await live.collect(ctx);
     expect(airflow.tiQueries.slice(2)).toEqual([
-      { states: ['queued'], limit: 100, offset: 0 },
-      { states: ['scheduled', 'running'], limit: 100, offset: 0 },
+      { states: ['running'], limit: 100, offset: 0 },
+      { states: ['scheduled', 'queued'], limit: 100, offset: 0 },
     ]);
     expect(airflow.calls).toHaveLength(6);
   });
@@ -423,11 +435,67 @@ describe('FR-COLL-06 af.live within the budget', () => {
     ctx.advance(30_000);
     await live.collect(ctx);
     const s = store.snaps.at(-1);
-    expect(s?.coverage).toEqual({ read: 101, total: 301, complete: false });
+    expect(s?.coverage).toEqual({ read: 101, total: 301, complete: false, sampled: ['scheduled', 'queued'] });
     expect(s?.executor.running).toBe(1);
     const tries = new Map((await store.taskTries('acme-prod', T0 - MIN, T0 + MIN)).map((t) => [t.taskId, t]));
     expect(tries.get('run_a')).toMatchObject({ endAt: T0 + 30_000, endEstimated: true });
     expect(tries.get('run_b')).toMatchObject({ endAt: null });
+  });
+
+  it('HM-003: when the scheduled state overflows, the running set is still complete and ends the tries it no longer lists', async () => {
+    // Task instances waiting on a pool or max_active_tasks stay scheduled: the bottleneck DCAM diagnoses.
+    const running = (taskId: string) => ti({ taskId, state: 'running', startAt: T0 - MIN, endAt: null });
+    const airflow = new FakeAirflow({
+      tis: [...crowd(300, 'scheduled'), running('run_a'), running('run_b')],
+      pools: livePools(),
+    });
+    const store = new MemoryStore();
+    const live = afLiveCollector();
+    const ctx = fakeContext({ airflow, store, shared });
+    await live.collect(ctx);
+    airflow.data.tis = [...crowd(300, 'scheduled'), running('run_b')];
+    ctx.advance(30_000);
+    await live.collect(ctx);
+    expect(airflow.calls).toHaveLength(6);
+    const s = store.snaps.at(-1);
+    expect(s?.coverage).toEqual({ read: 101, total: 301, complete: false, sampled: ['scheduled', 'queued'] });
+    expect(s?.scheduled).toHaveLength(100);
+    expect(s?.executor.running).toBe(1);
+    const tries = new Map((await store.taskTries('acme-prod', T0 - MIN, T0 + MIN)).map((t) => [t.taskId, t]));
+    expect(tries.get('run_a')).toMatchObject({ endAt: T0, endEstimated: true });
+    expect(tries.get('run_b')).toMatchObject({ endAt: null });
+  });
+
+  it('HM-003: more running tries than a page: every other cycle completes them, and no snapshot lacks the waiting states', async () => {
+    const tis = [...crowd(150, 'running'), ...crowd(200, 'scheduled')];
+    const airflow = new FakeAirflow({ tis, pools: livePools() });
+    const store = new MemoryStore();
+    const live = afLiveCollector();
+    const ctx = fakeContext({ airflow, store, shared });
+    const requests: number[] = [];
+    for (let cycle = 0; cycle < 6; cycle++) {
+      // One running try stops after the first cycle.
+      if (cycle === 1) airflow.data.tis = tis.filter((t) => t.taskId !== 't_running_0');
+      const before = airflow.calls.length;
+      await live.collect(ctx);
+      requests.push(airflow.calls.length - before);
+      ctx.advance(30_000);
+    }
+    expect(requests.every((n) => n <= 3)).toBe(true);
+    // Snapshots every other cycle, each with scheduled rows and an exact running count.
+    expect(store.snaps.map((s) => s.at)).toEqual([T0, T0 + 60_000, T0 + 120_000]);
+    for (const s of store.snaps) {
+      expect(s.scheduled.length).toBeGreaterThan(0);
+      expect(s.executor.running).toBe(s.at === T0 ? 150 : 149);
+      expect(s.coverage?.sampled).toEqual(['scheduled', 'queued', 'running']);
+    }
+    const stopped = (await store.taskTries('acme-prod', T0 - MIN, T0 + 5 * MIN)).find(
+      (t) => t.taskId === 't_running_0',
+    );
+    expect(stopped).toMatchObject({ endAt: T0, endEstimated: true });
+    const open = (await store.taskTries('acme-prod', T0 - MIN, T0 + 5 * MIN)).filter((t) => t.endAt === null);
+    expect(open).toHaveLength(149);
+    expect(ctx.fidelity.some((f) => /149 running .* saved no snapshot/.test(f))).toBe(true);
   });
 
   it('FR-COLL-06: once everything fits again, the next cycle is one page', async () => {
@@ -441,8 +509,8 @@ describe('FR-COLL-06 af.live within the budget', () => {
     ctx.advance(30_000);
     await live.collect(ctx);
     expect(airflow.tiQueries.slice(2).map((q) => q.states)).toEqual([
-      ['queued'],
-      ['scheduled', 'running'],
+      ['running'],
+      ['scheduled', 'queued'],
       ['scheduled', 'queued', 'running'],
     ]);
   });
