@@ -132,7 +132,7 @@ describe(
       const thinned = await store.snapshots(ENV, start, before);
       expect(thinned).toHaveLength(288);
       for (const [i, s] of thinned.entries()) {
-        expect(s.at).toBe(start + i * 5 * MIN);
+        expect(Math.floor((s.at - start) / (5 * MIN))).toBe(i);
         expect(s.spanMs).toBe(5 * MIN);
       }
       // The last 2 h stay raw, as does the other environment.
@@ -144,14 +144,10 @@ describe(
       store.close();
     });
 
-    it('FR-STORE-07: thinning keeps a complete snapshot over a sample, also one stored before migration 0007', async () => {
+    it('FR-STORE-07: thinning keeps the payload of the kept snapshot, coverage included, also one stored before migration 0007', async () => {
       const sampled = (at: number) => ({
         ...snapshot(at),
         coverage: { read: 100, total: 250, complete: false },
-      });
-      const complete = (at: number) => ({
-        ...snapshot(at),
-        coverage: { read: 50, total: 50, complete: true },
       });
       const dir = tempDir();
       const old = await openFileStore({
@@ -173,17 +169,16 @@ describe(
       const store = await openFileStore({ dataDir: dir });
       const start = T0 - (T0 % (5 * MIN));
       await store.saveSnapshots(ENV, [
-        complete(start + MIN),
+        sampled(start + MIN),
         sampled(start + 2 * MIN),
         sampled(start + 5 * MIN),
       ]);
       await store.thinSnapshots(ENV, { ...THIN, before: start + 10 * MIN });
       const kept = await store.snapshots(ENV, start, start + 10 * MIN);
-      expect(kept.map((s) => [s.at - start, s.coverage?.complete, s.spanMs])).toEqual([
-        // 60 + 60 + 120 s (the 3-minute gap is capped at two 60 s cadences); the lone sample stands for 60 s.
-        [MIN, true, 4 * MIN],
-        [5 * MIN, false, MIN],
-      ]);
+      // 60 + 60 + 120 s (the 3-minute gap is capped at two 60 s cadences); the lone one stands for 60 s.
+      expect(kept.map((s) => s.spanMs)).toEqual([4 * MIN, MIN]);
+      expect(kept[0]?.at).toBeLessThan(start + 5 * MIN);
+      for (const s of kept) expect(s).toEqual({ ...sampled(s.at), spanMs: s.spanMs });
       store.close();
     });
 

@@ -30,13 +30,23 @@ apps/server live workspace
 
 ## Thinning and why counts stay right
 
-A thinned snapshot keeps the first snapshot of each 5-minute bucket and stores, in `span_ms`, the time the
-bucket's snapshots stood for (each the gap to the next, capped at two cadences, `snapshot-time.ts`). Reads give
-it back as `LiveSnapshot.spanMs`; `snapshotSpans` uses it instead of the gap rule, and the observed cadence is
-taken from raw snapshots only. So covered time is exact and waiting task-time is the kept snapshot's waiting
-times the time it stands for: an estimate whose error is the variation within 5 minutes (golden test: ≤ 5 %).
-Task tries are never thinned, so slot-seconds stay exact. Worker samples are not thinned: one a minute is
-about 20,000 rows per environment per 14 days, and `capacityStats` counts each sample as one minute.
+Thinning keeps one snapshot of each 5-minute bucket and stores, in `span_ms`, the time the bucket's snapshots
+stood for (each the gap to the next, capped at two cadences, `snapshot-time.ts`). Reads give it back as
+`LiveSnapshot.spanMs`; `snapshotSpans` uses it instead of the gap rule, and the observed cadence is taken from
+raw snapshots only. So covered time is exact, and waiting task-time is the kept snapshot's waiting times the
+time it stands for.
+
+Which snapshot is kept matters. The first of each bucket aliases with cron: buckets start on round minutes, when
+scheduled runs start and wait, so it overcounted that waiting (first try: 13 % off over 6 h, normal latency
+6.5 times too high). Preferring complete snapshots would undercount, because a snapshot is a sample exactly
+when many task instances wait. The kept snapshot is therefore drawn in proportion to its span, with a
+low-discrepancy draw fixed by the bucket (golden ratio, so thinning again keeps the same one). Over 30 draw
+phases on the simulated acme-prod and acme-test, platform waiting was off by 2–3 % rms over a day of thinned
+snapshots and 5–11 % over 6 hours, about half the error of independent random draws. The golden test holds it
+to 5 % over 16 h and 10 % over 6 h; normal latency, short by definition, varies more. The kept snapshot keeps
+its payload, coverage included. Task tries are never thinned, so slot-seconds stay exact. Worker samples are not
+thinned: one a minute is about 20,000 rows per environment per 14 days, and `capacityStats` counts each sample
+as one minute.
 
 ## Constitution check
 

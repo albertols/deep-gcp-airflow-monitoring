@@ -60,7 +60,8 @@ reported as not used. Data of environments no longer in the configuration expire
 3. FR-STORE-07: usage (database blocks in use plus the WAL) is measured every hour. At ≥ 90 % of
    `retention.diskBudgetGb` the API and the health page warn; DCAM thins snapshots older than 24 h to one per
    5 minutes, then deletes whole days of the oldest data, oldest first, until usage is below 90 %, never data
-   younger than 8 days. Thinning keeps slot-seconds exact and waiting task-time within 5 % (golden test).
+   younger than 8 days. Thinning keeps slot-seconds exact and platform waiting task-time within 5 % over 16 h
+   of thinned snapshots, 10 % over 6 h (golden test).
 4. FR-STORE-06: the job never runs twice at once, is idempotent, and a run cut short (crash between batches)
    is completed by the next run with the same result as one uninterrupted run.
 5. Bottlenecks responses carry `snapshot_retention` (deleted before, thinned before) for the requested range.

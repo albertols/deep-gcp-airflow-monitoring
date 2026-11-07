@@ -54,7 +54,9 @@ describe('FR-STORE-07 disk budget', () => {
 });
 
 describe('FR-STORE-07 thinning live snapshots to one per 5 minutes', () => {
-  it('FR-STORE-07: keeps the first snapshot of each bucket, standing for the time the bucket stood for', () => {
+  const bucketOf = (at: number) => Math.floor(at / BUCKET);
+
+  it('FR-STORE-07: keeps one snapshot per bucket, standing for the time the bucket stood for', () => {
     const snapshots = raw(...range(0, 600, 30));
     const plan = thinSnapshots(snapshots, {
       before: T0 + 600 * S,
@@ -62,13 +64,10 @@ describe('FR-STORE-07 thinning live snapshots to one per 5 minutes', () => {
       nextAt: T0 + 600 * S,
       fallbackCadenceMs: 30 * S,
     });
-    expect(plan.spans).toEqual([
-      { at: T0, spanMs: 5 * MIN },
-      { at: T0 + 300 * S, spanMs: 5 * MIN },
-    ]);
+    expect(plan.spans.map((s) => s.spanMs)).toEqual([5 * MIN, 5 * MIN]);
+    expect(plan.spans.map((s) => bucketOf(s.at))).toEqual([bucketOf(T0), bucketOf(T0) + 1]);
     expect(plan.dropped).toHaveLength(18);
-    expect(plan.dropped).not.toContain(T0);
-    expect(plan.dropped).not.toContain(T0 + 300 * S);
+    expect([...plan.spans.map((s) => s.at), ...plan.dropped].sort()).toEqual(snapshots.map((s) => s.at));
   });
 
   it('FR-STORE-07: a collection gap stays unknown: spans are capped at two cadences, as when read raw', () => {
@@ -82,7 +81,8 @@ describe('FR-STORE-07 thinning live snapshots to one per 5 minutes', () => {
     });
     const rawSpans = snapshotSpans(snapshots, 30 * S, T0 + 300 * S);
     expect(rawSpans).toEqual([30 * S, 30 * S, 60 * S, 30 * S, 20 * S]);
-    expect(plan.spans).toEqual([{ at: T0, spanMs: 170 * S }]);
+    expect(plan.spans.map((s) => s.spanMs)).toEqual([170 * S]);
+    expect(plan.dropped).toHaveLength(4);
   });
 
   it('FR-STORE-07: snapshots from the last bucket before `before` on are left as they are', () => {
@@ -94,11 +94,11 @@ describe('FR-STORE-07 thinning live snapshots to one per 5 minutes', () => {
       nextAt: null,
       fallbackCadenceMs: 30 * S,
     });
-    expect(plan.spans.map((s) => s.at)).toEqual([T0, T0 + 300 * S]);
+    expect(plan.spans.map((s) => bucketOf(s.at))).toEqual([bucketOf(T0), bucketOf(T0) + 1]);
     expect(Math.max(...plan.dropped)).toBeLessThan(T0 + 600 * S);
   });
 
-  it('FR-STORE-06: thinning again changes nothing (idempotent), and a lone snapshot keeps its span', () => {
+  it('FR-STORE-06: thinning is deterministic and idempotent, and a lone snapshot keeps its span', () => {
     const snapshots = raw(...range(0, 600, 30));
     const options = {
       before: T0 + 600 * S,
@@ -107,40 +107,33 @@ describe('FR-STORE-07 thinning live snapshots to one per 5 minutes', () => {
       fallbackCadenceMs: 30 * S,
     };
     const first = thinSnapshots(snapshots, options);
-    const thinned = first.spans;
-    expect(thinSnapshots(thinned, options)).toEqual({ spans: [], dropped: [] });
+    expect(thinSnapshots(snapshots, options)).toEqual(first);
+    expect(thinSnapshots(first.spans, options)).toEqual({ spans: [], dropped: [] });
     // A raw snapshot alone in its bucket gets its span fixed too (here capped at two 30 s cadences), so
     // later reads need no cadence for it.
     const lone = thinSnapshots(raw(0, 30, 60, 400), { ...options, nextAt: T0 + 610 * S });
-    expect(lone).toEqual({
-      spans: [
-        { at: T0, spanMs: 120 * S },
-        { at: T0 + 400 * S, spanMs: 60 * S },
-      ],
-      dropped: [T0 + 30 * S, T0 + 60 * S],
-    });
+    expect(lone.spans.map((s) => s.spanMs)).toEqual([120 * S, 60 * S]);
+    expect(lone.spans[1]?.at).toBe(T0 + 400 * S);
+    expect(lone.dropped).toHaveLength(2);
   });
 
-  it('FR-STORE-07: keeps the first complete snapshot of a bucket rather than a sample (§7.5)', () => {
-    const snapshots = [
-      { at: T0, complete: false },
-      { at: T0 + 30 * S, complete: false },
-      { at: T0 + 60 * S, complete: true },
-      { at: T0 + 90 * S },
-      { at: T0 + 300 * S, complete: false },
-    ];
+  it('FR-STORE-07: the kept snapshot is drawn by span, so waiting that peaks at round minutes is not over- or undercounted', () => {
+    // Runs start at the top of every 5 minutes (as cron schedules do): 10 task instances wait in the first
+    // 30 s of each bucket and none after. Keeping the first snapshot would count them for all 5 minutes.
+    const buckets = 2_000;
+    const start = bucketOf(T0) * BUCKET;
+    const snapshots = raw(...range(0, (buckets * BUCKET) / S, 30)).map((s) => ({ at: s.at + start - T0 }));
+    const waiting = (at: number) => ((at - start) % BUCKET === 0 ? 10 : 0);
     const plan = thinSnapshots(snapshots, {
-      before: T0 + 600 * S,
+      before: start + buckets * BUCKET,
       bucketMs: BUCKET,
-      nextAt: T0 + 330 * S,
+      nextAt: start + buckets * BUCKET,
       fallbackCadenceMs: 30 * S,
     });
-    // Every snapshot of the bucket counts towards the span of the one kept (90 → 300 s is capped at 60 s).
-    expect(plan.spans).toEqual([
-      { at: T0 + 60 * S, spanMs: 3 * 30 * S + 60 * S },
-      { at: T0 + 300 * S, spanMs: 30 * S },
-    ]);
-    expect(plan.dropped).toEqual([T0, T0 + 30 * S, T0 + 90 * S]);
+    const exact = snapshots.reduce((sum, s) => sum + waiting(s.at) * 30 * S, 0);
+    const estimate = plan.spans.reduce((sum, s) => sum + waiting(s.at) * s.spanMs, 0);
+    expect(plan.spans).toHaveLength(buckets);
+    expect(Math.abs(estimate - exact) / exact).toBeLessThan(0.15);
   });
 
   it('FR-STORE-07: a bucket that holds a thinned snapshot and raw ones merges them without double counting', () => {
@@ -151,7 +144,7 @@ describe('FR-STORE-07 thinning live snapshots to one per 5 minutes', () => {
       fallbackCadenceMs: 30 * S,
     };
     const merged = thinSnapshots([{ at: T0, spanMs: 150 * S }, ...raw(150, 180, 210, 240, 270)], options);
-    expect(merged.spans).toEqual([{ at: T0, spanMs: 300 * S }]);
+    expect(merged.spans.map((s) => s.spanMs)).toEqual([300 * S]);
     expect(merged.dropped).toHaveLength(5);
   });
 });
