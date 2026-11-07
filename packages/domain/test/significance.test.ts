@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { benjaminiHochberg, mannWhitneyGreater, normalCdf } from '../src/index';
+import { benjaminiHochberg, mannWhitneyGreater, normalCdf, normalUpperTail } from '../src/index';
 
 describe('HM-016 significance tests (spec §8.9: Mann–Whitney, Benjamini–Hochberg)', () => {
   it('HM-016: the standard normal CDF matches table values', () => {
@@ -10,6 +10,27 @@ describe('HM-016 significance tests (spec §8.9: Mann–Whitney, Benjamini–Hoc
     expect(normalCdf(3)).toBeCloseTo(0.99865, 5);
     expect(normalCdf(-8)).toBeGreaterThanOrEqual(0);
     expect(normalCdf(8)).toBeLessThanOrEqual(1);
+  });
+
+  it('HM-016: the upper tail is computed directly, so far-out z keeps a positive, accurate p-value', () => {
+    // Q(z) = 1 − Φ(z): reference values (R: pnorm(z, lower.tail = FALSE)).
+    const reference: Array<[number, number]> = [
+      [0, 0.5],
+      [3, 1.3498980316301e-3],
+      [5, 2.866515718791939e-7],
+      [8, 6.220960574271785e-16],
+      [10, 7.619853024160527e-24],
+      [20, 2.753624118606233e-89],
+    ];
+    for (const [z, q] of reference) expect(Math.abs(normalUpperTail(z) - q) / q).toBeLessThan(1e-6);
+    expect(normalUpperTail(-3)).toBeCloseTo(1 - 1.3498980316301e-3, 9);
+    // A clear shift of 200 against 2,000 samples: z ≈ 23, p tiny but above 0, and q follows.
+    const big = Array.from({ length: 200 }, (_, i) => 100 + i);
+    const small = Array.from({ length: 2_000 }, (_, i) => i % 90);
+    const p = mannWhitneyGreater(big, small)?.pValue as number;
+    expect(p).toBeGreaterThan(0);
+    expect(p).toBeLessThan(1e-100);
+    expect(benjaminiHochberg([p, 0.5])[0]).toBeGreaterThan(0);
   });
 
   it('HM-016: one-sided Mann–Whitney U with average ranks for ties, tie and continuity correction', () => {

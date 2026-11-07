@@ -30,6 +30,15 @@ export function normalCdf(z: number): number {
   return Math.min(1, Math.max(0, 0.5 * erfc(-z / Math.SQRT2)));
 }
 
+/**
+ * Standard normal upper tail Q(z) = 1 − Φ(z), computed directly as ½ · erfc(z/√2). `1 − Φ(z)` cancels to
+ * exactly 0 from z ≈ 8.3, where Φ(z) rounds to 1; the direct form keeps the fit's relative accuracy far out
+ * (positive until exp underflows, near z ≈ 38), so p- and q-values stay positive and ordered.
+ */
+export function normalUpperTail(z: number): number {
+  return Math.min(1, Math.max(0, 0.5 * erfc(z / Math.SQRT2)));
+}
+
 export interface MannWhitneyResult {
   /** U of the first sample: pairs in which it is larger, ties counting one half. */
   readonly u: number;
@@ -73,7 +82,7 @@ export function mannWhitneyGreater(
   const variance = ((n1 * n2) / 12) * (n + 1 - tieTerm / (n * (n - 1) || 1));
   if (!(variance > 0)) return { u, z: 0, pValue: 1 };
   const z = (u - mean - 0.5) / Math.sqrt(variance);
-  return { u, z, pValue: 1 - normalCdf(z) };
+  return { u, z, pValue: normalUpperTail(z) };
 }
 
 /**
