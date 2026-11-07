@@ -16,7 +16,7 @@ Test tasks come before the code they cover.
 - [x] T-710 Test + code: additive bottleneck fields and window-based core (FR-BOTL-01, FR-BOTL-06, FR-ENV-08,
       HM-023)
 - [x] T-711 Test: 7 days × 2,000 DAGs × 60 s snapshots under 2 s (NFR-PERF)
-- [ ] T-712 Test + code: schedule intelligence use case, `GET …/schedule`, contract (FR-BOTL-03)
+- [x] T-712 Test + code: schedule intelligence use case, `GET …/schedule`, contract (FR-BOTL-03)
 - [ ] T-713 Test: the demo shows a noisy neighbour, pool starvation and the minute-0 collision (FR-EMU-01)
 
 ## Web

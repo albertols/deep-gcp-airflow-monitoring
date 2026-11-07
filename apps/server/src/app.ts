@@ -20,6 +20,7 @@ import { registerDagRoutes } from './routes/dags';
 import { findingCountsFor, registerFindingRoutes, topFindingsFor } from './routes/findings';
 import { registerFleetRoutes } from './routes/fleet';
 import { registerOverviewRoutes } from './routes/overview';
+import { registerScheduleRoutes } from './routes/schedule';
 
 export interface AppOptions extends Workspace {
   readonly version: string;
@@ -88,6 +89,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   registerOverviewRoutes(app, options, memo);
   registerDagRoutes(app, options, memo, { findingCounts: findingCountsFor(options, memo) });
   registerBottleneckRoutes(app, options, memo);
+  registerScheduleRoutes(app, options, memo);
   registerFindingRoutes(app, options, memo);
   registerAlertRoutes(app, options, memo);
   registerFleetRoutes(app, options, memo, {

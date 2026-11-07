@@ -1,5 +1,6 @@
 export * from './overview';
 export * from './bottlenecks';
+export * from './schedule';
 export * from './range';
 export * from './fleet';
 export * from './dags';
