@@ -135,6 +135,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/environments/{env_id}/capacity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Capacity against use (FR-ENV-02, HM-011, HM-012, FR-DAGX-06)
+         * @description Worker slots against running and queued task instances, workers against min_count and max_count, scale
+         *     events, worker CPU and memory against their limits, capacity-bound periods, a UTC day × hour saturation
+         *     heatmap, pools, and the DAG × hour-of-day load of the top 20 DAGs.
+         */
+        get: operations["getCapacity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/environments/{env_id}/forecast": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 24-hour load forecast (FR-BOTL-05, HM-010)
+         * @description Expected slot demand for the next 24 hours from the schedules and the DAGs' historical run profiles,
+         *     against capacity at max_count and pool sizes, with an uncertainty band, saturation windows and the history
+         *     used. A forecast: every value is an estimate.
+         */
+        get: operations["getForecast"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/environments/{env_id}/findings": {
         parameters: {
             query?: never;
@@ -848,6 +892,342 @@ export interface components {
                 example_dags: string[];
             }[];
         };
+        /**
+         * @description Median, p95 and maximum of a sample, in the unit of the field that holds it (spec §8.9). p95 is null with
+         *     fewer than 20 samples: show the maximum and "low sample" instead. All null without samples.
+         */
+        Spread: {
+            p50: number | null;
+            p95: number | null;
+            max: number | null;
+            samples: number;
+            /** @description Fewer than 20 samples: p95 is null. */
+            low_sample: boolean;
+        };
+        /**
+         * @description Where a limit came from (spec §14.1). unknown: DCAM does not know it and shows no value.
+         * @enum {string}
+         */
+        LimitSource: "configured" | "override" | "composer-default" | "airflow-default" | "unknown";
+        /**
+         * @description S-04 (FR-ENV-02). Per minute the worker figures come from the Cloud Monitoring worker sample, else from the
+         *     last live snapshot in the minute (see slots_source); a minute with neither is a gap, shown as null, never
+         *     zero. Counts are task instances; slots are executor (worker) slots, one per running task instance.
+         */
+        Capacity: {
+            env_id: string;
+            /** @description Starts on a bucket boundary (UTC), so it can be up to one bucket longer than requested. */
+            range: components["schemas"]["TimeRange"];
+            /**
+             * Format: date-time
+             * @description The newest minute with worker figures; null when the range has none.
+             */
+            data_as_of: string | null;
+            sources: components["schemas"]["SourceId"][];
+            bucket_seconds: number;
+            /**
+             * @description HM-011: where the worker counts came from, the weakest over the range. hostnames is an estimate and a
+             *     lower bound (an idle worker runs no task instance). Null when no count says where it came from (demo).
+             */
+            slots_source: components["schemas"]["WorkerCountSource"] | null;
+            limits: {
+                /** @description [celery] worker_concurrency; null when unknown (HM-032). */
+                worker_concurrency: number | null;
+                worker_concurrency_source: components["schemas"]["LimitSource"];
+                min_workers: number;
+                max_workers: number;
+                /** @description max_count × worker_concurrency, in slots. */
+                worker_slots_at_max: number | null;
+                /** @description [core] parallelism per scheduler; null when unknown. */
+                parallelism: number | null;
+                parallelism_source: components["schemas"]["LimitSource"];
+                schedulers: number;
+                /** @description parallelism × schedulers: running plus queued task instances the schedulers allow. */
+                parallelism_total: number | null;
+            };
+            summary: {
+                window_minutes: number;
+                /** @description Minutes with worker figures. */
+                observed_minutes: number;
+                /** @description observed_minutes ÷ window_minutes. */
+                coverage: number;
+                /** @description Running ÷ worker slots per observed minute, a ratio 0–1. No samples while worker_concurrency is unknown. */
+                utilisation: components["schemas"]["Spread"];
+                /** @description Observed minutes with workers at max_count; null without observed minutes. */
+                minutes_at_max_workers: number | null;
+                /** @description HM-011: workers at max_count and queued ≥ max(10, 20 % of worker slots). Null without observed minutes or while worker_concurrency is unknown. */
+                capacity_bound_minutes: number | null;
+                /** @description capacity_bound_minutes ÷ observed_minutes. */
+                capacity_bound_share: number | null;
+                /** @description Most running task instances in a minute. */
+                running_peak: number | null;
+                /** @description Most executor-queued task instances in a minute. */
+                queued_peak: number | null;
+                /** @description HM-012, seconds from the autoscaler target rising above the workers to the workers reaching it. */
+                scale_up_lag_seconds: components["schemas"]["Spread"];
+            };
+            /** @description One entry per bucket; every value is null in a bucket without observed minutes. */
+            series: {
+                /** Format: date-time */
+                start: string;
+                observed_minutes: number;
+                workers_mean: number | null;
+                workers_max: number | null;
+                /** @description Highest autoscaler target. */
+                target_max: number | null;
+                /** @description Mean workers × worker_concurrency; null while worker_concurrency is unknown. */
+                worker_slots_mean: number | null;
+                /** @description Running task instances (executor). */
+                running_mean: number | null;
+                running_peak: number | null;
+                /** @description Executor-queued task instances. */
+                queued_mean: number | null;
+                queued_peak: number | null;
+                /** @description HM-011 cross-check: mean running tries from task history (HM-003 sweep). Null before the history starts. */
+                running_tries_mean: number | null;
+                utilisation_mean: number | null;
+                minutes_at_max: number | null;
+                capacity_bound_minutes: number | null;
+                /** @description Highest worker CPU usage ÷ limit; Cloud Monitoring only. */
+                cpu_max: number | null;
+                /** @description Highest worker memory usage ÷ limit; Cloud Monitoring only. */
+                memory_max: number | null;
+            }[];
+            /** @description FR-ENV-02 highlights these periods as "capacity-bound". */
+            capacity_bound: {
+                evaluated: boolean;
+                not_evaluated_reason: string | null;
+                min_queued: number;
+                queued_ratio: number;
+                period_count: number;
+                /** @description The newest 500 stretches of consecutive capacity-bound minutes, oldest first. */
+                periods: {
+                    /** Format: date-time */
+                    start: string;
+                    /** Format: date-time */
+                    end: string;
+                    minutes: number;
+                    queued_peak: number;
+                    workers: number;
+                }[];
+            };
+            /** @description HM-012 worker count changes, from Cloud Monitoring samples only. */
+            scale_events: {
+                evaluated: boolean;
+                not_evaluated_reason: string | null;
+                up: number;
+                down: number;
+                /** @description The newest 200 changes, oldest first. */
+                items: {
+                    /** Format: date-time */
+                    at: string;
+                    from: number;
+                    to: number;
+                }[];
+            };
+            /** @description CPU and memory usage ÷ limit per workload type, ratios 0–1, from Cloud Monitoring. */
+            workloads: {
+                /** @enum {string} */
+                workload: "celery-worker";
+                /** @description One-minute samples; 0 means no data. */
+                samples: number;
+                cpu: components["schemas"]["Spread"];
+                memory: components["schemas"]["Spread"];
+            }[];
+            /** @description Workload types whose CPU and memory DCAM does not collect yet. */
+            workloads_not_collected: ("scheduler" | "triggerer" | "dag-processor" | "web-server")[];
+            heatmap: {
+                /** @constant */
+                time_zone: "UTC";
+                /** @description One cell per UTC day and hour that overlaps the range; values are null where nothing was observed. */
+                cells: {
+                    /** Format: date */
+                    date: string;
+                    hour: number;
+                    observed_minutes: number;
+                    utilisation_mean: number | null;
+                    minutes_at_max: number | null;
+                    capacity_bound_minutes: number | null;
+                }[];
+            };
+            /** @description Pool slots against running and queued slots, from live snapshots (FR-ENV-08). */
+            pools: {
+                name: string;
+                slots: number;
+                running_slots_avg: number | null;
+                running_slots_peak: number | null;
+                queued_slots_avg: number | null;
+                /** @description Zero open slots while ready work waited; null without snapshots. */
+                starved_minutes: number | null;
+            }[];
+            /**
+             * @description FR-DAGX-06: per UTC hour of day, the mean executor slots each of the top DAGs held over the hours of task
+             *     history in the range. Computed from task tries until 5-minute rollups exist.
+             */
+            dag_load: {
+                /** @description For example FR-DAGX-06/task-tries. */
+                method: string;
+                /** @constant */
+                time_zone: "UTC";
+                top: number;
+                /** @description Hours of task history in each hour of the day; 0 means that hour has no data. */
+                covered_hours: number[];
+                total_executor_slot_seconds: number;
+                /** @description DAGs with executor slot time in the range. */
+                dag_count: number;
+                dags: {
+                    dag_id: string;
+                    executor_slot_seconds: number;
+                    share: number;
+                    /** @description Mean executor slots per UTC hour of day; null where the range has no history. */
+                    hours: (number | null)[];
+                }[];
+            };
+        };
+        ForecastWindow: {
+            /** Format: date-time */
+            start: string;
+            /** Format: date-time */
+            end: string;
+            minutes: number;
+            /** @description Highest forecast demand in the window. */
+            peak_slots: number;
+            /** @description Worker slots at max_count. */
+            capacity_slots: number;
+            /** @description At least half of the window's run demand comes from DAGs with under 14 days of history. */
+            low_confidence: boolean;
+            top_dags: {
+                dag_id: string;
+                /** @description Slot-minutes the DAG's planned runs add in the window. */
+                slot_minutes: number;
+                share: number;
+                low_confidence: boolean;
+            }[];
+        };
+        ForecastCheck: {
+            evaluated: boolean;
+            not_evaluated_reason: string | null;
+            /**
+             * @description The forecast compared with capacity.
+             * @enum {string}
+             */
+            band: "p50" | "p90";
+            /** @description Shortest stretch above capacity that counts (REC-SCHED-03). */
+            min_minutes: number;
+            windows: components["schemas"]["ForecastWindow"][];
+        };
+        /**
+         * @description HM-010 (FR-BOTL-05), a forecast: every number is an estimate. Demand is running plus executor-queued task
+         *     instances, in slots. Each planned run adds its DAG's historical run profile (p50 central, p10 to p90 band)
+         *     at its planned start; an hour-of-week baseline adds unscheduled demand. Summing per-DAG percentiles treats
+         *     the DAGs as moving together, so the band is wide. Times are UTC.
+         */
+        Forecast: {
+            env_id: string;
+            horizon: components["schemas"]["TimeRange"];
+            /**
+             * Format: date-time
+             * @description The newest task try the forecast read; null without history.
+             */
+            data_as_of: string | null;
+            sources: components["schemas"]["SourceId"][];
+            /** @description For example HM-010/run-profiles. */
+            method: string;
+            /** @constant */
+            estimate: true;
+            evaluated: boolean;
+            not_evaluated_reason: string | null;
+            /** @constant */
+            time_zone: "UTC";
+            step_seconds: number;
+            history: {
+                /**
+                 * Format: date-time
+                 * @description Start of the history used; null without history.
+                 */
+                from: string | null;
+                /** Format: date-time */
+                to: string;
+                days: number;
+                /** @description Days of history the forecast reads at most. */
+                read_days: number;
+                /** @description Days of history a DAG needs for normal confidence. */
+                min_days: number;
+                /** @description Finished scheduled runs behind the profiles. */
+                runs_profiled: number;
+            };
+            confidence: {
+                /** @enum {string} */
+                level: "normal" | "low";
+                /** @description One plain sentence for the page. */
+                summary: string;
+                /** @description DAGs with planned or running runs in the horizon. */
+                dags: number;
+                low_confidence_dags: number;
+                /** @description DAGs with planned runs but no profiled run: their demand is unknown, not zero. */
+                dags_without_history: number;
+                /** @description Share of run demand (p50 slot-minutes) from low-confidence DAGs. */
+                low_confidence_share: number | null;
+            };
+            capacity: {
+                /** @description max_count × worker_concurrency. */
+                worker_slots_at_max: number | null;
+                worker_concurrency_source: components["schemas"]["LimitSource"];
+                max_workers: number;
+                parallelism_total: number | null;
+            };
+            /** @description One entry per step, each the highest minute in it. Null without history. */
+            series: {
+                /** Format: date-time */
+                start: string;
+                p10: number | null;
+                p50: number | null;
+                p90: number | null;
+                /** @description The baseline's part, included in p10, p50 and p90; null where that hour was never observed. */
+                baseline: number | null;
+            }[];
+            /** @description p50 above worker slots at max_count for at least min_minutes in a row. */
+            saturation: components["schemas"]["ForecastCheck"];
+            /** @description p90 above worker slots at max_count for at least min_minutes in a row. */
+            risk: components["schemas"]["ForecastCheck"];
+            /** @description Cron runs planned in the horizon. */
+            planned_runs: number;
+            /** @description Unpaused DAGs without a cron schedule; their demand is in the baseline. */
+            unscheduled_dags: number;
+            dag_count: number;
+            /** @description By p50 slot-minutes in the horizon; DAGs without a profile last. */
+            dags: {
+                dag_id: string;
+                schedule: string;
+                planned_runs: number;
+                runs_profiled: number;
+                history_days: number | null;
+                low_confidence: boolean;
+                /** @description Null without a profile: unknown, not zero. */
+                slot_minutes: number | null;
+                /** @description Highest p50 demand of one run. */
+                peak_slots: number | null;
+            }[];
+            baseline: {
+                /** @enum {string} */
+                method: "hour-of-week" | "hour-of-day" | "none";
+                slot_minutes: number;
+                /** @description Weeks of history behind it. */
+                weeks: number;
+            };
+            pool_step_seconds: number;
+            /** @description Pool-slot demand of scheduled runs (p50) against pool sizes; the baseline is not split by pool. */
+            pools: {
+                name: string;
+                slots: number;
+                peak_slots: number | null;
+                /** Format: date-time */
+                peak_at: string | null;
+                minutes_over: number | null;
+                /** @description Highest p50 per pool step. */
+                series: (number | null)[];
+            }[];
+        };
         Finding: {
             id: string;
             /** @description For example REC-CAP-01 (spec §13.6). */
@@ -1237,6 +1617,8 @@ export interface components {
     parameters: {
         EnvId: string;
         Range: "1h" | "6h" | "24h";
+        /** @description The shared ranges, and 7d for the day × hour heatmap. Buckets are 1 min, 5 min, 15 min and 1 h. */
+        CapacityRange: "1h" | "6h" | "24h" | "7d";
     };
     requestBodies: never;
     headers: never;
@@ -1421,6 +1803,56 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getCapacity: {
+        parameters: {
+            query?: {
+                /** @description The shared ranges, and 7d for the day × hour heatmap. Buckets are 1 min, 5 min, 15 min and 1 h. */
+                range?: components["parameters"]["CapacityRange"];
+            };
+            header?: never;
+            path: {
+                env_id: components["parameters"]["EnvId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Capacity over the requested range. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Capacity"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getForecast: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                env_id: components["parameters"]["EnvId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Forecast from now to 24 hours ahead. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forecast"];
+                };
+            };
             404: components["responses"]["NotFound"];
         };
     };

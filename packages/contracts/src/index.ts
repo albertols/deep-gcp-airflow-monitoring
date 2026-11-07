@@ -21,6 +21,12 @@ export type Bottlenecks = Schemas['Bottlenecks'];
 export type NoisyNeighbours = Schemas['NoisyNeighbours'];
 export type PriorityFairness = Schemas['PriorityFairness'];
 export type Schedule = Schemas['Schedule'];
+export type Spread = Schemas['Spread'];
+export type LimitSource = Schemas['LimitSource'];
+export type Capacity = Schemas['Capacity'];
+export type Forecast = Schemas['Forecast'];
+export type ForecastWindow = Schemas['ForecastWindow'];
+export type ForecastCheck = Schemas['ForecastCheck'];
 export type Finding = Schemas['Finding'];
 export type Findings = Schemas['Findings'];
 export type AlertState = Schemas['AlertState'];
@@ -38,6 +44,8 @@ export type ApiFootprint = Schemas['ApiFootprint'];
 export type BackfillStatus = Schemas['BackfillStatus'];
 export type ConfigIssue = Schemas['ConfigIssue'];
 export type Range = '1h' | '6h' | '24h';
+/** The capacity page's range: the shared ranges and 7 days (`CapacityRange` in openapi.yaml). */
+export type CapacityRange = Range | '7d';
 
 /** Typed client for DCAM's own API, generated from openapi.yaml. */
 export function createApiClient(baseUrl = '') {

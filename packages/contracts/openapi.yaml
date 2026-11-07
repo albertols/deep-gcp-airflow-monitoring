@@ -129,6 +129,42 @@ paths:
               schema: { $ref: '#/components/schemas/Schedule' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/environments/{env_id}/capacity:
+    get:
+      operationId: getCapacity
+      summary: Capacity against use (FR-ENV-02, HM-011, HM-012, FR-DAGX-06)
+      description: |
+        Worker slots against running and queued task instances, workers against min_count and max_count, scale
+        events, worker CPU and memory against their limits, capacity-bound periods, a UTC day × hour saturation
+        heatmap, pools, and the DAG × hour-of-day load of the top 20 DAGs.
+      parameters:
+        - $ref: '#/components/parameters/EnvId'
+        - $ref: '#/components/parameters/CapacityRange'
+      responses:
+        '200':
+          description: Capacity over the requested range.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Capacity' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/environments/{env_id}/forecast:
+    get:
+      operationId: getForecast
+      summary: 24-hour load forecast (FR-BOTL-05, HM-010)
+      description: |
+        Expected slot demand for the next 24 hours from the schedules and the DAGs' historical run profiles,
+        against capacity at max_count and pool sizes, with an uncertainty band, saturation windows and the history
+        used. A forecast: every value is an estimate.
+      parameters:
+        - $ref: '#/components/parameters/EnvId'
+      responses:
+        '200':
+          description: Forecast from now to 24 hours ahead.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Forecast' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/environments/{env_id}/findings:
     get:
       operationId: getFindings
@@ -192,6 +228,12 @@ components:
       in: query
       required: false
       schema: { type: string, enum: ['1h', '6h', '24h'], default: '24h' }
+    CapacityRange:
+      name: range
+      in: query
+      required: false
+      description: The shared ranges, and 7d for the day × hour heatmap. Buckets are 1 min, 5 min, 15 min and 1 h.
+      schema: { type: string, enum: ['1h', '6h', '24h', '7d'], default: '24h' }
   responses:
     BadRequest:
       description: Invalid parameter.
@@ -1419,6 +1461,615 @@ components:
               starts_per_day: { type: number, minimum: 0 }
               minutes: { type: array, items: { type: integer, minimum: 0, maximum: 59 } }
               example_dags: { type: array, maxItems: 5, items: { type: string } }
+    Spread:
+      type: object
+      additionalProperties: false
+      description: |
+        Median, p95 and maximum of a sample, in the unit of the field that holds it (spec §8.9). p95 is null with
+        fewer than 20 samples: show the maximum and "low sample" instead. All null without samples.
+      required: [p50, p95, max, samples, low_sample]
+      properties:
+        p50: { type: ['number', 'null'] }
+        p95: { type: ['number', 'null'] }
+        max: { type: ['number', 'null'] }
+        samples: { type: integer, minimum: 0 }
+        low_sample: { type: boolean, description: 'Fewer than 20 samples: p95 is null.' }
+    LimitSource:
+      type: string
+      description: 'Where a limit came from (spec §14.1). unknown: DCAM does not know it and shows no value.'
+      enum: [configured, override, composer-default, airflow-default, unknown]
+    Capacity:
+      type: object
+      additionalProperties: false
+      description: |
+        S-04 (FR-ENV-02). Per minute the worker figures come from the Cloud Monitoring worker sample, else from the
+        last live snapshot in the minute (see slots_source); a minute with neither is a gap, shown as null, never
+        zero. Counts are task instances; slots are executor (worker) slots, one per running task instance.
+      required:
+        [
+          env_id,
+          range,
+          data_as_of,
+          sources,
+          bucket_seconds,
+          slots_source,
+          limits,
+          summary,
+          series,
+          capacity_bound,
+          scale_events,
+          workloads,
+          workloads_not_collected,
+          heatmap,
+          pools,
+          dag_load,
+        ]
+      properties:
+        env_id: { type: string }
+        range:
+          description: Starts on a bucket boundary (UTC), so it can be up to one bucket longer than requested.
+          $ref: '#/components/schemas/TimeRange'
+        data_as_of:
+          {
+            type: ['string', 'null'],
+            format: date-time,
+            description: 'The newest minute with worker figures; null when the range has none.',
+          }
+        sources: { type: array, items: { $ref: '#/components/schemas/SourceId' } }
+        bucket_seconds: { type: integer, minimum: 60 }
+        slots_source:
+          description: |
+            HM-011: where the worker counts came from, the weakest over the range. hostnames is an estimate and a
+            lower bound (an idle worker runs no task instance). Null when no count says where it came from (demo).
+          oneOf: [{ $ref: '#/components/schemas/WorkerCountSource' }, { type: 'null' }]
+        limits:
+          type: object
+          additionalProperties: false
+          required:
+            [
+              worker_concurrency,
+              worker_concurrency_source,
+              min_workers,
+              max_workers,
+              worker_slots_at_max,
+              parallelism,
+              parallelism_source,
+              schedulers,
+              parallelism_total,
+            ]
+          properties:
+            worker_concurrency:
+              {
+                type: ['integer', 'null'],
+                minimum: 1,
+                description: '[celery] worker_concurrency; null when unknown (HM-032).',
+              }
+            worker_concurrency_source: { $ref: '#/components/schemas/LimitSource' }
+            min_workers: { type: integer, minimum: 0 }
+            max_workers: { type: integer, minimum: 0 }
+            worker_slots_at_max:
+              {
+                type: ['integer', 'null'],
+                minimum: 0,
+                description: 'max_count × worker_concurrency, in slots.',
+              }
+            parallelism:
+              {
+                type: ['integer', 'null'],
+                minimum: 0,
+                description: '[core] parallelism per scheduler; null when unknown.',
+              }
+            parallelism_source: { $ref: '#/components/schemas/LimitSource' }
+            schedulers: { type: integer, minimum: 0 }
+            parallelism_total:
+              {
+                type: ['integer', 'null'],
+                minimum: 0,
+                description: 'parallelism × schedulers: running plus queued task instances the schedulers allow.',
+              }
+        summary:
+          type: object
+          additionalProperties: false
+          required:
+            [
+              window_minutes,
+              observed_minutes,
+              coverage,
+              utilisation,
+              minutes_at_max_workers,
+              capacity_bound_minutes,
+              capacity_bound_share,
+              running_peak,
+              queued_peak,
+              scale_up_lag_seconds,
+            ]
+          properties:
+            window_minutes: { type: integer, minimum: 0 }
+            observed_minutes: { type: integer, minimum: 0, description: 'Minutes with worker figures.' }
+            coverage:
+              { type: number, minimum: 0, maximum: 1, description: 'observed_minutes ÷ window_minutes.' }
+            utilisation:
+              description: Running ÷ worker slots per observed minute, a ratio 0–1. No samples while worker_concurrency is unknown.
+              $ref: '#/components/schemas/Spread'
+            minutes_at_max_workers:
+              {
+                type: ['integer', 'null'],
+                minimum: 0,
+                description: 'Observed minutes with workers at max_count; null without observed minutes.',
+              }
+            capacity_bound_minutes:
+              {
+                type: ['integer', 'null'],
+                minimum: 0,
+                description: 'HM-011: workers at max_count and queued ≥ max(10, 20 % of worker slots). Null without observed minutes or while worker_concurrency is unknown.',
+              }
+            capacity_bound_share:
+              {
+                type: ['number', 'null'],
+                minimum: 0,
+                maximum: 1,
+                description: 'capacity_bound_minutes ÷ observed_minutes.',
+              }
+            running_peak:
+              {
+                type: ['integer', 'null'],
+                minimum: 0,
+                description: 'Most running task instances in a minute.',
+              }
+            queued_peak:
+              {
+                type: ['integer', 'null'],
+                minimum: 0,
+                description: 'Most executor-queued task instances in a minute.',
+              }
+            scale_up_lag_seconds:
+              description: HM-012, seconds from the autoscaler target rising above the workers to the workers reaching it.
+              $ref: '#/components/schemas/Spread'
+        series:
+          type: array
+          description: One entry per bucket; every value is null in a bucket without observed minutes.
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              [
+                start,
+                observed_minutes,
+                workers_mean,
+                workers_max,
+                target_max,
+                worker_slots_mean,
+                running_mean,
+                running_peak,
+                queued_mean,
+                queued_peak,
+                running_tries_mean,
+                utilisation_mean,
+                minutes_at_max,
+                capacity_bound_minutes,
+                cpu_max,
+                memory_max,
+              ]
+            properties:
+              start: { type: string, format: date-time }
+              observed_minutes: { type: integer, minimum: 0 }
+              workers_mean: { type: ['number', 'null'], minimum: 0 }
+              workers_max: { type: ['integer', 'null'], minimum: 0 }
+              target_max: { type: ['integer', 'null'], minimum: 0, description: 'Highest autoscaler target.' }
+              worker_slots_mean:
+                {
+                  type: ['number', 'null'],
+                  minimum: 0,
+                  description: 'Mean workers × worker_concurrency; null while worker_concurrency is unknown.',
+                }
+              running_mean:
+                { type: ['number', 'null'], minimum: 0, description: 'Running task instances (executor).' }
+              running_peak: { type: ['integer', 'null'], minimum: 0 }
+              queued_mean:
+                { type: ['number', 'null'], minimum: 0, description: 'Executor-queued task instances.' }
+              queued_peak: { type: ['integer', 'null'], minimum: 0 }
+              running_tries_mean:
+                {
+                  type: ['number', 'null'],
+                  minimum: 0,
+                  description: 'HM-011 cross-check: mean running tries from task history (HM-003 sweep). Null before the history starts.',
+                }
+              utilisation_mean: { type: ['number', 'null'], minimum: 0, maximum: 1 }
+              minutes_at_max: { type: ['integer', 'null'], minimum: 0 }
+              capacity_bound_minutes: { type: ['integer', 'null'], minimum: 0 }
+              cpu_max:
+                {
+                  type: ['number', 'null'],
+                  minimum: 0,
+                  maximum: 1,
+                  description: 'Highest worker CPU usage ÷ limit; Cloud Monitoring only.',
+                }
+              memory_max:
+                {
+                  type: ['number', 'null'],
+                  minimum: 0,
+                  maximum: 1,
+                  description: 'Highest worker memory usage ÷ limit; Cloud Monitoring only.',
+                }
+        capacity_bound:
+          type: object
+          additionalProperties: false
+          description: FR-ENV-02 highlights these periods as "capacity-bound".
+          required: [evaluated, not_evaluated_reason, min_queued, queued_ratio, period_count, periods]
+          properties:
+            evaluated: { type: boolean }
+            not_evaluated_reason: { type: ['string', 'null'] }
+            min_queued: { type: integer, minimum: 0 }
+            queued_ratio: { type: number, minimum: 0, maximum: 1 }
+            period_count: { type: integer, minimum: 0 }
+            periods:
+              type: array
+              maxItems: 500
+              description: The newest 500 stretches of consecutive capacity-bound minutes, oldest first.
+              items:
+                type: object
+                additionalProperties: false
+                required: [start, end, minutes, queued_peak, workers]
+                properties:
+                  start: { type: string, format: date-time }
+                  end: { type: string, format: date-time }
+                  minutes: { type: integer, minimum: 1 }
+                  queued_peak: { type: integer, minimum: 0 }
+                  workers: { type: integer, minimum: 0 }
+        scale_events:
+          type: object
+          additionalProperties: false
+          description: HM-012 worker count changes, from Cloud Monitoring samples only.
+          required: [evaluated, not_evaluated_reason, up, down, items]
+          properties:
+            evaluated: { type: boolean }
+            not_evaluated_reason: { type: ['string', 'null'] }
+            up: { type: integer, minimum: 0 }
+            down: { type: integer, minimum: 0 }
+            items:
+              type: array
+              maxItems: 200
+              description: The newest 200 changes, oldest first.
+              items:
+                type: object
+                additionalProperties: false
+                required: [at, from, to]
+                properties:
+                  at: { type: string, format: date-time }
+                  from: { type: integer, minimum: 0 }
+                  to: { type: integer, minimum: 0 }
+        workloads:
+          type: array
+          description: CPU and memory usage ÷ limit per workload type, ratios 0–1, from Cloud Monitoring.
+          items:
+            type: object
+            additionalProperties: false
+            required: [workload, samples, cpu, memory]
+            properties:
+              workload: { type: string, enum: [celery-worker] }
+              samples: { type: integer, minimum: 0, description: 'One-minute samples; 0 means no data.' }
+              cpu: { $ref: '#/components/schemas/Spread' }
+              memory: { $ref: '#/components/schemas/Spread' }
+        workloads_not_collected:
+          type: array
+          description: Workload types whose CPU and memory DCAM does not collect yet.
+          items: { type: string, enum: [scheduler, triggerer, dag-processor, web-server] }
+        heatmap:
+          type: object
+          additionalProperties: false
+          required: [time_zone, cells]
+          properties:
+            time_zone: { type: string, const: UTC }
+            cells:
+              type: array
+              description: One cell per UTC day and hour that overlaps the range; values are null where nothing was observed.
+              items:
+                type: object
+                additionalProperties: false
+                required:
+                  [date, hour, observed_minutes, utilisation_mean, minutes_at_max, capacity_bound_minutes]
+                properties:
+                  date: { type: string, format: date }
+                  hour: { type: integer, minimum: 0, maximum: 23 }
+                  observed_minutes: { type: integer, minimum: 0, maximum: 60 }
+                  utilisation_mean: { type: ['number', 'null'], minimum: 0, maximum: 1 }
+                  minutes_at_max: { type: ['integer', 'null'], minimum: 0, maximum: 60 }
+                  capacity_bound_minutes: { type: ['integer', 'null'], minimum: 0, maximum: 60 }
+        pools:
+          type: array
+          description: Pool slots against running and queued slots, from live snapshots (FR-ENV-08).
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, slots, running_slots_avg, running_slots_peak, queued_slots_avg, starved_minutes]
+            properties:
+              name: { type: string }
+              slots: { type: integer, minimum: 0 }
+              running_slots_avg: { type: ['number', 'null'], minimum: 0 }
+              running_slots_peak: { type: ['number', 'null'], minimum: 0 }
+              queued_slots_avg: { type: ['number', 'null'], minimum: 0 }
+              starved_minutes:
+                {
+                  type: ['number', 'null'],
+                  minimum: 0,
+                  description: 'Zero open slots while ready work waited; null without snapshots.',
+                }
+        dag_load:
+          type: object
+          additionalProperties: false
+          description: |
+            FR-DAGX-06: per UTC hour of day, the mean executor slots each of the top DAGs held over the hours of task
+            history in the range. Computed from task tries until 5-minute rollups exist.
+          required: [method, time_zone, top, covered_hours, total_executor_slot_seconds, dag_count, dags]
+          properties:
+            method: { type: string, description: 'For example FR-DAGX-06/task-tries.' }
+            time_zone: { type: string, const: UTC }
+            top: { type: integer, minimum: 1 }
+            covered_hours:
+              type: array
+              minItems: 24
+              maxItems: 24
+              description: Hours of task history in each hour of the day; 0 means that hour has no data.
+              items: { type: number, minimum: 0 }
+            total_executor_slot_seconds: { type: number, minimum: 0 }
+            dag_count:
+              { type: integer, minimum: 0, description: 'DAGs with executor slot time in the range.' }
+            dags:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [dag_id, executor_slot_seconds, share, hours]
+                properties:
+                  dag_id: { type: string }
+                  executor_slot_seconds: { type: number, minimum: 0 }
+                  share: { type: number, minimum: 0, maximum: 1 }
+                  hours:
+                    type: array
+                    minItems: 24
+                    maxItems: 24
+                    description: Mean executor slots per UTC hour of day; null where the range has no history.
+                    items: { type: ['number', 'null'], minimum: 0 }
+    ForecastWindow:
+      type: object
+      additionalProperties: false
+      required: [start, end, minutes, peak_slots, capacity_slots, low_confidence, top_dags]
+      properties:
+        start: { type: string, format: date-time }
+        end: { type: string, format: date-time }
+        minutes: { type: integer, minimum: 1 }
+        peak_slots: { type: number, minimum: 0, description: 'Highest forecast demand in the window.' }
+        capacity_slots: { type: integer, minimum: 0, description: 'Worker slots at max_count.' }
+        low_confidence:
+          {
+            type: boolean,
+            description: "At least half of the window's run demand comes from DAGs with under 14 days of history.",
+          }
+        top_dags:
+          type: array
+          maxItems: 5
+          items:
+            type: object
+            additionalProperties: false
+            required: [dag_id, slot_minutes, share, low_confidence]
+            properties:
+              dag_id: { type: string }
+              slot_minutes:
+                {
+                  type: number,
+                  minimum: 0,
+                  description: "Slot-minutes the DAG's planned runs add in the window.",
+                }
+              share: { type: number, minimum: 0, maximum: 1 }
+              low_confidence: { type: boolean }
+    ForecastCheck:
+      type: object
+      additionalProperties: false
+      required: [evaluated, not_evaluated_reason, band, min_minutes, windows]
+      properties:
+        evaluated: { type: boolean }
+        not_evaluated_reason: { type: ['string', 'null'] }
+        band: { type: string, enum: [p50, p90], description: 'The forecast compared with capacity.' }
+        min_minutes:
+          {
+            type: integer,
+            minimum: 1,
+            description: 'Shortest stretch above capacity that counts (REC-SCHED-03).',
+          }
+        windows: { type: array, items: { $ref: '#/components/schemas/ForecastWindow' } }
+    Forecast:
+      type: object
+      additionalProperties: false
+      description: |
+        HM-010 (FR-BOTL-05), a forecast: every number is an estimate. Demand is running plus executor-queued task
+        instances, in slots. Each planned run adds its DAG's historical run profile (p50 central, p10 to p90 band)
+        at its planned start; an hour-of-week baseline adds unscheduled demand. Summing per-DAG percentiles treats
+        the DAGs as moving together, so the band is wide. Times are UTC.
+      required:
+        [
+          env_id,
+          horizon,
+          data_as_of,
+          sources,
+          method,
+          estimate,
+          evaluated,
+          not_evaluated_reason,
+          time_zone,
+          step_seconds,
+          history,
+          confidence,
+          capacity,
+          series,
+          saturation,
+          risk,
+          planned_runs,
+          unscheduled_dags,
+          dag_count,
+          dags,
+          baseline,
+          pool_step_seconds,
+          pools,
+        ]
+      properties:
+        env_id: { type: string }
+        horizon: { $ref: '#/components/schemas/TimeRange' }
+        data_as_of:
+          {
+            type: ['string', 'null'],
+            format: date-time,
+            description: 'The newest task try the forecast read; null without history.',
+          }
+        sources: { type: array, items: { $ref: '#/components/schemas/SourceId' } }
+        method: { type: string, description: 'For example HM-010/run-profiles.' }
+        estimate: { type: boolean, const: true }
+        evaluated: { type: boolean }
+        not_evaluated_reason: { type: ['string', 'null'] }
+        time_zone: { type: string, const: UTC }
+        step_seconds: { type: integer, minimum: 60 }
+        history:
+          type: object
+          additionalProperties: false
+          required: [from, to, days, read_days, min_days, runs_profiled]
+          properties:
+            from:
+              {
+                type: ['string', 'null'],
+                format: date-time,
+                description: 'Start of the history used; null without history.',
+              }
+            to: { type: string, format: date-time }
+            days: { type: number, minimum: 0 }
+            read_days:
+              { type: integer, minimum: 1, description: 'Days of history the forecast reads at most.' }
+            min_days:
+              { type: integer, minimum: 1, description: 'Days of history a DAG needs for normal confidence.' }
+            runs_profiled:
+              { type: integer, minimum: 0, description: 'Finished scheduled runs behind the profiles.' }
+        confidence:
+          type: object
+          additionalProperties: false
+          required: [level, summary, dags, low_confidence_dags, dags_without_history, low_confidence_share]
+          properties:
+            level: { type: string, enum: [normal, low] }
+            summary: { type: string, description: 'One plain sentence for the page.' }
+            dags:
+              { type: integer, minimum: 0, description: 'DAGs with planned or running runs in the horizon.' }
+            low_confidence_dags: { type: integer, minimum: 0 }
+            dags_without_history:
+              {
+                type: integer,
+                minimum: 0,
+                description: 'DAGs with planned runs but no profiled run: their demand is unknown, not zero.',
+              }
+            low_confidence_share:
+              {
+                type: ['number', 'null'],
+                minimum: 0,
+                maximum: 1,
+                description: 'Share of run demand (p50 slot-minutes) from low-confidence DAGs.',
+              }
+        capacity:
+          type: object
+          additionalProperties: false
+          required: [worker_slots_at_max, worker_concurrency_source, max_workers, parallelism_total]
+          properties:
+            worker_slots_at_max:
+              { type: ['integer', 'null'], minimum: 0, description: 'max_count × worker_concurrency.' }
+            worker_concurrency_source: { $ref: '#/components/schemas/LimitSource' }
+            max_workers: { type: integer, minimum: 0 }
+            parallelism_total: { type: ['integer', 'null'], minimum: 0 }
+        series:
+          type: array
+          description: One entry per step, each the highest minute in it. Null without history.
+          items:
+            type: object
+            additionalProperties: false
+            required: [start, p10, p50, p90, baseline]
+            properties:
+              start: { type: string, format: date-time }
+              p10: { type: ['number', 'null'], minimum: 0 }
+              p50: { type: ['number', 'null'], minimum: 0 }
+              p90: { type: ['number', 'null'], minimum: 0 }
+              baseline:
+                {
+                  type: ['number', 'null'],
+                  minimum: 0,
+                  description: "The baseline's part, included in p10, p50 and p90; null where that hour was never observed.",
+                }
+        saturation:
+          description: p50 above worker slots at max_count for at least min_minutes in a row.
+          $ref: '#/components/schemas/ForecastCheck'
+        risk:
+          description: p90 above worker slots at max_count for at least min_minutes in a row.
+          $ref: '#/components/schemas/ForecastCheck'
+        planned_runs: { type: integer, minimum: 0, description: 'Cron runs planned in the horizon.' }
+        unscheduled_dags:
+          {
+            type: integer,
+            minimum: 0,
+            description: 'Unpaused DAGs without a cron schedule; their demand is in the baseline.',
+          }
+        dag_count: { type: integer, minimum: 0 }
+        dags:
+          type: array
+          maxItems: 20
+          description: By p50 slot-minutes in the horizon; DAGs without a profile last.
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              [
+                dag_id,
+                schedule,
+                planned_runs,
+                runs_profiled,
+                history_days,
+                low_confidence,
+                slot_minutes,
+                peak_slots,
+              ]
+            properties:
+              dag_id: { type: string }
+              schedule: { type: string }
+              planned_runs: { type: integer, minimum: 0 }
+              runs_profiled: { type: integer, minimum: 0 }
+              history_days: { type: ['number', 'null'], minimum: 0 }
+              low_confidence: { type: boolean }
+              slot_minutes:
+                {
+                  type: ['number', 'null'],
+                  minimum: 0,
+                  description: 'Null without a profile: unknown, not zero.',
+                }
+              peak_slots:
+                { type: ['number', 'null'], minimum: 0, description: 'Highest p50 demand of one run.' }
+        baseline:
+          type: object
+          additionalProperties: false
+          required: [method, slot_minutes, weeks]
+          properties:
+            method: { type: string, enum: [hour-of-week, hour-of-day, none] }
+            slot_minutes: { type: number, minimum: 0 }
+            weeks: { type: number, minimum: 0, description: 'Weeks of history behind it.' }
+        pool_step_seconds: { type: integer, minimum: 60 }
+        pools:
+          type: array
+          description: Pool-slot demand of scheduled runs (p50) against pool sizes; the baseline is not split by pool.
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, slots, peak_slots, peak_at, minutes_over, series]
+            properties:
+              name: { type: string }
+              slots: { type: integer, minimum: 0 }
+              peak_slots: { type: ['number', 'null'], minimum: 0 }
+              peak_at: { type: ['string', 'null'], format: date-time }
+              minutes_over: { type: ['integer', 'null'], minimum: 0 }
+              series:
+                type: array
+                description: Highest p50 per pool step.
+                items: { type: ['number', 'null'], minimum: 0 }
     Finding:
       type: object
       additionalProperties: false
