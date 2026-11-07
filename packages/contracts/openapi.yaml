@@ -113,6 +113,22 @@ paths:
               schema: { $ref: '#/components/schemas/Bottlenecks' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/environments/{env_id}/schedule:
+    get:
+      operationId: getSchedule
+      summary: Schedule intelligence (FR-BOTL-03, HM-009)
+      description: Planned and actual DAG run starts by hour of day and minute of hour (UTC), and the minutes and schedules that collide most.
+      parameters:
+        - $ref: '#/components/parameters/EnvId'
+        - $ref: '#/components/parameters/Range'
+      responses:
+        '200':
+          description: Schedule intelligence; actual starts over the requested range.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Schedule' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/environments/{env_id}/findings:
     get:
       operationId: getFindings
@@ -723,6 +739,19 @@ components:
                     dag_id: { type: string }
                     waiting_task_seconds: { type: number, minimum: 0 }
                     share: { type: number, minimum: 0, maximum: 1 }
+              top_pools:
+                type: array
+                maxItems: 10
+                description: Pools of the waiting task instances, by waiting task-time for this reason (HM-006 top contributors).
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [pool, waiting_task_seconds, share]
+                  properties:
+                    pool: { type: string }
+                    waiting_task_seconds: { type: number, minimum: 0 }
+                    share:
+                      { type: number, minimum: 0, maximum: 1, description: "Share of the reason's waiting." }
         series:
           type: array
           items:
@@ -786,6 +815,55 @@ components:
                   description: 'Minutes with zero open slots and work waiting (REC-CONC-02).',
                 }
               utilisation_p95: { type: ['number', 'null'], minimum: 0, maximum: 1 }
+              running_slots_avg:
+                {
+                  type: ['number', 'null'],
+                  minimum: 0,
+                  description: 'FR-ENV-08: time-weighted mean slots held by running task instances; null without snapshots.',
+                }
+              running_slots_peak:
+                {
+                  type: ['number', 'null'],
+                  minimum: 0,
+                  description: 'Most slots held by running task instances in one snapshot; null without snapshots.',
+                }
+              queued_slots_avg:
+                {
+                  type: ['number', 'null'],
+                  minimum: 0,
+                  description: 'Time-weighted mean slots held by queued task instances; null without snapshots.',
+                }
+              ready_task_seconds:
+                {
+                  type: number,
+                  minimum: 0,
+                  description: 'Ready (scheduled) task instances of the pool × time: pre-queue waiting in the pool.',
+                }
+              queued_task_seconds:
+                {
+                  type: number,
+                  minimum: 0,
+                  description: 'Queued task instances of the pool × time: post-queue waiting in the pool.',
+                }
+              top_dags:
+                type: array
+                maxItems: 5
+                description: DAGs with the most ready and queued waiting in the pool.
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [dag_id, waiting_task_seconds, share]
+                  properties:
+                    dag_id: { type: string }
+                    waiting_task_seconds: { type: number, minimum: 0 }
+                    share:
+                      { type: number, minimum: 0, maximum: 1, description: "Share of the pool's waiting." }
+              starved_series:
+                type: array
+                description: Starved minutes per bucket, aligned with `series`; null where no snapshot fell in the bucket.
+                items: { type: ['number', 'null'], minimum: 0 }
+        noisy_neighbours: { $ref: '#/components/schemas/NoisyNeighbours' }
+        priority_fairness: { $ref: '#/components/schemas/PriorityFairness' }
         capacity:
           type: object
           additionalProperties: false
@@ -839,6 +917,266 @@ components:
                   minimum: 0,
                   description: 'Worker slot time held by poke-mode sensors (HM-008).',
                 }
+    NoisyNeighbours:
+      type: object
+      additionalProperties: false
+      description: |
+        HM-017: DAGs whose running load is associated with longer queue waits (HM-001) of other DAGs.
+        Association, not causation. Over the requested range, matched by hour of week.
+      required:
+        [
+          method,
+          evaluated,
+          not_evaluated_reason,
+          minutes_with_slots,
+          candidates,
+          qualified,
+          active_share,
+          min_active_minutes,
+          min_affected_tries,
+          min_control_tries,
+          resamples,
+          items,
+        ]
+      properties:
+        method: { type: string, description: 'For example HM-017/range.' }
+        evaluated: { type: boolean }
+        not_evaluated_reason:
+          {
+            type: ['string', 'null'],
+            description: 'Why nothing was evaluated and how to fix it; null when evaluated.',
+          }
+        minutes_with_slots:
+          {
+            type: integer,
+            minimum: 0,
+            description: 'Minutes with known executor slots (workers × worker_concurrency).',
+          }
+        candidates: { type: integer, minimum: 0, description: 'DAGs with at least one active minute.' }
+        qualified: { type: integer, minimum: 0, description: 'DAGs that met the minimum samples.' }
+        active_share:
+          {
+            type: number,
+            minimum: 0,
+            maximum: 1,
+            description: 'Share of executor slots that makes a DAG active.',
+          }
+        min_active_minutes: { type: integer, minimum: 0 }
+        min_affected_tries: { type: integer, minimum: 0 }
+        min_control_tries: { type: integer, minimum: 0 }
+        resamples: { type: integer, minimum: 0, description: 'Bootstrap resamples behind each interval.' }
+        items:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              [
+                dag_id,
+                active_minutes,
+                affected_tries,
+                control_tries,
+                matched_share,
+                median_wait_active_seconds,
+                median_wait_inactive_seconds,
+                effect_seconds,
+                ci_low_seconds,
+                ci_high_seconds,
+                confidence,
+                associated_wait_task_minutes,
+                overlap_windows,
+              ]
+            properties:
+              dag_id: { type: string }
+              active_minutes: { type: integer, minimum: 0 }
+              affected_tries:
+                {
+                  type: integer,
+                  minimum: 0,
+                  description: "Other DAGs' tries queued while the DAG was active.",
+                }
+              control_tries:
+                {
+                  type: integer,
+                  minimum: 0,
+                  description: "Other DAGs' tries queued in matched inactive minutes.",
+                }
+              matched_share: { type: number, minimum: 0, maximum: 1 }
+              median_wait_active_seconds: { type: number, minimum: 0 }
+              median_wait_inactive_seconds: { type: number, minimum: 0 }
+              effect_seconds: { type: number, description: 'Difference in median queue wait.' }
+              ci_low_seconds: { type: ['number', 'null'], description: 'Bootstrap 95 % interval, lower end.' }
+              ci_high_seconds: { type: ['number', 'null'] }
+              confidence: { type: string, enum: [high, medium, low] }
+              associated_wait_task_minutes:
+                {
+                  type: number,
+                  description: 'Ranking: effect × affected tries, in task-minutes; associated, not caused.',
+                }
+              overlap_windows:
+                type: array
+                maxItems: 5
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [from, to]
+                  properties:
+                    from: { type: string, format: date-time }
+                    to: { type: string, format: date-time }
+    PriorityFairness:
+      type: object
+      additionalProperties: false
+      description: |
+        HM-023, the observable part: observed waits of waiting tries per priority_weight band within each pool.
+      required: [method, starvation_ratio_evaluated, not_evaluated_reason, pools]
+      properties:
+        method: { type: string }
+        starvation_ratio_evaluated: { type: boolean }
+        not_evaluated_reason: { type: ['string', 'null'] }
+        pools:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [pool, tries, distinct_weights, bands]
+            properties:
+              pool: { type: string }
+              tries: { type: integer, minimum: 0, description: 'Distinct waiting tries seen in the pool.' }
+              distinct_weights: { type: integer, minimum: 0 }
+              bands:
+                type: array
+                maxItems: 3
+                items:
+                  type: object
+                  additionalProperties: false
+                  required:
+                    [band, min_weight, max_weight, tries, wait_p50_seconds, wait_p95_seconds, p95_low_sample]
+                  properties:
+                    band: { type: string, enum: [low, mid, high] }
+                    min_weight: { type: number }
+                    max_weight: { type: number }
+                    tries: { type: integer, minimum: 0 }
+                    wait_p50_seconds: { type: ['number', 'null'], minimum: 0 }
+                    wait_p95_seconds:
+                      {
+                        type: ['number', 'null'],
+                        minimum: 0,
+                        description: 'The max when fewer than 20 tries (p95_low_sample).',
+                      }
+                    p95_low_sample: { type: boolean }
+    Schedule:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          env_id,
+          range,
+          data_as_of,
+          sources,
+          time_zone,
+          collision,
+          planned,
+          actual,
+          top_minutes,
+          top_schedules,
+        ]
+      properties:
+        env_id: { type: string }
+        range: { $ref: '#/components/schemas/TimeRange' }
+        data_as_of:
+          { type: ['string', 'null'], format: date-time, description: 'Null when nothing was collected yet.' }
+        sources: { type: array, items: { $ref: '#/components/schemas/SourceId' } }
+        time_zone: { type: string, const: UTC }
+        collision:
+          type: object
+          additionalProperties: false
+          required: [index, busiest_minute, total_daily_starts, threshold, scheduled_dags, unscheduled_dags]
+          properties:
+            index:
+              {
+                type: number,
+                minimum: 0,
+                maximum: 1,
+                description: 'HM-009: share of daily starts in the busiest minute of the hour.',
+              }
+            busiest_minute: { type: ['integer', 'null'], minimum: 0, maximum: 59 }
+            total_daily_starts: { type: number, minimum: 0 }
+            threshold:
+              { type: number, minimum: 0, maximum: 1, description: 'REC-SCHED-01 collision index threshold.' }
+            scheduled_dags: { type: integer, minimum: 0 }
+            unscheduled_dags:
+              { type: integer, minimum: 0, description: 'Unpaused DAGs without a fixed start minute.' }
+        planned:
+          type: object
+          additionalProperties: false
+          required: [cells]
+          properties:
+            cells:
+              type: array
+              description: Non-empty cells only.
+              items:
+                type: object
+                additionalProperties: false
+                required: [hour, minute, starts_per_day]
+                properties:
+                  hour: { type: integer, minimum: 0, maximum: 23 }
+                  minute: { type: integer, minimum: 0, maximum: 59 }
+                  starts_per_day: { type: number, minimum: 0 }
+        actual:
+          type: object
+          additionalProperties: false
+          required: [runs, days, cells]
+          properties:
+            runs: { type: integer, minimum: 0, description: 'Runs whose first try started in the range.' }
+            days: { type: number, minimum: 0 }
+            cells:
+              type: array
+              description: Non-empty cells only.
+              items:
+                type: object
+                additionalProperties: false
+                required: [hour, minute, runs]
+                properties:
+                  hour: { type: integer, minimum: 0, maximum: 23 }
+                  minute: { type: integer, minimum: 0, maximum: 59 }
+                  runs: { type: integer, minimum: 0 }
+        top_minutes:
+          type: array
+          maxItems: 5
+          items:
+            type: object
+            additionalProperties: false
+            required: [minute, starts_per_day, share, dags, schedules, top_dags]
+            properties:
+              minute: { type: integer, minimum: 0, maximum: 59 }
+              starts_per_day: { type: number, minimum: 0 }
+              share: { type: number, minimum: 0, maximum: 1 }
+              dags: { type: integer, minimum: 0 }
+              schedules:
+                type: array
+                maxItems: 5
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [schedule, dags]
+                  properties:
+                    schedule: { type: string }
+                    dags: { type: integer, minimum: 0 }
+              top_dags: { type: array, maxItems: 10, items: { type: string } }
+        top_schedules:
+          type: array
+          maxItems: 10
+          items:
+            type: object
+            additionalProperties: false
+            required: [schedule, dags, starts_per_day, minutes, example_dags]
+            properties:
+              schedule: { type: string }
+              dags: { type: integer, minimum: 0 }
+              starts_per_day: { type: number, minimum: 0 }
+              minutes: { type: array, items: { type: integer, minimum: 0, maximum: 59 } }
+              example_dags: { type: array, maxItems: 5, items: { type: string } }
     Finding:
       type: object
       additionalProperties: false

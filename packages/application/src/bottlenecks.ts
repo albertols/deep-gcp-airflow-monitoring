@@ -1,8 +1,11 @@
 /**
  * Use case: why is work waiting (S-16). Classifies live snapshots by HM-006, aggregates waiting over
- * time, and adds pool pressure, worker capacity (HM-011, HM-012) and sensor waste (HM-008).
+ * time, and adds pool pressure, worker capacity (HM-011, HM-012) and sensor waste (HM-008), with the
+ * evidence behind the answer (`bottlenecks-depth.ts`): top pools per reason, pool activity (FR-ENV-08),
+ * noisy neighbours (HM-017) and priority bands (HM-023).
  *
- * @implements FR-BOTL-01, FR-BOTL-02, FR-BOTL-07, FR-BOTL-09, HM-006, HM-008, HM-011, HM-012
+ * @implements FR-BOTL-01, FR-BOTL-02, FR-BOTL-06, FR-BOTL-07, FR-BOTL-09, FR-ENV-08, HM-006, HM-008,
+ *   HM-011, HM-012, HM-017, HM-023
  */
 import type { Bottlenecks, Range, SourceId } from '@dcam/contracts';
 import {
@@ -13,10 +16,13 @@ import {
   attributeWaiting,
   capacityStats,
   limitKnown,
+  poolActivity,
+  priorityFairness,
   quantile,
   type WaitReasonId,
 } from '@dcam/domain';
 import type { Clock, EnvironmentModelSource, TaskInstanceStore } from '@dcam/ports';
+import { noisyNeighboursIn, poolDetail, priorityFairnessOf, topPools } from './bottlenecks-depth';
 import { RANGE_MS } from './range';
 import { composerConfig, usedSources } from './sources';
 
@@ -44,9 +50,32 @@ export interface BottleneckQuery {
 const iso = (ms: number) => new Date(ms).toISOString();
 const seconds = (ms: number | undefined) => (ms ?? 0) / 1000;
 
+/** An explicit window: `[from, to)` with buckets of `bucketMs`; `to` is "now" for running tries. */
+export interface BottleneckWindowQuery {
+  readonly envId: string;
+  readonly from: number;
+  readonly to: number;
+  readonly bucketMs: number;
+  readonly sources: readonly SourceId[];
+}
+
 export async function getBottlenecks(deps: BottleneckDeps, q: BottleneckQuery): Promise<Bottlenecks> {
   const now = deps.clock.now();
-  const from = now - RANGE_MS[q.range];
+  return bottlenecksInWindow(deps, {
+    envId: q.envId,
+    from: now - RANGE_MS[q.range],
+    to: now,
+    bucketMs: BUCKET_MS[q.range],
+    sources: q.sources,
+  });
+}
+
+/** The bottleneck analysis over an explicit window (the range's `to` is the clock's now). */
+export async function bottlenecksInWindow(
+  deps: Pick<BottleneckDeps, 'store' | 'model'>,
+  q: BottleneckWindowQuery,
+): Promise<Bottlenecks> {
+  const { from, to: now, bucketMs } = q;
   const config = await deps.model.config(q.envId);
   if (!config) throw new Error(`No configuration collected for environment "${q.envId}".`);
   const [dags, snapshots, samples, tries] = await Promise.all([
@@ -59,8 +88,10 @@ export async function getBottlenecks(deps: BottleneckDeps, q: BottleneckQuery): 
   const a = attributeWaiting(
     snapshots,
     { config, dagMaxActiveTasks: new Map(dags.map((d) => [d.dagId, d.maxActiveTasks])) },
-    { from, to: now, bucketMs: BUCKET_MS[q.range], fallbackCadenceMs: DEFAULT_SNAPSHOT_CADENCE_MS },
+    { from, to: now, bucketMs, fallbackCadenceMs: DEFAULT_SNAPSHOT_CADENCE_MS },
   );
+  const window = { from, to: now, bucketMs, fallbackCadenceMs: DEFAULT_SNAPSHOT_CADENCE_MS };
+  const activity = new Map(poolActivity(snapshots, config, window).map((p) => [p.name, p]));
   const waitingMs = PLATFORM_REASONS.reduce((s, r) => s + (a.totals.get(r) ?? 0), 0);
   const share = (part: number, whole: number) => (whole > 0 ? part / whole : 0);
   const top = PLATFORM_REASONS.reduce<WaitReasonId | null>(
@@ -79,7 +110,7 @@ export async function getBottlenecks(deps: BottleneckDeps, q: BottleneckQuery): 
 
   const capacity = capacityStats(samples, config);
   // The advisor's data gate over this range: the headline never advises what the advisor would not.
-  const rangeMs = RANGE_MS[q.range];
+  const rangeMs = now - from;
   const inRange = snapshots.filter((s) => s.at >= from && s.at < now).length;
   const quality = {
     coverage: {
@@ -110,7 +141,7 @@ export async function getBottlenecks(deps: BottleneckDeps, q: BottleneckQuery): 
       monitoring: samples.length > 0,
       composer: composerConfig(config),
     }),
-    bucket_seconds: BUCKET_MS[q.range] / 1000,
+    bucket_seconds: bucketMs / 1000,
     snapshot_interval_seconds: a.cadenceMs === null ? null : Math.max(1, Math.round(a.cadenceMs / 1000)),
     waiting_task_seconds: seconds(waitingMs),
     normal_latency_task_seconds: seconds(a.totals.get('normal-latency')),
@@ -131,6 +162,7 @@ export async function getBottlenecks(deps: BottleneckDeps, q: BottleneckQuery): 
         top_contributors: [...(a.byReasonDag.get(id) ?? new Map<string, number>())]
           .slice(0, 10)
           .map(([dag_id, ms]) => ({ dag_id, waiting_task_seconds: seconds(ms), share: share(ms, total) })),
+        top_pools: topPools(a.byReasonPool.get(id), total),
       };
     }),
     series: a.buckets.map((b) => ({
@@ -169,8 +201,11 @@ export async function getBottlenecks(deps: BottleneckDeps, q: BottleneckQuery): 
         waiting_task_seconds: seconds(pressure?.waitingMs),
         starved_minutes: (pressure?.starvedMs ?? 0) / 60_000,
         utilisation_p95: quantile(pressure?.utilisation ?? [], 0.95).value,
+        ...poolDetail(activity.get(p.name)),
       };
     }),
+    noisy_neighbours: noisyNeighboursIn({ config, tries, samples, snapshots, from, to: now, now }),
+    priority_fairness: priorityFairnessOf(priorityFairness(snapshots, { from, to: now })),
     capacity: {
       capacity_bound_minutes: capacity.capacityBoundMinutes,
       minutes_at_max_workers: capacity.minutesAtMax,

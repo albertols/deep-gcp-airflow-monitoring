@@ -115,6 +115,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/environments/{env_id}/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Schedule intelligence (FR-BOTL-03, HM-009)
+         * @description Planned and actual DAG run starts by hour of day and minute of hour (UTC), and the minutes and schedules that collide most.
+         */
+        get: operations["getSchedule"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/environments/{env_id}/findings": {
         parameters: {
             query?: never;
@@ -460,6 +480,13 @@ export interface components {
                     waiting_task_seconds: number;
                     share: number;
                 }[];
+                /** @description Pools of the waiting task instances, by waiting task-time for this reason (HM-006 top contributors). */
+                top_pools?: {
+                    pool: string;
+                    waiting_task_seconds: number;
+                    /** @description Share of the reason's waiting. */
+                    share: number;
+                }[];
             }[];
             series: {
                 /** Format: date-time */
@@ -497,7 +524,28 @@ export interface components {
                 /** @description Minutes with zero open slots and work waiting (REC-CONC-02). */
                 starved_minutes: number;
                 utilisation_p95: number | null;
+                /** @description FR-ENV-08: time-weighted mean slots held by running task instances; null without snapshots. */
+                running_slots_avg?: number | null;
+                /** @description Most slots held by running task instances in one snapshot; null without snapshots. */
+                running_slots_peak?: number | null;
+                /** @description Time-weighted mean slots held by queued task instances; null without snapshots. */
+                queued_slots_avg?: number | null;
+                /** @description Ready (scheduled) task instances of the pool × time: pre-queue waiting in the pool. */
+                ready_task_seconds?: number;
+                /** @description Queued task instances of the pool × time: post-queue waiting in the pool. */
+                queued_task_seconds?: number;
+                /** @description DAGs with the most ready and queued waiting in the pool. */
+                top_dags?: {
+                    dag_id: string;
+                    waiting_task_seconds: number;
+                    /** @description Share of the pool's waiting. */
+                    share: number;
+                }[];
+                /** @description Starved minutes per bucket, aligned with `series`; null where no snapshot fell in the bucket. */
+                starved_series?: (number | null)[];
             }[];
+            noisy_neighbours?: components["schemas"]["NoisyNeighbours"];
+            priority_fairness?: components["schemas"]["PriorityFairness"];
             capacity: {
                 /** @description HM-011: workers at max_count and queued ≥ max(10, 20 % of slots). Null when DCAM does not know [celery] worker_concurrency (HM-032), so the slots are unknown. */
                 capacity_bound_minutes: number | null;
@@ -514,6 +562,139 @@ export interface components {
                 task_id: string;
                 /** @description Worker slot time held by poke-mode sensors (HM-008). */
                 slot_seconds: number;
+            }[];
+        };
+        /**
+         * @description HM-017: DAGs whose running load is associated with longer queue waits (HM-001) of other DAGs.
+         *     Association, not causation. Over the requested range, matched by hour of week.
+         */
+        NoisyNeighbours: {
+            /** @description For example HM-017/range. */
+            method: string;
+            evaluated: boolean;
+            /** @description Why nothing was evaluated and how to fix it; null when evaluated. */
+            not_evaluated_reason: string | null;
+            /** @description Minutes with known executor slots (workers × worker_concurrency). */
+            minutes_with_slots: number;
+            /** @description DAGs with at least one active minute. */
+            candidates: number;
+            /** @description DAGs that met the minimum samples. */
+            qualified: number;
+            /** @description Share of executor slots that makes a DAG active. */
+            active_share: number;
+            min_active_minutes: number;
+            min_affected_tries: number;
+            min_control_tries: number;
+            /** @description Bootstrap resamples behind each interval. */
+            resamples: number;
+            items: {
+                dag_id: string;
+                active_minutes: number;
+                /** @description Other DAGs' tries queued while the DAG was active. */
+                affected_tries: number;
+                /** @description Other DAGs' tries queued in matched inactive minutes. */
+                control_tries: number;
+                matched_share: number;
+                median_wait_active_seconds: number;
+                median_wait_inactive_seconds: number;
+                /** @description Difference in median queue wait. */
+                effect_seconds: number;
+                /** @description Bootstrap 95 % interval, lower end. */
+                ci_low_seconds: number | null;
+                ci_high_seconds: number | null;
+                /** @enum {string} */
+                confidence: "high" | "medium" | "low";
+                /** @description Ranking: effect × affected tries, in task-minutes; associated, not caused. */
+                associated_wait_task_minutes: number;
+                overlap_windows: {
+                    /** Format: date-time */
+                    from: string;
+                    /** Format: date-time */
+                    to: string;
+                }[];
+            }[];
+        };
+        /** @description HM-023, the observable part: observed waits of waiting tries per priority_weight band within each pool. */
+        PriorityFairness: {
+            method: string;
+            starvation_ratio_evaluated: boolean;
+            not_evaluated_reason: string | null;
+            pools: {
+                pool: string;
+                /** @description Distinct waiting tries seen in the pool. */
+                tries: number;
+                distinct_weights: number;
+                bands: {
+                    /** @enum {string} */
+                    band: "low" | "mid" | "high";
+                    min_weight: number;
+                    max_weight: number;
+                    tries: number;
+                    wait_p50_seconds: number | null;
+                    /** @description The max when fewer than 20 tries (p95_low_sample). */
+                    wait_p95_seconds: number | null;
+                    p95_low_sample: boolean;
+                }[];
+            }[];
+        };
+        Schedule: {
+            env_id: string;
+            range: components["schemas"]["TimeRange"];
+            /**
+             * Format: date-time
+             * @description Null when nothing was collected yet.
+             */
+            data_as_of: string | null;
+            sources: components["schemas"]["SourceId"][];
+            /** @constant */
+            time_zone: "UTC";
+            collision: {
+                /** @description HM-009: share of daily starts in the busiest minute of the hour. */
+                index: number;
+                busiest_minute: number | null;
+                total_daily_starts: number;
+                /** @description REC-SCHED-01 collision index threshold. */
+                threshold: number;
+                scheduled_dags: number;
+                /** @description Unpaused DAGs without a fixed start minute. */
+                unscheduled_dags: number;
+            };
+            planned: {
+                /** @description Non-empty cells only. */
+                cells: {
+                    hour: number;
+                    minute: number;
+                    starts_per_day: number;
+                }[];
+            };
+            actual: {
+                /** @description Runs whose first try started in the range. */
+                runs: number;
+                days: number;
+                /** @description Non-empty cells only. */
+                cells: {
+                    hour: number;
+                    minute: number;
+                    runs: number;
+                }[];
+            };
+            top_minutes: {
+                minute: number;
+                starts_per_day: number;
+                share: number;
+                dags: number;
+                schedules: {
+                    schedule: string;
+                    dags: number;
+                }[];
+                top_dags: string[];
+            }[];
+            top_schedules: {
+                schedule: string;
+                dags: number;
+                starts_per_day: number;
+                minutes: number[];
+                example_dags: string[];
             }[];
         };
         Finding: {
@@ -983,6 +1164,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Bottlenecks"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getSchedule: {
+        parameters: {
+            query?: {
+                range?: components["parameters"]["Range"];
+            };
+            header?: never;
+            path: {
+                env_id: components["parameters"]["EnvId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Schedule intelligence; actual starts over the requested range. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Schedule"];
                 };
             };
             400: components["responses"]["BadRequest"];
