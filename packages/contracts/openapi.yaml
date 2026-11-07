@@ -917,6 +917,27 @@ components:
                   minimum: 0,
                   description: 'Worker slot time held by poke-mode sensors (HM-008).',
                 }
+        snapshot_retention:
+          type: object
+          additionalProperties: false
+          required: [deleted_before, thinned_before]
+          description: |
+            What the local store's retention did to the live snapshots of this range (FR-STORE-02, FR-STORE-07).
+            Absent in demo mode, where nothing is deleted.
+          properties:
+            deleted_before:
+              type: ['string', 'null']
+              format: date-time
+              description: |
+                Snapshots before this time were deleted by retention or the disk budget, so waiting before it is
+                unknown, not zero. Null when every snapshot of the range is kept.
+            thinned_before:
+              type: ['string', 'null']
+              format: date-time
+              description: |
+                Snapshots before this time were thinned to one per 5 minutes to fit the disk budget. Waiting there
+                is an estimate: the kept snapshot's waiting times the time the 5 minutes' snapshots stood for. Null
+                when no snapshot of the range is thinned.
     NoisyNeighbours:
       type: object
       additionalProperties: false
@@ -1449,6 +1470,94 @@ components:
         mode: { type: string, enum: [demo, live] }
         generated_at: { type: string, format: date-time }
         environments: { type: array, items: { $ref: '#/components/schemas/CollectionEnvironment' } }
+        storage: { $ref: '#/components/schemas/CollectionStorage' }
+    CollectionStorage:
+      type: object
+      additionalProperties: false
+      description: |
+        DCAM's local store: its size against the disk budget and what maintenance did (FR-STORE-02, FR-STORE-07).
+        Live mode only. Maintenance runs on start and every 24 h, and checks the budget every hour.
+      required:
+        [
+          measured_at,
+          file_bytes,
+          used_bytes,
+          budget_bytes,
+          warn_share,
+          state,
+          last_run,
+          next_run_at,
+          budget_action,
+        ]
+      properties:
+        measured_at:
+          { type: ['string', 'null'], format: date-time, description: 'Null before the first measurement.' }
+        file_bytes:
+          type: ['integer', 'null']
+          minimum: 0
+          description: The database file plus its write-ahead log on disk, in bytes.
+        used_bytes:
+          type: ['integer', 'null']
+          minimum: 0
+          description: |
+            Bytes in database blocks that hold data, plus the write-ahead log: what counts against the budget.
+            DuckDB reuses freed blocks before the file grows, so the file does not shrink when data is deleted.
+        budget_bytes: { type: integer, minimum: 1, description: 'retention.diskBudgetGb × 10^9 bytes.' }
+        warn_share:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Share of the budget from which DCAM warns, thins snapshots and then deletes by age.
+        state:
+          type: string
+          enum: [unknown, ok, warning]
+          description: 'unknown: not measured yet. warning: used_bytes was at or above warn_share of the budget.'
+        last_run:
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [kind, started_at, finished_at, deleted_rows, thinned_snapshots, error]
+              properties:
+                kind:
+                  type: string
+                  enum: [retention, budget-check]
+                  description: 'retention: expired data deleted, then the budget checked. budget-check: the budget only.'
+                started_at: { type: string, format: date-time }
+                finished_at:
+                  { type: ['string', 'null'], format: date-time, description: 'Null while it runs.' }
+                deleted_rows:
+                  { type: integer, minimum: 0, description: 'Rows deleted by retention and the budget.' }
+                thinned_snapshots:
+                  { type: integer, minimum: 0, description: 'Snapshots removed by thinning.' }
+                error:
+                  {
+                    type: ['string', 'null'],
+                    description: 'Why the run stopped early; the next run resumes.',
+                  }
+        next_run_at: { type: ['string', 'null'], format: date-time }
+        budget_action:
+          description: The last time the disk budget made DCAM thin or delete data since it started; null when it never did.
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [at, thinned_before, deleted_before, floor_reached]
+              properties:
+                at: { type: string, format: date-time }
+                thinned_before:
+                  type: ['string', 'null']
+                  format: date-time
+                  description: Live snapshots older than this are thinned to one per 5 minutes.
+                deleted_before:
+                  type: ['string', 'null']
+                  format: date-time
+                  description: Data older than this was deleted to fit the budget, oldest first.
+                floor_reached:
+                  type: boolean
+                  description: |
+                    Usage stayed at or above warn_share with only the last 8 days left, which DCAM never deletes for
+                    the budget: raise retention.diskBudgetGb or shorten retention.
     CollectionEnvironment:
       type: object
       additionalProperties: false
@@ -1468,6 +1577,15 @@ components:
           type: ['integer', 'null']
           minimum: 0
           description: Cloud Monitoring time series returned in the last 24 h (NFR-OBS-06); null without Monitoring.
+        retention:
+          type: object
+          additionalProperties: false
+          required: [raw_task_instances_days, raw_metric_points_days]
+          description: Days this environment's data is kept (FR-STORE-02), its own setting or the workspace's.
+          properties:
+            raw_task_instances_days: { type: integer, minimum: 1, description: 'Task instance tries.' }
+            raw_metric_points_days:
+              { type: integer, minimum: 1, description: 'Live snapshots, worker samples and ready times.' }
         backfill:
           type: array
           items: { $ref: '#/components/schemas/BackfillStatus' }

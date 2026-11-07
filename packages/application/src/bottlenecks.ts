@@ -2,10 +2,11 @@
  * Use case: why is work waiting (S-16). Classifies live snapshots by HM-006, aggregates waiting over
  * time, and adds pool pressure, worker capacity (HM-011, HM-012) and sensor waste (HM-008), with the
  * evidence behind the answer (`bottlenecks-depth.ts`): top pools per reason, pool activity (FR-ENV-08),
- * noisy neighbours (HM-017) and priority bands (HM-023).
+ * noisy neighbours (HM-017) and priority bands (HM-023). Where the store's retention deleted or thinned
+ * snapshots of the range, the response says from when (FR-STORE-02, FR-STORE-07).
  *
- * @implements FR-BOTL-01, FR-BOTL-02, FR-BOTL-06, FR-BOTL-07, FR-BOTL-09, FR-ENV-08, HM-006, HM-008,
- *   HM-011, HM-012, HM-017, HM-023
+ * @implements FR-BOTL-01, FR-BOTL-02, FR-BOTL-06, FR-BOTL-07, FR-BOTL-09, FR-ENV-08, FR-STORE-02, FR-STORE-07,
+ *   HM-006, HM-008, HM-011, HM-012, HM-017, HM-023
  */
 import type { Bottlenecks, Range, SourceId } from '@dcam/contracts';
 import {
@@ -78,12 +79,17 @@ export async function bottlenecksInWindow(
   const { from, to: now, bucketMs } = q;
   const config = await deps.model.config(q.envId);
   if (!config) throw new Error(`No configuration collected for environment "${q.envId}".`);
-  const [dags, snapshots, samples, tries] = await Promise.all([
+  const [dags, snapshots, samples, tries, horizon] = await Promise.all([
     deps.model.dags(q.envId),
     deps.model.snapshots(q.envId, from, now),
     deps.model.workerSamples(q.envId, from, now),
     deps.store.taskTries(q.envId, from, now),
+    deps.model.snapshotHorizon?.(q.envId),
   ]);
+  // A horizon at or before the range start changes nothing in it; thinned data older than the deleted is gone.
+  const inside = (t: number | null, after: number) =>
+    t !== null && t > after ? iso(Math.min(t, now)) : null;
+  const deletedFrom = Math.max(from, horizon?.deletedBefore ?? from);
 
   const a = attributeWaiting(
     snapshots,
@@ -214,5 +220,13 @@ export async function bottlenecksInWindow(
       worker_samples: samples.length,
     },
     sensors: [...sensors.values()].sort((x, y) => y.slot_seconds - x.slot_seconds).slice(0, 20),
+    ...(horizon === undefined
+      ? {}
+      : {
+          snapshot_retention: {
+            deleted_before: inside(horizon.deletedBefore, from),
+            thinned_before: inside(horizon.thinnedBefore, deletedFrom),
+          },
+        }),
   };
 }

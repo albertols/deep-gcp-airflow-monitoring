@@ -29,6 +29,7 @@ export type FleetCard = Schemas['FleetCard'];
 export type Fleet = Schemas['Fleet'];
 export type Collection = Schemas['Collection'];
 export type CollectionEnvironment = Schemas['CollectionEnvironment'];
+export type CollectionStorage = Schemas['CollectionStorage'];
 export type CollectorStatus = Schemas['CollectorStatus'];
 export type ApiFootprint = Schemas['ApiFootprint'];
 export type BackfillStatus = Schemas['BackfillStatus'];

@@ -563,6 +563,25 @@ export interface components {
                 /** @description Worker slot time held by poke-mode sensors (HM-008). */
                 slot_seconds: number;
             }[];
+            /**
+             * @description What the local store's retention did to the live snapshots of this range (FR-STORE-02, FR-STORE-07).
+             *     Absent in demo mode, where nothing is deleted.
+             */
+            snapshot_retention?: {
+                /**
+                 * Format: date-time
+                 * @description Snapshots before this time were deleted by retention or the disk budget, so waiting before it is
+                 *     unknown, not zero. Null when every snapshot of the range is kept.
+                 */
+                deleted_before: string | null;
+                /**
+                 * Format: date-time
+                 * @description Snapshots before this time were thinned to one per 5 minutes to fit the disk budget. Waiting there
+                 *     is an estimate: the kept snapshot's waiting times the time the 5 minutes' snapshots stood for. Null
+                 *     when no snapshot of the range is thinned.
+                 */
+                thinned_before: string | null;
+            };
         };
         /**
          * @description HM-017: DAGs whose running load is associated with longer queue waits (HM-001) of other DAGs.
@@ -868,6 +887,76 @@ export interface components {
             /** Format: date-time */
             generated_at: string;
             environments: components["schemas"]["CollectionEnvironment"][];
+            storage?: components["schemas"]["CollectionStorage"];
+        };
+        /**
+         * @description DCAM's local store: its size against the disk budget and what maintenance did (FR-STORE-02, FR-STORE-07).
+         *     Live mode only. Maintenance runs on start and every 24 h, and checks the budget every hour.
+         */
+        CollectionStorage: {
+            /**
+             * Format: date-time
+             * @description Null before the first measurement.
+             */
+            measured_at: string | null;
+            /** @description The database file plus its write-ahead log on disk, in bytes. */
+            file_bytes: number | null;
+            /**
+             * @description Bytes in database blocks that hold data, plus the write-ahead log: what counts against the budget.
+             *     DuckDB reuses freed blocks before the file grows, so the file does not shrink when data is deleted.
+             */
+            used_bytes: number | null;
+            /** @description retention.diskBudgetGb × 10^9 bytes. */
+            budget_bytes: number;
+            /** @description Share of the budget from which DCAM warns, thins snapshots and then deletes by age. */
+            warn_share: number;
+            /**
+             * @description unknown: not measured yet. warning: used_bytes was at or above warn_share of the budget.
+             * @enum {string}
+             */
+            state: "unknown" | "ok" | "warning";
+            last_run: null | {
+                /**
+                 * @description retention: expired data deleted, then the budget checked. budget-check: the budget only.
+                 * @enum {string}
+                 */
+                kind: "retention" | "budget-check";
+                /** Format: date-time */
+                started_at: string;
+                /**
+                 * Format: date-time
+                 * @description Null while it runs.
+                 */
+                finished_at: string | null;
+                /** @description Rows deleted by retention and the budget. */
+                deleted_rows: number;
+                /** @description Snapshots removed by thinning. */
+                thinned_snapshots: number;
+                /** @description Why the run stopped early; the next run resumes. */
+                error: string | null;
+            };
+            /** Format: date-time */
+            next_run_at: string | null;
+            /** @description The last time the disk budget made DCAM thin or delete data since it started; null when it never did. */
+            budget_action: null | {
+                /** Format: date-time */
+                at: string;
+                /**
+                 * Format: date-time
+                 * @description Live snapshots older than this are thinned to one per 5 minutes.
+                 */
+                thinned_before: string | null;
+                /**
+                 * Format: date-time
+                 * @description Data older than this was deleted to fit the budget, oldest first.
+                 */
+                deleted_before: string | null;
+                /**
+                 * @description Usage stayed at or above warn_share with only the last 8 days left, which DCAM never deletes for
+                 *     the budget: raise retention.diskBudgetGb or shorten retention.
+                 */
+                floor_reached: boolean;
+            };
         };
         CollectionEnvironment: {
             env_id: string;
@@ -881,6 +970,13 @@ export interface components {
             footprint: components["schemas"]["ApiFootprint"][];
             /** @description Cloud Monitoring time series returned in the last 24 h (NFR-OBS-06); null without Monitoring. */
             series_24h: number | null;
+            /** @description Days this environment's data is kept (FR-STORE-02), its own setting or the workspace's. */
+            retention?: {
+                /** @description Task instance tries. */
+                raw_task_instances_days: number;
+                /** @description Live snapshots, worker samples and ready times. */
+                raw_metric_points_days: number;
+            };
             /**
              * @description The backfills on first add (FR-COLL-04) that apply to this environment, in collector order. Left out by
              *     servers older than feature 004.

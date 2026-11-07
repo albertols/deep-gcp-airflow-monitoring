@@ -209,4 +209,31 @@ describe('getBottlenecks use case (FR-BOTL-01/02/07/09)', () => {
       /Only 4% of the window has live snapshots; the rule needs 80%/,
     );
   });
+
+  it('FR-STORE-02 / FR-STORE-07: says which part of the range retention deleted or thinned', async () => {
+    const horizon = { deletedBefore: NOW - 20 * 3_600_000, thinnedBefore: NOW - 30 * 3_600_000 };
+    const kept = { ...deps, model: { ...model, snapshotHorizon: async () => horizon } };
+    const day = await getBottlenecks(kept, { envId: 'acme-prod', range: '24h', sources: ['DEMO'] });
+    expect(day.snapshot_retention).toEqual({
+      deleted_before: new Date(NOW - 20 * 3_600_000).toISOString(),
+      // Thinned before a time outside the range, and older than what is deleted: nothing in range is thinned.
+      thinned_before: null,
+    });
+    // An hour that retention has not reached is complete.
+    const hour = await getBottlenecks(kept, { envId: 'acme-prod', range: '1h', sources: ['DEMO'] });
+    expect(hour.snapshot_retention).toEqual({ deleted_before: null, thinned_before: null });
+    const thinned = {
+      ...deps,
+      model: {
+        ...model,
+        snapshotHorizon: async () => ({ deletedBefore: null, thinnedBefore: NOW - 1_800_000 }),
+      },
+    };
+    const b = await getBottlenecks(thinned, { envId: 'acme-prod', range: '1h', sources: ['DEMO'] });
+    expect(b.snapshot_retention?.thinned_before).toBe(new Date(NOW - 1_800_000).toISOString());
+    // Demo mode deletes nothing and has no horizon.
+    expect(
+      (await getBottlenecks(deps, { envId: 'acme-prod', range: '1h', sources: ['DEMO'] })).snapshot_retention,
+    ).toBeUndefined();
+  });
 });
