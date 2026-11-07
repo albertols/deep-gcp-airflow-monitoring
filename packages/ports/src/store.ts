@@ -81,6 +81,11 @@ export interface TaskInstanceStore {
   upsertTaskTries(rows: readonly StoredTaskTry[]): Promise<void>;
   /** Tries of one environment whose running interval overlaps [from, to), or that are still running. */
   taskTries(envId: string, from: number, to: number): Promise<StoredTaskTry[]>;
+  /**
+   * The same rows as {@link taskTries} for one DAG only. Optional: DAG detail reads 28 days of one DAG for its
+   * baseline (HM-016) and falls back to `taskTries` filtered by DAG where a store does not offer it.
+   */
+  dagTaskTries?(envId: string, dagId: string, from: number, to: number): Promise<StoredTaskTry[]>;
   countTaskTries(envId: string): Promise<number>;
 }
 

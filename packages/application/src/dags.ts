@@ -3,12 +3,27 @@
  * model and the injected clock.
  *
  * @implements FR-DAGX-01, FR-DAGX-02, FR-DAGX-03, FR-DAGD-01, FR-DAGD-02, FR-DAGD-03, FR-DAGD-04,
- *   HM-001, HM-003, HM-005, HM-015
+ *   FR-TASK-01, FR-TASK-02, HM-001, HM-003, HM-005, HM-007, HM-015, HM-016
  */
-import type { DagDetail, DagLeague, FindingRef, Quantile, Range, SourceId } from '@dcam/contracts';
+import type {
+  DagDetail,
+  DagLeague,
+  DurationDistribution,
+  DurationRegression,
+  FindingRef,
+  Quantile,
+  Range,
+  SourceId,
+  TaskReliability,
+} from '@dcam/contracts';
 import {
+  DURATION_REGRESSION_RULE,
   SNAPSHOT_GAP_CADENCES,
+  criticalPath,
+  criticalPathFrequency,
+  dagDurationRegression,
   dagLeague,
+  dagReliability,
   dagRuns,
   dagWindowStats,
   emptyDagStats,
@@ -20,10 +35,13 @@ import {
   slotSeconds,
   taskStats,
   type DagMeta,
+  type DurationDistribution as DomainDistribution,
   type EnvironmentConfig,
   type LiveSnapshot,
   type Quantile as DomainQuantile,
+  type RegressionVerdict,
   type SweepWindow,
+  type TaskReliability as DomainTaskReliability,
 } from '@dcam/domain';
 import type { Clock, EnvironmentModelSource, StoredTaskTry, TaskInstanceStore } from '@dcam/ports';
 import { DEFAULT_SNAPSHOT_CADENCE_MS } from './bottlenecks';
@@ -96,9 +114,15 @@ export interface DagLeagueQuery {
  * reads as uncovered, so DCAM says "no data" rather than claim a DAG did not run.
  */
 function historyCoverage(tries: readonly StoredTaskTry[], w: SweepWindow): number {
-  const earliest = tries.reduce((m, t) => Math.min(m, t.startAt ?? t.queuedAt ?? Infinity), Infinity);
-  if (!Number.isFinite(earliest)) return 0;
+  const earliest = earliestTry(tries);
+  if (earliest === null) return 0;
   return Math.min(1, Math.max(0, (w.to - Math.max(w.from, earliest)) / (w.to - w.from)));
+}
+
+/** Where the stored task history starts: the earliest try's start (or queued time); `null` without one. */
+function earliestTry(tries: readonly StoredTaskTry[]): number | null {
+  const earliest = tries.reduce((m, t) => Math.min(m, t.startAt ?? t.queuedAt ?? Infinity), Infinity);
+  return Number.isFinite(earliest) ? earliest : null;
 }
 
 export async function getDagLeague(deps: DagsDeps, q: DagLeagueQuery): Promise<DagLeague> {
@@ -205,6 +229,75 @@ function limitsOf(
   };
 }
 
+const DAY_MS = 86_400_000;
+
+const toDistribution = (d: DomainDistribution): DurationDistribution => ({
+  samples: d.samples,
+  min: d.min,
+  p25: d.p25,
+  p50: d.p50,
+  p75: d.p75,
+  p95: d.p95,
+  max: d.max,
+  low_sample: d.lowSample,
+});
+
+const REGRESSION_STATUS: Record<RegressionVerdict['status'], DurationRegression['status']> = {
+  regression: 'regression',
+  'within-baseline': 'within_baseline',
+  'low-sample': 'low_sample',
+  'no-baseline': 'no_baseline',
+};
+
+const toRegression = (v: RegressionVerdict): DurationRegression => ({
+  status: REGRESSION_STATUS[v.status],
+  current: toDistribution(v.current),
+  baseline: toDistribution(v.baseline),
+  ratio: v.ratio,
+  p_value: v.pValue,
+  q_value: v.qValue,
+});
+
+const toReliability = (r: DomainTaskReliability): TaskReliability => ({
+  tries: r.tries,
+  failed_tries: r.failedTries,
+  try_failure_rate: r.tryFailureRate,
+  task_instances: r.taskInstances,
+  retried: r.retried,
+  retry_rate: r.retryRate,
+  flaky: r.flaky,
+  flaky_inferred: r.flakyInferred,
+  flaky_rate: r.flakyRate,
+  recoveries: r.recoveries,
+  unrecovered: r.unrecovered,
+  mttr_seconds: r.mttrSeconds,
+});
+
+const tryIdentity = (t: StoredTaskTry) =>
+  `${t.runId}\u0000${t.taskId}\u0000${t.mapIndex}\u0000${t.tryNumber}`;
+
+/**
+ * HM-016: the DAG's tries from `from` up to `to` (the start of the range's previous period, which the
+ * environment-wide read already covers), through the store's per-DAG read where it has one. The fallback reads
+ * the environment and filters; it also returns other DAGs' tries, which date the start of the history.
+ */
+async function olderTries(
+  store: TaskInstanceStore,
+  envId: string,
+  dagId: string,
+  from: number,
+  to: number,
+): Promise<StoredTaskTry[]> {
+  if (from >= to) return [];
+  return store.dagTaskTries ? store.dagTaskTries(envId, dagId, from, to) : store.taskTries(envId, from, to);
+}
+
+/** The DAG's tries over the whole baseline and range: recent ones plus older ones not already read. */
+function withOlder(recent: readonly StoredTaskTry[], older: readonly StoredTaskTry[], dagId: string) {
+  const seen = new Set(recent.map(tryIdentity));
+  return [...older.filter((t) => t.dagId === dagId && !seen.has(tryIdentity(t))), ...recent];
+}
+
 export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<DagDetailResult> {
   const now = deps.clock.now();
   const { current, previous } = windowsFor(now, q.range);
@@ -213,10 +306,18 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
   const meta = dags.find((d) => d.dagId === q.dagId);
   if (!meta) return { kind: 'unknown-dag' };
 
-  // Tries from the previous range too, so runs that began before the range are seen whole.
-  const [tries, snapshots] = await Promise.all([
+  // HM-016: the 28 days before the range, excluding it.
+  const baselineWindow: SweepWindow = {
+    from: current.from - DURATION_REGRESSION_RULE.baselineDays * DAY_MS,
+    to: current.from,
+    now,
+  };
+  // Tries from the previous range too, so runs that began before the range are seen whole; older ones of
+  // this DAG for its baseline.
+  const [tries, snapshots, older] = await Promise.all([
     deps.store.taskTries(q.envId, previous.from, now),
     deps.model.snapshots(q.envId, current.from, now + 1),
+    olderTries(deps.store, q.envId, q.dagId, baselineWindow.from, previous.from),
   ]);
   const dagTries = tries.filter((t) => t.dagId === q.dagId);
   if (q.runId !== undefined && !dagTries.some((t) => t.runId === q.runId)) return { kind: 'unknown-run' };
@@ -231,6 +332,21 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
     q.runId ?? [...runs].reverse().find((r) => r.state !== 'running')?.runId ?? runs.at(-1)?.runId ?? null;
   const gantt = ganttRunId === null ? [] : runGantt(dagTries, q.dagId, ganttRunId, latest);
   const isoOrNull = (ms: number | null) => (ms === null ? null : iso(ms));
+
+  const regression = dagDurationRegression(
+    withOlder(dagTries, older, q.dagId),
+    current,
+    baselineWindow,
+    options,
+  );
+  const reliability = dagReliability(dagTries, current, options);
+  const frequency = criticalPathFrequency(dagTries, current, options);
+  const path =
+    ganttRunId === null || options.inProgress(q.dagId, ganttRunId)
+      ? null
+      : criticalPath(dagTries.filter((t) => t.runId === ganttRunId));
+  const rowIndex = new Map(gantt.map((g, i) => [`${g.taskId}\u0000${g.mapIndex}\u0000${g.tryNumber}`, i]));
+  const historyFrom = earliestTry([...older, ...tries]);
 
   return {
     kind: 'ok',
@@ -282,18 +398,53 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
           start: isoOrNull(g.startAt),
           end: isoOrNull(g.endAt),
         })),
+        critical_path: path && {
+          method: path.method,
+          row_indexes: path.steps
+            .map((s) => rowIndex.get(`${s.taskId}\u0000${s.mapIndex}\u0000${s.tryNumber}`))
+            .filter((i): i is number => i !== undefined),
+          duration_seconds: path.durationSeconds,
+          waiting_seconds: path.waitingSeconds,
+          running_seconds: path.runningSeconds,
+        },
       },
-      tasks: taskStats(dagTries, current).map((t) => ({
-        task_id: t.taskId,
-        tries: t.tries,
-        duration_p50: toQuantile(t.durationP50),
-        duration_p95: toQuantile(t.durationP95),
-        queue_wait_p95: toQuantile(t.queueWaitP95),
-        retries: t.retries,
-        failure_rate: t.failureRate,
-        slot_seconds_share: t.slotSecondsShare,
-        contribution_seconds: t.contributionSeconds,
-      })),
+      baseline: {
+        from: iso(baselineWindow.from),
+        to: iso(baselineWindow.to),
+        history_from: historyFrom === null ? null : iso(historyFrom),
+        coverage: historyFrom === null ? 0 : historyCoverage([...older, ...tries], baselineWindow),
+        margin: DURATION_REGRESSION_RULE.margin,
+      },
+      regression: toRegression(regression.run),
+      reliability: {
+        finished_runs: reliability.finishedRuns,
+        failed_runs: reliability.failedRuns,
+        run_failure_rate: reliability.runFailureRate,
+        run_recoveries: reliability.runRecoveries,
+        run_unrecovered: reliability.runUnrecovered,
+        run_mttr_seconds: reliability.runMttrSeconds,
+        tasks: toReliability(reliability.tasks),
+      },
+      tasks: taskStats(dagTries, current).map((t) => {
+        const verdict = regression.tasks.get(t.taskId);
+        const outcomes = reliability.byTask.get(t.taskId);
+        const onPath = frequency.byTask.get(t.taskId) ?? 0;
+        return {
+          task_id: t.taskId,
+          tries: t.tries,
+          duration_p50: toQuantile(t.durationP50),
+          duration_p95: toQuantile(t.durationP95),
+          queue_wait_p95: toQuantile(t.queueWaitP95),
+          retries: t.retries,
+          failure_rate: t.failureRate,
+          slot_seconds_share: t.slotSecondsShare,
+          contribution_seconds: t.contributionSeconds,
+          ...(verdict ? { duration_regression: toRegression(verdict) } : {}),
+          ...(outcomes ? { reliability: toReliability(outcomes) } : {}),
+          critical_path_runs: onPath,
+          critical_path_share: frequency.runs > 0 ? onPath / frequency.runs : null,
+        };
+      }),
       findings: [...(q.findings ?? [])],
     },
   };

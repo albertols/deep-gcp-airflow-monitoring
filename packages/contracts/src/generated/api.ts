@@ -425,6 +425,55 @@ export interface components {
                     /** Format: date-time */
                     end: string | null;
                 }[];
+                /**
+                 * @description HM-007: the chain of tries that set the run's duration, estimated from timing (DCAM has no task
+                 *     graph yet): from the try that ended last, back to the earlier try of the same task instance for a
+                 *     retry, else to the try that ended last before the step became ready. Null while the run is
+                 *     running or has no finished try; absent from older servers.
+                 */
+                critical_path?: null | {
+                    /** @enum {string} */
+                    method: "timing";
+                    /** @description Indexes into rows of the steps, first step first. */
+                    row_indexes: number[];
+                    /** @description Last end − the run's first start. */
+                    duration_seconds: number;
+                    /** @description Gaps before each step: queue and scheduling wait. */
+                    waiting_seconds: number;
+                    running_seconds: number;
+                };
+            };
+            /**
+             * @description HM-016 baseline window: the 28 days before the range. coverage is the share of those days with
+             *     collected task history (from the earliest stored try); below 1 the baseline is partial.
+             */
+            baseline?: {
+                /** Format: date-time */
+                from: string;
+                /** Format: date-time */
+                to: string;
+                /**
+                 * Format: date-time
+                 * @description Start of the environment's stored task history; null without history.
+                 */
+                history_from: string | null;
+                coverage: number;
+                /** @description Current p95 ÷ baseline p95 at or above this is a candidate regression (HM-016). */
+                margin: number;
+            };
+            /** @description HM-016 for the durations of the DAG's successful runs. */
+            regression?: components["schemas"]["DurationRegression"];
+            /** @description HM-015 for the DAG over the range. Rates are null below 20 samples of their denominator. */
+            reliability?: {
+                finished_runs: number;
+                failed_runs: number;
+                run_failure_rate: number | null;
+                run_recoveries: number;
+                run_unrecovered: number;
+                /** @description Mean time from a failed run's end to the next successful run's end. */
+                run_mttr_seconds: number | null;
+                /** @description Every task of the DAG together. */
+                tasks: components["schemas"]["TaskReliability"];
             };
             tasks: {
                 task_id: string;
@@ -439,8 +488,64 @@ export interface components {
                 slot_seconds_share: number;
                 /** @description Mean running time per run: the default sort (FR-DAGD-04). */
                 contribution_seconds: number;
+                duration_regression?: components["schemas"]["DurationRegression"];
+                reliability?: components["schemas"]["TaskReliability"];
+                /** @description Finished runs in the range with this task on the critical path (HM-007, timing estimate). */
+                critical_path_runs?: number;
+                /** @description critical_path_runs ÷ finished runs in the range; null without a finished run. */
+                critical_path_share?: number | null;
             }[];
             findings: components["schemas"]["FindingRef"][];
+        };
+        /** @description Durations of successful tries or runs, in seconds (FR-TASK-01). Below 20 samples p95 is the maximum and low_sample is true (spec §8.9). */
+        DurationDistribution: {
+            samples: number;
+            min: number | null;
+            p25: number | null;
+            p50: number | null;
+            p75: number | null;
+            p95: number | null;
+            max: number | null;
+            low_sample: boolean;
+        };
+        /** @description HM-016, successful durations in the range against the baseline (DagDetail.baseline). */
+        DurationRegression: {
+            /**
+             * @description regression: current p95 ≥ margin × baseline p95, at least 10 current samples, a one-sided Mann–Whitney
+             *     U test with p < 0.01, and a Benjamini–Hochberg q ≤ 0.05 across the DAG's tasks. within_baseline:
+             *     tested, not flagged. low_sample: fewer than 10 successful samples in the range. no_baseline: fewer than
+             *     20 successful samples in the baseline.
+             * @enum {string}
+             */
+            status: "regression" | "within_baseline" | "low_sample" | "no_baseline";
+            current: components["schemas"]["DurationDistribution"];
+            baseline: components["schemas"]["DurationDistribution"];
+            /** @description Current p95 ÷ baseline p95, both interpolated; null when not tested. */
+            ratio: number | null;
+            p_value: number | null;
+            /** @description Benjamini–Hochberg adjusted p-value across the DAG's tasks (the run duration is its own family). */
+            q_value: number | null;
+        };
+        /** @description HM-015 over tries and task instances starting in the range. Rates are null below 20 samples of their denominator. */
+        TaskReliability: {
+            tries: number;
+            failed_tries: number;
+            try_failure_rate: number | null;
+            task_instances: number;
+            /** @description Task instances with a try number above 1. */
+            retried: number;
+            retry_rate: number | null;
+            /** @description Task instances that succeeded after a failed try. */
+            flaky: number;
+            /** @description Of flaky, those inferred from a successful try number above 1 with no earlier try stored (history read after the fact keeps only the latest try). */
+            flaky_inferred: number;
+            flaky_rate: number | null;
+            /** @description Failures followed by a success. */
+            recoveries: number;
+            /** @description Failures with no success after them yet. */
+            unrecovered: number;
+            /** @description Mean time from the first failure to the next success; null without a recovery. */
+            mttr_seconds: number | null;
         };
         /**
          * @description HM-006 reasons in evaluation order, then normal-latency (a wait below the thresholds, not a platform limit).

@@ -596,6 +596,85 @@ components:
                   queued_at: { type: ['string', 'null'], format: date-time }
                   start: { type: ['string', 'null'], format: date-time }
                   end: { type: ['string', 'null'], format: date-time }
+            critical_path:
+              description: |
+                HM-007: the chain of tries that set the run's duration, estimated from timing (DCAM has no task
+                graph yet): from the try that ended last, back to the earlier try of the same task instance for a
+                retry, else to the try that ended last before the step became ready. Null while the run is
+                running or has no finished try; absent from older servers.
+              oneOf:
+                - type: 'null'
+                - type: object
+                  additionalProperties: false
+                  required: [method, row_indexes, duration_seconds, waiting_seconds, running_seconds]
+                  properties:
+                    method: { type: string, enum: [timing] }
+                    row_indexes:
+                      type: array
+                      description: Indexes into rows of the steps, first step first.
+                      items: { type: integer, minimum: 0 }
+                    duration_seconds:
+                      { type: number, minimum: 0, description: "Last end − the run's first start." }
+                    waiting_seconds:
+                      {
+                        type: number,
+                        minimum: 0,
+                        description: 'Gaps before each step: queue and scheduling wait.',
+                      }
+                    running_seconds: { type: number, minimum: 0 }
+        baseline:
+          type: object
+          additionalProperties: false
+          description: |
+            HM-016 baseline window: the 28 days before the range. coverage is the share of those days with
+            collected task history (from the earliest stored try); below 1 the baseline is partial.
+          required: [from, to, history_from, coverage, margin]
+          properties:
+            from: { type: string, format: date-time }
+            to: { type: string, format: date-time }
+            history_from:
+              type: ['string', 'null']
+              format: date-time
+              description: Start of the environment's stored task history; null without history.
+            coverage: { type: number, minimum: 0, maximum: 1 }
+            margin:
+              {
+                type: number,
+                minimum: 1,
+                description: 'Current p95 ÷ baseline p95 at or above this is a candidate regression (HM-016).',
+              }
+        regression:
+          allOf: [{ $ref: '#/components/schemas/DurationRegression' }]
+          description: HM-016 for the durations of the DAG's successful runs.
+        reliability:
+          type: object
+          additionalProperties: false
+          description: HM-015 for the DAG over the range. Rates are null below 20 samples of their denominator.
+          required:
+            [
+              finished_runs,
+              failed_runs,
+              run_failure_rate,
+              run_recoveries,
+              run_unrecovered,
+              run_mttr_seconds,
+              tasks,
+            ]
+          properties:
+            finished_runs: { type: integer, minimum: 0 }
+            failed_runs: { type: integer, minimum: 0 }
+            run_failure_rate: { type: ['number', 'null'], minimum: 0, maximum: 1 }
+            run_recoveries: { type: integer, minimum: 0 }
+            run_unrecovered: { type: integer, minimum: 0 }
+            run_mttr_seconds:
+              {
+                type: ['number', 'null'],
+                minimum: 0,
+                description: "Mean time from a failed run's end to the next successful run's end.",
+              }
+            tasks:
+              allOf: [{ $ref: '#/components/schemas/TaskReliability' }]
+              description: Every task of the DAG together.
         tasks:
           type: array
           items:
@@ -635,7 +714,100 @@ components:
                   minimum: 0,
                   description: 'Mean running time per run: the default sort (FR-DAGD-04).',
                 }
+              duration_regression: { $ref: '#/components/schemas/DurationRegression' }
+              reliability: { $ref: '#/components/schemas/TaskReliability' }
+              critical_path_runs:
+                {
+                  type: integer,
+                  minimum: 0,
+                  description: 'Finished runs in the range with this task on the critical path (HM-007, timing estimate).',
+                }
+              critical_path_share:
+                {
+                  type: ['number', 'null'],
+                  minimum: 0,
+                  maximum: 1,
+                  description: 'critical_path_runs ÷ finished runs in the range; null without a finished run.',
+                }
         findings: { type: array, items: { $ref: '#/components/schemas/FindingRef' } }
+    DurationDistribution:
+      type: object
+      additionalProperties: false
+      description: Durations of successful tries or runs, in seconds (FR-TASK-01). Below 20 samples p95 is the maximum and low_sample is true (spec §8.9).
+      required: [samples, min, p25, p50, p75, p95, max, low_sample]
+      properties:
+        samples: { type: integer, minimum: 0 }
+        min: { type: ['number', 'null'], minimum: 0 }
+        p25: { type: ['number', 'null'], minimum: 0 }
+        p50: { type: ['number', 'null'], minimum: 0 }
+        p75: { type: ['number', 'null'], minimum: 0 }
+        p95: { type: ['number', 'null'], minimum: 0 }
+        max: { type: ['number', 'null'], minimum: 0 }
+        low_sample: { type: boolean }
+    DurationRegression:
+      type: object
+      additionalProperties: false
+      description: HM-016, successful durations in the range against the baseline (DagDetail.baseline).
+      required: [status, current, baseline, ratio, p_value, q_value]
+      properties:
+        status:
+          type: string
+          enum: [regression, within_baseline, low_sample, no_baseline]
+          description: |
+            regression: current p95 ≥ margin × baseline p95, at least 10 current samples, a one-sided Mann–Whitney
+            U test with p < 0.01, and a Benjamini–Hochberg q ≤ 0.05 across the DAG's tasks. within_baseline:
+            tested, not flagged. low_sample: fewer than 10 successful samples in the range. no_baseline: fewer than
+            20 successful samples in the baseline.
+        current: { $ref: '#/components/schemas/DurationDistribution' }
+        baseline: { $ref: '#/components/schemas/DurationDistribution' }
+        ratio:
+          type: ['number', 'null']
+          minimum: 0
+          description: Current p95 ÷ baseline p95, both interpolated; null when not tested.
+        p_value: { type: ['number', 'null'], minimum: 0, maximum: 1 }
+        q_value:
+          type: ['number', 'null']
+          minimum: 0
+          maximum: 1
+          description: Benjamini–Hochberg adjusted p-value across the DAG's tasks (the run duration is its own family).
+    TaskReliability:
+      type: object
+      additionalProperties: false
+      description: HM-015 over tries and task instances starting in the range. Rates are null below 20 samples of their denominator.
+      required:
+        [
+          tries,
+          failed_tries,
+          try_failure_rate,
+          task_instances,
+          retried,
+          retry_rate,
+          flaky,
+          flaky_inferred,
+          flaky_rate,
+          recoveries,
+          unrecovered,
+          mttr_seconds,
+        ]
+      properties:
+        tries: { type: integer, minimum: 0 }
+        failed_tries: { type: integer, minimum: 0 }
+        try_failure_rate: { type: ['number', 'null'], minimum: 0, maximum: 1 }
+        task_instances: { type: integer, minimum: 0 }
+        retried: { type: integer, minimum: 0, description: 'Task instances with a try number above 1.' }
+        retry_rate: { type: ['number', 'null'], minimum: 0, maximum: 1 }
+        flaky: { type: integer, minimum: 0, description: 'Task instances that succeeded after a failed try.' }
+        flaky_inferred:
+          type: integer
+          minimum: 0
+          description: Of flaky, those inferred from a successful try number above 1 with no earlier try stored (history read after the fact keeps only the latest try).
+        flaky_rate: { type: ['number', 'null'], minimum: 0, maximum: 1 }
+        recoveries: { type: integer, minimum: 0, description: 'Failures followed by a success.' }
+        unrecovered: { type: integer, minimum: 0, description: 'Failures with no success after them yet.' }
+        mttr_seconds:
+          type: ['number', 'null']
+          minimum: 0
+          description: Mean time from the first failure to the next success; null without a recovery.
     WaitReasonId:
       type: string
       description: HM-006 reasons in evaluation order, then normal-latency (a wait below the thresholds, not a platform limit).
