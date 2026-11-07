@@ -6,6 +6,7 @@ import type {
   TaskTry,
   WorkerSample,
 } from '@dcam/domain';
+import type { RetentionHorizon } from './retention';
 
 /** Injectable clock (spec §11.13): every computation takes "now" from here. */
 export interface Clock {
@@ -96,4 +97,9 @@ export interface EnvironmentModelSource {
   /** Samples with `from <= at < to`, oldest first. */
   workerSamples(envId: string, from: number, to: number): Promise<WorkerSample[]>;
   platformHealth(envId: string): Promise<PlatformHealth>;
+  /**
+   * How far back the environment's snapshots are kept and unthinned (FR-STORE-02, FR-STORE-07); absent where
+   * nothing is ever deleted, as in demo mode.
+   */
+  snapshotHorizon?(envId: string): Promise<RetentionHorizon>;
 }

@@ -121,6 +121,28 @@ describe('FR-STORE-07 thinning live snapshots to one per 5 minutes', () => {
     });
   });
 
+  it('FR-STORE-07: keeps the first complete snapshot of a bucket rather than a sample (§7.5)', () => {
+    const snapshots = [
+      { at: T0, complete: false },
+      { at: T0 + 30 * S, complete: false },
+      { at: T0 + 60 * S, complete: true },
+      { at: T0 + 90 * S },
+      { at: T0 + 300 * S, complete: false },
+    ];
+    const plan = thinSnapshots(snapshots, {
+      before: T0 + 600 * S,
+      bucketMs: BUCKET,
+      nextAt: T0 + 330 * S,
+      fallbackCadenceMs: 30 * S,
+    });
+    // Every snapshot of the bucket counts towards the span of the one kept (90 → 300 s is capped at 60 s).
+    expect(plan.spans).toEqual([
+      { at: T0 + 60 * S, spanMs: 3 * 30 * S + 60 * S },
+      { at: T0 + 300 * S, spanMs: 30 * S },
+    ]);
+    expect(plan.dropped).toEqual([T0, T0 + 30 * S, T0 + 90 * S]);
+  });
+
   it('FR-STORE-07: a bucket that holds a thinned snapshot and raw ones merges them without double counting', () => {
     const options = {
       before: T0 + 300 * S,

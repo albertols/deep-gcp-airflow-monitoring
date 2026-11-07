@@ -169,4 +169,22 @@ export const MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    // Retention and the disk budget (feature 005, FR-STORE-02, FR-STORE-07). 0006 is the backfill feature's.
+    // `span_ms`: the time a thinned snapshot stands for (null on a raw snapshot). `retention_horizon`: how far
+    // back each environment's data of a family is kept and unthinned, so pages can say what was deleted.
+    id: '0007_retention',
+    sql: `
+      ALTER TABLE fact.live_snapshot ADD COLUMN span_ms DOUBLE;
+      CREATE TABLE meta.retention_horizon (
+        env_id         VARCHAR NOT NULL,
+        family         VARCHAR NOT NULL,   -- task-tries, ready-times, snapshots, worker-samples
+        deleted_before TIMESTAMPTZ,
+        thinned_before TIMESTAMPTZ,
+        updated_at     TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY (env_id, family)
+      );
+      CREATE TABLE meta.staging_snapshot_span (at_ms DOUBLE, span_ms DOUBLE);
+    `,
+  },
 ];

@@ -10,7 +10,7 @@ apps/server live workspace
        ├─ per environment and family: RetentionStore.deleteExpired(…, 5,000 rows) until done, then CHECKPOINT
        ├─ usage ≥ 90 % of the budget: thinSnapshots (older than 24 h, one per 5 min), CHECKPOINT
        └─ still ≥ 90 %: delete whole days of the oldest data, oldest first (never the last 8 days)
-  @dcam/duckdb-store: RetentionStore (migration 0006: live_snapshot.span_ms, meta.retention_horizon)
+  @dcam/duckdb-store: RetentionStore (migration 0007: live_snapshot.span_ms, meta.retention_horizon)
   GET /api/v1/collection ─▶ storage (size, budget, state, last run) + per-environment retention
   GET /bottlenecks ─▶ snapshot_retention (deleted before, thinned before)
 ```
@@ -22,7 +22,7 @@ apps/server live workspace
 | `packages/domain`                | `retention.ts`: classes, defaults, limits, `thinSnapshots`; `LiveSnapshot.spanMs?`; spans honour it                                                 |
 | `packages/ports`                 | `RetentionStore`, `RetentionSettings`; optional `WorkspaceConfig.retention`, `EnvironmentEntry.retention`, `EnvironmentModelSource.snapshotHorizon` |
 | `packages/adapters/config-file`  | `retention` section and `environments[].retention`, JSON Schema, example file                                                                       |
-| `packages/adapters/duckdb-store` | migration `0006_retention`; `RetentionStore` implementation                                                                                         |
+| `packages/adapters/duckdb-store` | migration `0007_retention`; `RetentionStore` implementation                                                                                         |
 | `packages/application`           | `maintenance/` job and status; `bottlenecks.ts` adds `snapshot_retention` (three lines)                                                             |
 | `packages/contracts`             | additive: `Collection.storage`, `CollectionEnvironment.retention`, `Bottlenecks.snapshot_retention`                                                 |
 | `apps/server`                    | wires the job in the live workspace, stops it before the store closes                                                                               |

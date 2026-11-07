@@ -9,7 +9,7 @@ const key = (over: Partial<ReturnType<typeof tryRow>> = {}) => {
 
 // Real DuckDB I/O on a shared 4-vCPU runner: Vitest's default 5 s is too tight (see store.test.ts).
 describe('CollectionStore round trips (migrations 0004 and 0005)', { timeout: 60_000 }, () => {
-  it('FR-STORE-01: migrations 0004 and 0005 are applied after 0001-0003', async () => {
+  it('FR-STORE-01: migrations 0004, 0005 and 0007 are applied after 0001-0003', async () => {
     const store = await openStore({ path: ':memory:' });
     expect(await store.appliedMigrations()).toEqual([
       '0001_initial',
@@ -18,6 +18,7 @@ describe('CollectionStore round trips (migrations 0004 and 0005)', { timeout: 60
       '0004_collection',
       '0005_estimated_end',
       '0006_backfill',
+      '0007_retention',
     ]);
     store.close();
   });

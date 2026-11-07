@@ -83,6 +83,12 @@ export interface ThinOptions {
   readonly fallbackCadenceMs: number;
 }
 
+/** A snapshot to thin: its time, its span when already thinned, and whether it read every task instance. */
+export interface ThinInput extends TimedSnapshot {
+  /** `false` for a sample (spec §7.5: a state with more rows than the page budget); absent means complete. */
+  readonly complete?: boolean;
+}
+
 export interface ThinPlan {
   /** Kept snapshots whose stored span is new or changes. */
   readonly spans: readonly { readonly at: number; readonly spanMs: number }[];
@@ -92,10 +98,12 @@ export interface ThinPlan {
 
 /**
  * Which snapshots (oldest first) to keep and the span each kept one stands for, one per bucket aligned to
- * the epoch. Idempotent: a bucket that already holds one snapshot with its span is left alone. A bucket that
- * holds a thinned snapshot and raw ones merges them; the spans never overlap, so nothing is counted twice.
+ * the epoch: the first complete snapshot of the bucket, else its first (a sample undercounts waiting). Every
+ * snapshot of the bucket adds its span to the kept one. Idempotent: a bucket that already holds one snapshot
+ * with its span is left alone. A bucket that holds a thinned snapshot and raw ones merges them; the spans
+ * never overlap, so nothing is counted twice.
  */
-export function thinSnapshots(snapshots: readonly TimedSnapshot[], options: ThinOptions): ThinPlan {
+export function thinSnapshots(snapshots: readonly ThinInput[], options: ThinOptions): ThinPlan {
   const { bucketMs } = options;
   const end = Math.floor(options.before / bucketMs) * bucketMs;
   const cadence = rawCadenceMs(snapshots) ?? options.fallbackCadenceMs;
@@ -105,18 +113,20 @@ export function thinSnapshots(snapshots: readonly TimedSnapshot[], options: Thin
   const spans: { at: number; spanMs: number }[] = [];
   const dropped: number[] = [];
   let i = 0;
-  while (i < snapshots.length && (snapshots[i] as TimedSnapshot).at < end) {
-    const first = snapshots[i] as TimedSnapshot;
-    const bucket = Math.floor(first.at / bucketMs);
-    let total = 0;
+  while (i < snapshots.length && (snapshots[i] as ThinInput).at < end) {
+    const bucket = Math.floor((snapshots[i] as ThinInput).at / bucketMs);
     let j = i;
-    for (; j < snapshots.length; j++) {
-      const s = snapshots[j] as TimedSnapshot;
+    let total = 0;
+    while (j < snapshots.length) {
+      const s = snapshots[j] as ThinInput;
       if (s.at >= end || Math.floor(s.at / bucketMs) !== bucket) break;
       total += spanOf[j] ?? 0;
-      if (j > i) dropped.push(s.at);
+      j++;
     }
-    if (j - i > 1 || first.spanMs !== total) spans.push({ at: first.at, spanMs: total });
+    const group = snapshots.slice(i, j);
+    const kept = group.find((s) => s.complete !== false) ?? (group[0] as ThinInput);
+    for (const s of group) if (s !== kept) dropped.push(s.at);
+    if (group.length > 1 || kept.spanMs !== total) spans.push({ at: kept.at, spanMs: total });
     i = j;
   }
   return { spans, dropped };

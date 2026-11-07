@@ -6,9 +6,14 @@
  * time on a dedicated connection, each in its own transaction, so concurrent collectors never share (or roll
  * back) each other's work (FR-STORE-06). Reads use a second connection and see committed data only.
  *
- * @implements FR-STORE-01, FR-STORE-06, FR-COLL-03, FR-COLL-04 (backfill progress), NFR-PORT-04, HM-003
- *   (estimated ends), HM-006
+ * It is also the maintenance job's `RetentionStore` (FR-STORE-02, FR-STORE-07): every delete batch and every
+ * day of thinning is one write transaction on one table, queued behind (and ahead of) collector writes, so
+ * maintenance never holds collection up for longer than one batch.
+ *
+ * @implements FR-STORE-01, FR-STORE-02, FR-STORE-06, FR-STORE-07, FR-COLL-03, FR-COLL-04 (backfill progress),
+ *   NFR-PORT-04, HM-003 (estimated ends), HM-006
  */
+import { existsSync, statSync } from 'node:fs';
 import {
   DuckDBInstance,
   LIST,
@@ -17,14 +22,27 @@ import {
   type DuckDBConnection,
   type DuckDBValue,
 } from '@duckdb/node-api';
-import type { DagMeta, EnvironmentConfig, PlatformHealth, WorkerSample } from '@dcam/domain';
+import {
+  DAY_MS,
+  thinSnapshots,
+  type DagMeta,
+  type EnvironmentConfig,
+  type PlatformHealth,
+  type WorkerSample,
+} from '@dcam/domain';
 import type {
   BackfillProgress,
   BackfillRows,
   CollectionStore,
+  RetainedFamily,
+  RetentionHorizon,
+  RetentionStore,
+  StorageUsage,
   StoredLiveSnapshot,
   StoredTaskTry,
   TaskInstanceStore,
+  ThinOptions,
+  ThinResult,
   TryKey,
 } from '@dcam/ports';
 import { MIGRATIONS, type Migration } from './migrations';
@@ -149,6 +167,22 @@ const HEALTH_COLUMNS = {
   parseLoopP95Seconds: 'parse_loop_p95_s',
 } as const satisfies Record<keyof PlatformHealth, string>;
 
+/**
+ * Where each retained family lives, how old a row is, and which rows never expire. A task try is as old as
+ * its end; one that never started (upstream failed, skipped) as its queued, ready or ingested time. An open
+ * try (started, no end) overlaps every window from now on, so it is kept until it ends.
+ */
+const FAMILIES = {
+  'task-tries': {
+    table: 'fact.task_instance',
+    age: 'coalesce(end_at, queued_at, ready_at, ingested_at)',
+    kept: '(end_at IS NULL AND start_at IS NOT NULL)',
+  },
+  'ready-times': { table: 'fact.ready_time', age: 'ready_at', kept: 'false' },
+  snapshots: { table: 'fact.live_snapshot', age: 'taken_at', kept: 'false' },
+  'worker-samples': { table: 'fact.worker_sample', age: 'sampled_at', kept: 'false' },
+} as const satisfies Record<RetainedFamily, { table: string; age: string; kept: string }>;
+
 const NO_HEALTH: PlatformHealth = {
   envHealthyRatio: null,
   dbHealthyRatio: null,
@@ -161,8 +195,11 @@ const NO_HEALTH: PlatformHealth = {
   parseLoopP95Seconds: null,
 };
 
-/** The DuckDB store: {@link Store} for every workspace, {@link CollectionStore} for live collection. */
-export class DuckDbStore implements Store, CollectionStore {
+/**
+ * The DuckDB store: {@link Store} for every workspace, {@link CollectionStore} for live collection and
+ * {@link RetentionStore} for the maintenance job.
+ */
+export class DuckDbStore implements Store, CollectionStore, RetentionStore {
   private readonly writes = new Serial();
 
   private constructor(
@@ -170,6 +207,7 @@ export class DuckDbStore implements Store, CollectionStore {
     private readonly writer: DuckDBConnection,
     private readonly reader: DuckDBConnection,
     private readonly now: () => number,
+    private readonly path: string,
   ) {}
 
   /** Opens (creating if needed) the database at `options.path` and applies pending migrations. */
@@ -184,7 +222,7 @@ export class DuckDbStore implements Store, CollectionStore {
       const reader = await instance.connect();
       connections.push(reader);
       await reader.run(`SET TimeZone = 'UTC'`);
-      return new DuckDbStore(instance, writer, reader, now);
+      return new DuckDbStore(instance, writer, reader, now, options.path);
     } catch (error) {
       for (const con of connections) con.closeSync();
       instance.closeSync();
@@ -203,13 +241,14 @@ export class DuckDbStore implements Store, CollectionStore {
   }
 
   /** Runs `work` in its own transaction on the write connection, after every earlier write has settled. */
-  private write(work: (con: DuckDBConnection) => Promise<void>): Promise<void> {
+  private write<T = void>(work: (con: DuckDBConnection) => Promise<T>): Promise<T> {
     return this.writes.run(async () => {
       const con = this.writer;
       await con.run('BEGIN TRANSACTION');
       try {
-        await work(con);
+        const result = await work(con);
         await con.run('COMMIT');
+        return result;
       } catch (error) {
         // A failed COMMIT has already ended the transaction; then ROLLBACK fails too and is not the news.
         await con.run('ROLLBACK').catch(() => undefined);
@@ -463,14 +502,19 @@ export class DuckDbStore implements Store, CollectionStore {
     });
   }
 
-  /** The snapshot, with its coverage when it has one, is stored as JSON. */
+  /**
+   * The snapshot, with its coverage when it has one, is stored as JSON; the span of a thinned snapshot goes
+   * to its own column, which thinning updates (FR-STORE-07).
+   */
   saveSnapshot(envId: string, snapshot: StoredLiveSnapshot): Promise<void> {
-    return this.write(async (con) => {
-      await con.run(`INSERT OR REPLACE INTO fact.live_snapshot VALUES ($1, to_timestamp($2), $3)`, [
-        envId,
-        seconds(snapshot.at),
-        JSON.stringify(snapshot),
-      ]);
+    return this.write((con) => insertSnapshot(con, envId, snapshot));
+  }
+
+  /** Saves many snapshots in one transaction (imports, and tests that build history quickly). */
+  async saveSnapshots(envId: string, snapshots: readonly StoredLiveSnapshot[]): Promise<void> {
+    if (snapshots.length === 0) return;
+    await this.write(async (con) => {
+      for (const s of snapshots) await insertSnapshot(con, envId, s);
     });
   }
 
@@ -648,22 +692,23 @@ export class DuckDbStore implements Store, CollectionStore {
 
   async snapshots(envId: string, from: number, to: number): Promise<StoredLiveSnapshot[]> {
     const rows = await this.rows(
-      `SELECT payload FROM fact.live_snapshot
+      `SELECT payload, span_ms FROM fact.live_snapshot
        WHERE env_id = $1 AND taken_at >= to_timestamp($2) AND taken_at < to_timestamp($3) ORDER BY taken_at`,
       [envId, seconds(from), seconds(to)],
     );
-    return rows.map(
-      (r) =>
-        payload(r['payload'], 'live snapshot', {
-          at: 'number',
-          scheduled: 'array',
-          queued: 'array',
-          pools: 'array',
-          dagActive: 'object',
-          executor: 'object',
-          workers: 'object',
-        }) as unknown as StoredLiveSnapshot,
-    );
+    return rows.map((r) => {
+      const snapshot = payload(r['payload'], 'live snapshot', {
+        at: 'number',
+        scheduled: 'array',
+        queued: 'array',
+        pools: 'array',
+        dagActive: 'object',
+        executor: 'object',
+        workers: 'object',
+      }) as unknown as StoredLiveSnapshot;
+      const spanMs = num(r['span_ms']);
+      return spanMs === null ? snapshot : { ...snapshot, spanMs };
+    });
   }
 
   async workerSamples(envId: string, from: number, to: number): Promise<WorkerSample[]> {
@@ -683,6 +728,10 @@ export class DuckDbStore implements Store, CollectionStore {
     }));
   }
 
+  async snapshotHorizon(envId: string): Promise<RetentionHorizon> {
+    return this.horizon(envId, 'snapshots');
+  }
+
   async platformHealth(envId: string): Promise<PlatformHealth> {
     const [r] = await this.rows(`SELECT * FROM fact.platform_health WHERE env_id = $1`, [envId]);
     if (r === undefined) return NO_HEALTH;
@@ -698,6 +747,176 @@ export class DuckDbStore implements Store, CollectionStore {
       parseLoopP95Seconds: num(r['parse_loop_p95_s']),
     };
   }
+
+  // ── RetentionStore (FR-STORE-02, FR-STORE-06, FR-STORE-07) ─────────────────────────────────────────
+
+  async retainedEnvironments(): Promise<string[]> {
+    const union = Object.values(FAMILIES)
+      .map((f) => `SELECT DISTINCT env_id FROM ${f.table}`)
+      .join(' UNION ');
+    return (await this.rows(`SELECT env_id FROM (${union}) ORDER BY env_id`)).map((r) => str(r['env_id']));
+  }
+
+  async oldest(envId: string, family: RetainedFamily): Promise<number | null> {
+    const f = FAMILIES[family];
+    const [row] = await this.rows(
+      `SELECT epoch_ms(min(${f.age}))::DOUBLE AS t FROM ${f.table} WHERE env_id = $1 AND NOT ${f.kept}`,
+      [envId],
+    );
+    return num(row?.['t']);
+  }
+
+  /** One batch: DuckDB has no `DELETE … LIMIT`, so the batch is chosen by `rowid`. */
+  deleteExpired(envId: string, family: RetainedFamily, before: number, limit: number): Promise<number> {
+    const f = FAMILIES[family];
+    return this.write(async (con) => {
+      await recordHorizon(con, envId, family, { deletedBefore: before }, this.now());
+      const result = await con.run(
+        `DELETE FROM ${f.table} WHERE rowid IN (
+           SELECT rowid FROM ${f.table}
+           WHERE env_id = $1 AND ${f.age} < to_timestamp($2) AND NOT ${f.kept} LIMIT $3)`,
+        [envId, seconds(before), Math.max(0, Math.floor(limit))],
+      );
+      return Number(result.rowsChanged);
+    });
+  }
+
+  /**
+   * Finds the oldest bucket before `options.before` that is raw or holds more than one snapshot, then thins
+   * the day from that bucket on: it reads only times, spans and completeness (never payloads), plans with the
+   * domain's `thinSnapshots`, deletes the dropped snapshots and stores the kept ones' spans.
+   */
+  thinSnapshots(envId: string, options: ThinOptions): Promise<ThinResult> {
+    const { bucketMs } = options;
+    const end = Math.floor(options.before / bucketMs) * bucketMs;
+    return this.write(async (con) => {
+      const read = async (sql: string, values: DuckDBValue[]) =>
+        (await con.runAndReadAll(sql, values)).getRowObjectsJS();
+      const [first] = await read(
+        `SELECT min(t) AS t FROM (
+           SELECT epoch_ms(taken_at)::DOUBLE AS t, span_ms,
+                  count(*) OVER (PARTITION BY floor(epoch_ms(taken_at) / $3)) AS n
+           FROM fact.live_snapshot WHERE env_id = $1 AND taken_at < to_timestamp($2))
+         WHERE n > 1 OR span_ms IS NULL`,
+        [envId, seconds(end), bucketMs],
+      );
+      const oldest = num(first?.['t']);
+      if (oldest === null) return { dropped: 0, done: true };
+      const from = Math.floor(oldest / bucketMs) * bucketMs;
+      const to = Math.min(from + DAY_MS, end);
+      const slice = await read(
+        `SELECT epoch_ms(taken_at)::DOUBLE AS t, span_ms,
+                coalesce(json_extract(payload, '$.coverage.complete')::BOOLEAN, true) AS complete
+         FROM fact.live_snapshot
+         WHERE env_id = $1 AND taken_at >= to_timestamp($2) AND taken_at < to_timestamp($3) ORDER BY taken_at`,
+        [envId, seconds(from), seconds(to)],
+      );
+      const [next] = await read(
+        `SELECT epoch_ms(min(taken_at))::DOUBLE AS t FROM fact.live_snapshot
+         WHERE env_id = $1 AND taken_at >= to_timestamp($2)`,
+        [envId, seconds(to)],
+      );
+      const plan = thinSnapshots(
+        slice.map((r) => {
+          const spanMs = num(r['span_ms']);
+          return {
+            at: Number(r['t']),
+            complete: bool(r['complete']),
+            ...(spanMs === null ? {} : { spanMs }),
+          };
+        }),
+        { before: to, bucketMs, nextAt: num(next?.['t']), fallbackCadenceMs: options.fallbackCadenceMs },
+      );
+      await con.run('DELETE FROM meta.staging_snapshot_span');
+      await append(
+        con,
+        'staging_snapshot_span',
+        [...plan.dropped.map((at) => ({ at, spanMs: null })), ...plan.spans],
+        (a, r) => {
+          double(a, r.at);
+          double(a, r.spanMs);
+        },
+      );
+      const window = `s.env_id = $1 AND s.taken_at >= to_timestamp($2) AND s.taken_at < to_timestamp($3)
+                      AND epoch_ms(s.taken_at) = x.at_ms`;
+      const bounds = [envId, seconds(from), seconds(to)];
+      await con.run(
+        `DELETE FROM fact.live_snapshot AS s USING meta.staging_snapshot_span AS x WHERE ${window} AND x.span_ms IS NULL`,
+        bounds,
+      );
+      await con.run(
+        `UPDATE fact.live_snapshot AS s SET span_ms = x.span_ms FROM meta.staging_snapshot_span AS x
+         WHERE ${window} AND x.span_ms IS NOT NULL`,
+        bounds,
+      );
+      await con.run('DELETE FROM meta.staging_snapshot_span');
+      await recordHorizon(con, envId, 'snapshots', { thinnedBefore: to }, this.now());
+      return { dropped: plan.dropped.length, done: to >= end };
+    });
+  }
+
+  async horizon(envId: string, family: RetainedFamily): Promise<RetentionHorizon> {
+    const [row] = await this.rows(
+      `SELECT epoch_ms(deleted_before)::DOUBLE AS deleted, epoch_ms(thinned_before)::DOUBLE AS thinned
+       FROM meta.retention_horizon WHERE env_id = $1 AND family = $2`,
+      [envId, family],
+    );
+    return { deletedBefore: num(row?.['deleted']), thinnedBefore: num(row?.['thinned']) };
+  }
+
+  /** Runs between writes, never inside one, so it waits for no transaction of DCAM's own. */
+  checkpoint(): Promise<void> {
+    return this.writes.run(async () => {
+      await this.writer.run('CHECKPOINT');
+    });
+  }
+
+  /**
+   * `PRAGMA database_size` counts the blocks in use; the WAL is read from the file system because the pragma
+   * reports its size as formatted text. An in-memory store has no file, so both sizes are zero.
+   */
+  async storageUsage(): Promise<StorageUsage> {
+    const [r] = await this.rows('PRAGMA database_size');
+    const size = (path: string) => (existsSync(path) ? statSync(path).size : 0);
+    const memory = this.path === ':memory:';
+    const file = memory ? 0 : size(this.path);
+    const wal = memory ? 0 : size(`${this.path}.wal`);
+    const used = Number(r?.['used_blocks'] ?? 0) * Number(r?.['block_size'] ?? 0);
+    return { fileBytes: file + wal, usedBytes: used + wal };
+  }
+}
+
+/** Inserts or replaces one snapshot; a thinned snapshot's span goes to `span_ms`, not into the payload. */
+async function insertSnapshot(
+  con: DuckDBConnection,
+  envId: string,
+  snapshot: StoredLiveSnapshot,
+): Promise<void> {
+  const { spanMs, ...rest } = snapshot;
+  await con.run(
+    `INSERT OR REPLACE INTO fact.live_snapshot (env_id, taken_at, payload, span_ms)
+     VALUES ($1, to_timestamp($2), $3, $4)`,
+    [envId, seconds(snapshot.at), JSON.stringify(rest), spanMs ?? null],
+  );
+}
+
+/** Moves a family's horizon forward (never back) inside the caller's transaction. */
+async function recordHorizon(
+  con: DuckDBConnection,
+  envId: string,
+  family: RetainedFamily,
+  moved: { readonly deletedBefore?: number; readonly thinnedBefore?: number },
+  now: number,
+): Promise<void> {
+  const later = (column: string) =>
+    `${column} = greatest(coalesce(meta.retention_horizon.${column}, excluded.${column}),
+                          coalesce(excluded.${column}, meta.retention_horizon.${column}))`;
+  await con.run(
+    `INSERT INTO meta.retention_horizon VALUES ($1, $2, to_timestamp($3), to_timestamp($4), to_timestamp($5))
+     ON CONFLICT (env_id, family) DO UPDATE SET ${later('deleted_before')}, ${later('thinned_before')},
+       updated_at = excluded.updated_at`,
+    [envId, family, seconds(moved.deletedBefore ?? null), seconds(moved.thinnedBefore ?? null), seconds(now)],
+  );
 }
 
 /** Opens a store; `:memory:` for demo mode and tests, or a file path (see `openFileStore` for the data directory). */

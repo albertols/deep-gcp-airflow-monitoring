@@ -46,6 +46,7 @@ describe('FR-STORE-01 embedded store with migrations', { timeout: 60_000 }, () =
       '0004_collection',
       '0005_estimated_end',
       '0006_backfill',
+      '0007_retention',
     ]);
     store.close();
     const again = await openStore({ path });
@@ -56,6 +57,7 @@ describe('FR-STORE-01 embedded store with migrations', { timeout: 60_000 }, () =
       '0004_collection',
       '0005_estimated_end',
       '0006_backfill',
+      '0007_retention',
     ]);
     again.close();
   });

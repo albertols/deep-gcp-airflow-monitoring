@@ -29,16 +29,17 @@ a disk budget (thin first, then delete the oldest data), and says so in the API 
 
 ## Tables and their retention class
 
-| Table (migration)                                  | Holds                        | Class (default)                | Age of a row                                                                                    |
-| -------------------------------------------------- | ---------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `fact.task_instance` (0001)                        | task instance tries          | raw task instances (90 days)   | its end; a try that never started: queued, ready or ingested time; open tries are never deleted |
-| `fact.ready_time` (0004)                           | first-seen ready times       | raw metric points (14 days)    | `ready_at` (copied into the try when it is stored)                                              |
-| `fact.live_snapshot` (0004)                        | `af.live` snapshots          | raw metric points (14 days)    | `taken_at`; thinned by the disk budget                                                          |
-| `fact.worker_sample` (0004)                        | one worker sample a minute   | raw metric points (14 days)    | `sampled_at`; not thinned (about 1 MB per environment per 14 days)                              |
-| `dim.environment_config`, `fact.platform_health`   | latest value per environment | none (one row per environment) | replaced on every save                                                                          |
-| `dim.dag` (0004)                                   | latest DAG inventory         | none (one row per DAG)         | replaced by every complete inventory pass; not versioned                                        |
-| `meta.watermarks`, `meta.retention_horizon` (0006) | DCAM's own state             | none                           |                                                                                                 |
-| `meta.staging_*`                                   | per-batch staging            | none (emptied by every write)  |                                                                                                 |
+| Table (migration)                                  | Holds                        | Class (default)                     | Age of a row                                                                                    |
+| -------------------------------------------------- | ---------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `fact.task_instance` (0001)                        | task instance tries          | raw task instances (90 days)        | its end; a try that never started: queued, ready or ingested time; open tries are never deleted |
+| `fact.ready_time` (0004)                           | first-seen ready times       | raw metric points (14 days)         | `ready_at` (copied into the try when it is stored)                                              |
+| `fact.live_snapshot` (0004)                        | `af.live` snapshots          | raw metric points (14 days)         | `taken_at`; thinned by the disk budget                                                          |
+| `fact.worker_sample` (0004)                        | one worker sample a minute   | raw metric points (14 days)         | `sampled_at`; not thinned (about 1 MB per environment per 14 days)                              |
+| `dim.environment_config`, `fact.platform_health`   | latest value per environment | none (one row per environment)      | replaced on every save                                                                          |
+| `dim.dag` (0004)                                   | latest DAG inventory         | none (one row per DAG)              | replaced by every complete inventory pass; not versioned                                        |
+| `meta.watermarks`, `meta.retention_horizon` (0007) | DCAM's own state             | none                                |                                                                                                 |
+| `meta.backfill` (0006, backfill feature)           | backfill progress            | none: progress state, never expires | kept so a restarted backfill resumes                                                            |
+| `meta.staging_*`                                   | per-batch staging            | none (emptied by every write)       |                                                                                                 |
 
 Rollups, log signatures, findings and alert history are not stored yet, so their settings are validated and
 reported as not used. Data of environments no longer in the configuration expires with the workspace defaults.
