@@ -68,12 +68,12 @@ describe('BudgetGate (FR-COLL-02, FR-COLL-06)', () => {
     expect(order).toEqual(['live@60000', 'standard@60000', 'background@60000']);
   });
 
-  it('FR-COLL-02: background work takes a token only while the bucket is at least half full', async () => {
+  it('FR-COLL-02: without a guaranteed share, background work takes a token only while more than a quarter of the bucket is free', async () => {
     const time = new FakeTime();
     const g = gate(time, 4);
     for (let i = 0; i < 3; i++) (await g.acquire({ priority: 'live', deadline: T0 }))();
     const background = g.acquire({ priority: 'background', deadline: T0 + 300_000 }).then(() => time.now());
-    // One token is left: live work gets it at once, background work waits for half the bucket.
+    // One token is left: live work gets it at once, background work waits until more than a quarter is free.
     (await g.acquire({ priority: 'live', deadline: T0 }))();
     expect(await time.settle(background)).toBe(T0 + 60_000);
   });
@@ -128,7 +128,7 @@ describe('BudgetGate (FR-COLL-02, FR-COLL-06)', () => {
     expect(order).toEqual(['standard@60000', 'background@61000']);
   });
 
-  it('FR-COLL-06: beyond its share, background work uses spare capacity only while the bucket is at least half full', async () => {
+  it('FR-COLL-06: beyond its share, background work uses spare capacity only while more than a quarter of the bucket is free', async () => {
     const time = new FakeTime();
     const g = gate(time, 60, Infinity, 2);
     const background = async (n: number) => {
@@ -139,12 +139,12 @@ describe('BudgetGate (FR-COLL-02, FR-COLL-06)', () => {
       }
       return at;
     };
-    // Far more than its share of 2, down to 29 tokens left: under half of 60 it stops.
-    expect(await time.settle(background(31))).toEqual(Array.from({ length: 31 }, () => 0));
-    // Live work finds the other half of the budget at once ...
-    for (let i = 0; i < 29; i++) (await g.acquire({ priority: 'live', deadline: T0 }))();
+    // Far more than its share of 2, down to 15 tokens left: a quarter of 60 stays free.
+    expect(await time.settle(background(45))).toEqual(Array.from({ length: 45 }, () => 0));
+    // Live work finds that quarter at once ...
+    for (let i = 0; i < 15; i++) (await g.acquire({ priority: 'live', deadline: T0 }))();
     expect(time.now()).toBe(T0);
-    // ... and the next background request waits until the bucket is half full again.
+    // ... and the next background request waits until more than a quarter is free again.
     expect(await time.settle(background(1))).toEqual([60_000]);
   });
 

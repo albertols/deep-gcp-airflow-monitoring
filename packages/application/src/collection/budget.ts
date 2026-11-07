@@ -12,10 +12,12 @@
  *   - its guaranteed share: up to the background bucket's rate (the `background` budget class, at most
  *     half the profile's budget) whenever a token is free, so it completes even while live and standard
  *     work keep more than half the bucket busy (feature 004: on the standard profile those use 6–7 of 12);
- *   - spare capacity: any token while the bucket is at least half full, so the other half stays free for
- *     bursts of live and standard work (§7.11 item 2, "background work always yields").
- *   Live and standard work can therefore lose at most the guaranteed share to background work: 2 of 12
- *   requests a minute on the standard profile, leaving 10 for the 8.8–9.8 of the §7.11 arithmetic.
+ *   - spare capacity: any token while more than a quarter of the bucket is free, so a quarter always stays
+ *     free for bursts of live and standard work (§7.11 item 2, "background work always yields").
+ *   Live and standard work waiting at the same time still go first. In the feature 004 simulation (a week of
+ *   history at 20,000 tries a day on the standard profile, `backfill-budget.test.ts`) the guaranteed share
+ *   alone took 16 h, spare capacity above half the bucket changed nothing (about 4 requests a minute stayed
+ *   unused), and spare capacity above a quarter took about 10 h, with `af.live` and `af.facts` on time.
  *   A request that cannot start before its deadline is refused at once with {@link BudgetExhaustedError}:
  *   the cycle then ends early with reduced fidelity instead of exceeding the budget (FR-COLL-06).
  * - Cloud Monitoring and Composer budgets follow the profile as §7.11's table does (Monitoring 30 / 30 / 10
@@ -250,13 +252,14 @@ export class BudgetGate {
 
   /**
    * When a request of this priority could take its tokens. Background work: within its guaranteed share
-   * whenever a token is free, beyond it only while the bucket is at least half full (spare capacity).
+   * whenever a token is free, beyond it only while more than a quarter of the bucket is free (spare
+   * capacity): taking one then still leaves a quarter.
    */
   private tokensAt(priority: Priority, now: number): number {
     const { bucket, backgroundBucket } = this.options;
     if (priority !== 'background') return bucket.availableAt(now, 1);
-    const half = Math.max(1, Math.ceil(bucket.capacity() / 2));
-    const spare = bucket.availableAt(now, half);
+    const reserve = Math.ceil(bucket.capacity() / 4);
+    const spare = bucket.availableAt(now, reserve + 1);
     if (!backgroundBucket) return spare;
     const share = Math.max(bucket.availableAt(now, 1), backgroundBucket.availableAt(now, 1));
     return Math.min(spare, share);
