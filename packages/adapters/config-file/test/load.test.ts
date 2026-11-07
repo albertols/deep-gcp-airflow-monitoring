@@ -340,6 +340,42 @@ environments:
     ]);
   });
 
+  it('FR-COLL-04, FR-STORE-02: a backfill never reads further back than its environment keeps data, and says so when it was set', async () => {
+    const cwd = tempDir();
+    const entry = (id: string, extra: string) =>
+      `  - id: ${id}\n    projectId: acme-data\n    location: europe-west1\n    environment: ${id}\n${extra}`;
+    writeFile(
+      cwd,
+      'dcam.config.yaml',
+      [
+        'version: 1',
+        'environments:',
+        // Set explicitly beyond its own retention: capped, with a warning per key.
+        entry(
+          'acme-prod',
+          '    backfill: { taskInstancesDays: 30, metricsDays: 10 }\n    retention: { rawTaskInstancesDays: 10 }\n',
+        ),
+        // The default backfill (14 days of metrics) beyond the workspace's 3 days: capped without a warning.
+        entry('acme-test', ''),
+        'retention:',
+        '  rawMetricPointsDays: 3',
+        '',
+      ].join('\n'),
+    );
+    const result = await loadWorkspaceConfig({ env: {}, cwd, homeDir: HOME });
+    if (!result.ok) throw new Error(JSON.stringify(result.issues));
+    expect(result.config.environments.map((e) => [e.id, e.backfill])).toEqual([
+      ['acme-prod', { taskInstancesDays: 10, metricsDays: 3 }],
+      ['acme-test', { taskInstancesDays: 7, metricsDays: 3 }],
+    ]);
+    expect(result.warnings.map((w) => w.path).sort()).toEqual([
+      'environments.0.backfill.metricsDays',
+      'environments.0.backfill.taskInstancesDays',
+    ]);
+    expect(result.warnings[0]?.message).toMatch(/kept/);
+    expect(result.warnings[0]?.fixHint).toMatch(/retention/);
+  });
+
   it('FR-COLL-04: refuses backfills longer than the raw task instance retention (90 days) or Monitoring retention (42 days)', async () => {
     const cwd = tempDir();
     writeFile(

@@ -65,6 +65,9 @@ reported as not used. Data of environments no longer in the configuration expire
 4. FR-STORE-06: the job never runs twice at once, is idempotent, and a run cut short (crash between batches)
    is completed by the next run with the same result as one uninterrupted run.
 5. Bottlenecks responses carry `snapshot_retention` (deleted before, thinned before) for the requested range.
+6. FR-COLL-04 with FR-STORE-02: a backfill on first add never reads further back than its environment keeps the
+   data (task instances: `rawTaskInstancesDays`; worker metrics: `rawMetricPointsDays`). Days set explicitly
+   beyond retention are capped with a configuration warning; the default backfill is capped silently.
 
 ## Out of scope
 

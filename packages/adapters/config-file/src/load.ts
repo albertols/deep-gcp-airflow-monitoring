@@ -7,11 +7,22 @@
  * so the server can stay up in setup mode (FR-SETUP-02). It reads one file and nothing else; credentials are
  * referenced by environment variable name and never read here (FR-SETUP-07).
  *
- * @implements FR-SETUP-02, FR-SETUP-05, FR-AUTH-07, FR-STORE-02
+ * A backfill never reads further back than its environment keeps data (FR-COLL-04, FR-STORE-02): requests spent on
+ * history that retention deletes at its next run would be wasted. Days set explicitly beyond retention are
+ * capped with a warning; the default backfill is capped silently.
+ *
+ * @implements FR-SETUP-02, FR-SETUP-05, FR-AUTH-07, FR-STORE-02, FR-COLL-04
  */
 import { readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import type { ConfigIssue, EnvironmentEntry, EnvironmentSource, Profile, WorkspaceConfig } from '@dcam/ports';
+import type {
+  BackfillDays,
+  ConfigIssue,
+  EnvironmentEntry,
+  EnvironmentSource,
+  Profile,
+  WorkspaceConfig,
+} from '@dcam/ports';
 import { schemaIssues, unusedKeyWarnings } from './issues';
 import { resolvePath } from './paths';
 import { configFileSchema, type ConfigFile } from './schema';
@@ -125,6 +136,54 @@ function retentionOverride(
   return set.length === 0 ? {} : { retention: Object.fromEntries(set) };
 }
 
+type FileEnvironment = ConfigFile['environments'][number];
+
+/** Retention class that bounds each backfill key. */
+const BACKFILL_RETENTION = {
+  taskInstancesDays: 'rawTaskInstancesDays',
+  metricsDays: 'rawMetricPointsDays',
+} as const satisfies Record<keyof BackfillDays, keyof ConfigFile['retention']>;
+
+const BACKFILL_WHAT = { taskInstancesDays: 'task instances', metricsDays: 'worker metrics' } as const;
+
+const BACKFILL_KEYS = Object.keys(BACKFILL_RETENTION) as (keyof BackfillDays)[];
+
+/** Days kept for one environment: its own retention where set, else the workspace's. */
+function keptDays(
+  entry: FileEnvironment,
+  workspace: ConfigFile['retention'],
+  key: keyof BackfillDays,
+): number {
+  const retentionClass = BACKFILL_RETENTION[key];
+  return entry.retention?.[retentionClass] ?? workspace[retentionClass];
+}
+
+function cappedBackfill(entry: FileEnvironment, workspace: ConfigFile['retention']): BackfillDays {
+  const capped = (key: keyof BackfillDays) => Math.min(entry.backfill[key], keptDays(entry, workspace, key));
+  return { taskInstancesDays: capped('taskInstancesDays'), metricsDays: capped('metricsDays') };
+}
+
+/** A warning per backfill key set explicitly (in the file, not by default) beyond its environment's retention. */
+function backfillWarnings(file: ConfigFile, input: unknown): ConfigIssue[] {
+  const record = (v: unknown): Record<string, unknown> | undefined =>
+    typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined;
+  const raw = record(input)?.['environments'];
+  const warnings: ConfigIssue[] = [];
+  file.environments.forEach((entry, i) => {
+    const set = record(record(Array.isArray(raw) ? raw[i] : undefined)?.['backfill']);
+    for (const key of BACKFILL_KEYS) {
+      const kept = keptDays(entry, file.retention, key);
+      if (set?.[key] === undefined || entry.backfill[key] <= kept) continue;
+      warnings.push({
+        path: `environments.${i}.backfill.${key}`,
+        message: `${key} is ${entry.backfill[key]} days, but ${entry.id}'s ${BACKFILL_WHAT[key]} are kept for ${kept} days, so DCAM backfills ${kept} days.`,
+        fixHint: `Set ${key} to ${kept} or less, or keep the data longer with retention.${BACKFILL_RETENTION[key]}.`,
+      });
+    }
+  });
+  return warnings;
+}
+
 function toWorkspaceConfig(file: ConfigFile, path: string, input: LoadWorkspaceConfigInput): WorkspaceConfig {
   const fileDir = dirname(path);
   const dataDirEnv = input.env['DCAM_DATA_DIR'];
@@ -162,10 +221,7 @@ function toWorkspaceConfig(file: ConfigFile, path: string, input: LoadWorkspaceC
       tier: entry.tier,
       profile: entry.profile ?? defaultProfile(entry.tier),
       source: source(entry),
-      backfill: {
-        taskInstancesDays: entry.backfill.taskInstancesDays,
-        metricsDays: entry.backfill.metricsDays,
-      },
+      backfill: cappedBackfill(entry, file.retention),
       ...retentionOverride(entry.retention),
     })),
   };
@@ -197,7 +253,7 @@ export async function loadWorkspaceConfig(
   return {
     ok: true,
     config: toWorkspaceConfig(parsed.data, path, input),
-    warnings: unusedKeyWarnings(value),
+    warnings: [...unusedKeyWarnings(value), ...backfillWarnings(parsed.data, value)],
   };
 }
 
