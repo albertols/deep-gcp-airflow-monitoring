@@ -132,3 +132,48 @@ describe('FR-DAGD-01..04 GET /api/v1/environments/{env_id}/dags/{dag_id}', () =>
     expect(conforms('Problem', bad.json())).toBe(true);
   });
 });
+
+describe('HM-016 / HM-015 / HM-007 demo stories in DAG detail', () => {
+  it.each(['1h', '6h', '24h'])(
+    'FR-TASK-01: the %s detail with baseline, reliability and critical path conforms',
+    async (range) => {
+      const res = await get(`${ENV}/acme-prod/dags/search_ranking_refresh?range=${range}`);
+      expect(res.statusCode).toBe(200);
+      expect(conforms('DagDetail', res.json())).toBe(true);
+    },
+  );
+
+  it('HM-016: the task of search_ranking_refresh that got slower 18 h ago is a regression over 24 h', async () => {
+    const detail = (await get(`${ENV}/acme-prod/dags/search_ranking_refresh?range=24h`)).json<DagDetail>();
+    // The demo holds 48 h: the baseline covers the day before the range, not 28 days, and says so.
+    expect(detail.baseline?.coverage).toBeGreaterThan(0);
+    expect(detail.baseline?.coverage).toBeLessThan(0.1);
+    const slowed = detail.tasks.find((t) => t.task_id === 'task_2_1');
+    expect(slowed?.duration_regression).toMatchObject({ status: 'regression' });
+    expect(slowed?.duration_regression?.ratio).toBeGreaterThan(1.3);
+    const sibling = detail.tasks.find((t) => t.task_id === 'task_2_2');
+    expect(sibling?.duration_regression?.status).toBe('within_baseline');
+    // Over 6 h the task has fewer than 10 runs: too few to say.
+    const short = (await get(`${ENV}/acme-prod/dags/search_ranking_refresh?range=6h`)).json<DagDetail>();
+    expect(short.tasks.find((t) => t.task_id === 'task_2_1')?.duration_regression?.status).toBe('low_sample');
+  });
+
+  it('HM-015: the flaky demo DAG has flaky tasks, retries and recoveries', async () => {
+    const detail = (await get(`${ENV}/acme-prod/dags/fraud_scoring_hourly?range=24h`)).json<DagDetail>();
+    expect(detail.reliability?.tasks.flaky_rate).toBeGreaterThan(0.05);
+    expect(detail.reliability?.tasks.retried).toBeGreaterThan(0);
+    expect(detail.reliability?.tasks.recoveries).toBeGreaterThan(0);
+    expect(detail.reliability?.tasks.mttr_seconds).toBeGreaterThan(60);
+  });
+
+  it('HM-007: the Gantt run of a fan-out DAG has a critical path through its layers', async () => {
+    const detail = (await get(`${ENV}/acme-prod/dags/customer_360_rebuild?range=24h`)).json<DagDetail>();
+    const path = detail.gantt.critical_path;
+    expect(path?.method).toBe('timing');
+    const tasks = path?.row_indexes.map((i) => detail.gantt.rows[i]?.task_id) ?? [];
+    expect(tasks[0]).toBe('task_1_1');
+    expect(tasks.at(-1)).toBe('task_3_1');
+    const run = detail.runs.find((r) => r.run_id === detail.gantt.run_id);
+    expect(path?.duration_seconds).toBeCloseTo(run?.duration_seconds as number, 3);
+  });
+});

@@ -6,7 +6,8 @@
  *   about an hour (REC-CAP-01, AL-05), a 4-slot `external_api` pool starves (REC-CONC-02), a fan-out
  *   DAG is capped by `max_active_tasks` (REC-DAG-01), a poke-mode sensor holds slots (REC-DAG-05),
  *   schedules collide on minute 0 (REC-SCHED-01), a 60-way rebuild every 3 hours is a noisy neighbour
- *   (HM-017), and one DAG is flaky.
+ *   (HM-017), one DAG is flaky (HM-015), and one task of `search_ranking_refresh` got 2.5 × slower 18 h ago
+ *   (HM-016).
  * - acme-test: `parallelism` is below worker capacity and binds first (REC-CONC-01).
  * - acme-dev: quiet and healthy.
  *
@@ -61,6 +62,7 @@ interface Blueprint {
   readonly maxActiveTasks?: number;
   readonly sensorWaitMs?: number;
   readonly paused?: boolean;
+  readonly slowdown?: DagBlueprint['slowdown'];
 }
 
 function blueprint(b: Blueprint, config: EnvironmentConfig): DagBlueprint {
@@ -90,6 +92,7 @@ function blueprint(b: Blueprint, config: EnvironmentConfig): DagBlueprint {
     failureRate: b.failureRate ?? 0.02,
     cpu: b.cpu ?? 0.04,
     ...(b.sensorWaitMs === undefined ? {} : { sensorWaitMs: b.sensorWaitMs }),
+    ...(b.slowdown === undefined ? {} : { slowdown: b.slowdown }),
   };
 }
 
@@ -348,6 +351,24 @@ export function acmeScenario(env: AcmeEnvironment): Scenario {
               pool: 'ml',
               failureRate: 0.18,
               cpu: 0.4,
+            },
+            PROD,
+          ),
+          // A ranking refresh whose feature join got 2.5 × slower 18 h ago (HM-016, REC-DAG-08).
+          blueprint(
+            {
+              dagId: 'search_ranking_refresh',
+              team: 'ml-platform',
+              domain: 'search_index',
+              hourly: true,
+              offsetMinutes: 20,
+              layers: [1, 2, 1],
+              medianTaskMs: 3 * MIN,
+              pool: 'default_pool',
+              operator: 'BigQueryInsertJobOperator',
+              failureRate: 0,
+              cpu: 0.05,
+              slowdown: { taskIds: ['task_2_1'], factor: 2.5, hoursBeforeNow: 18 },
             },
             PROD,
           ),
