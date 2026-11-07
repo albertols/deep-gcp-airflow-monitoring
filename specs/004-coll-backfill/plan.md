@@ -4,7 +4,7 @@
 
 ```text
 af.facts ──(watermark A)──▶ af.backfill: [A − 7 d, A] by updated_at, newest first, background priority
-                              └─ fact-windows.ts (af.facts' rules; af.facts moves onto it later): split on total_entries, page cap, dense second
+                              └─ fact-windows.ts (shared with af.facts, T-423): split on total_entries, page cap, dense second
 mon.core                    mon.backfill: [B − 14 d, B] one-day chunks at 60 s, newest first, background priority
                               └─ worker-samples.ts (shared with mon.core): worker type, limits, six series → WorkerSample
 both ──▶ CollectionStore.commitBackfill(rows + progress, one transaction) ──▶ meta.backfill (migration 0006)

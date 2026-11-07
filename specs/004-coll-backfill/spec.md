@@ -118,10 +118,9 @@ page. Pages whose range reaches past the history read so far say so instead of s
 - Monitoring and Composer budgets per profile: the configured value is the live and standard budget, eco a third,
   background a sixth (§7.11 table 30/30/10/5 and 6/6/2/1). A project's Monitoring gate uses the most demanding
   profile among its environments.
-- The window reader (`fact-windows.ts`) is shared code, not yet used by `af.facts`: `af.facts`' page-cap rule is
-  being corrected in parallel (a cap learnt from one short page could cut every window to 1 s). The reader
-  already applies the corrected rule (a cap only when two short pages agree, raised by a larger page, forgotten on
-  a full page; a window with a short page is halved, not re-read), so `af.facts` can move onto it after that fix.
+- The window reader (`fact-windows.ts`) is shared by `af.facts` and `af.backfill` (T-423). It applies the
+  corrected page-cap rule (a cap only when two short pages agree, raised by a larger page, forgotten on
+  a full page; a window with a short page is halved, not re-read).
 - Parts are sized by the density of the last window read (at most 4× growth): on a day with busy and quiet hours
   59 instead of 75 requests; 79 rows a request over the simulated week.
 - Measured results: 7 days at 20,000 tries a day (140,000 rows) in 1,777 requests and about 10 h on the
