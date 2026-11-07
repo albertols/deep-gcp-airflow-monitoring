@@ -14,11 +14,14 @@ DCAM answers the questions the default dashboards leave open, for environments w
 It runs on your laptop, reads only public Google Cloud and Airflow APIs with your own identity, never
 changes anything, and keeps all data on your machine.
 
-> **Status: M0 foundations done; every page works in demo mode.** `pnpm dcam --demo` shows the fleet,
-> capacity overview, DAG league table and DAG detail, bottlenecks, advisor, local alerts and the wiki over
-> a scheduler simulation of three fictitious environments (feature
-> [001](specs/001-m2-m7-demo-pages/spec.md)). Connecting to real environments, and so real data on these
-> pages, arrives in M1. See the [roadmap](docs/spec/dcam-spec.md#222-milestone-overview).
+> **Status: M1 connect and collect is code-complete; much of M2 and M3 is in.** Live mode reads Composer 3 /
+> Airflow 2.11.1 environments read-only and fills every page: the DAG league table, DAG detail (duration against a
+> 28-day baseline, failures and flakiness, an estimated critical path), bottlenecks with their evidence, schedule
+> collisions, the advisor and local alerts. A background backfill reads the last 7 days of task instances and 14
+> days of worker metrics, and the local store keeps to its retention and disk budget. Tested end to end against the
+> local Airflow 2.11.1 emulator; the reality check on a real environment is next: see
+> [First run against a real environment](docs/first-run.md). `pnpm dcam --demo` shows every page on synthetic data.
+> See the [roadmap](docs/spec/dcam-spec.md#222-milestone-overview).
 
 ## Quickstart (demo mode)
 
@@ -95,6 +98,9 @@ your environment's Airflow web server, directly or through the proxy.
    ```bash
    pnpm dcam doctor                 # or: pnpm dcam doctor --env <id> --json
    ```
+
+   [First run against a real environment](docs/first-run.md) says which checks matter behind a corporate proxy and
+   what to note on the first day.
 
 7. **Start DCAM.** `pnpm dcam` (or `pnpm dcam --config <file>`) opens http://127.0.0.1:8787. Collection runs in
    the background within a request budget per environment: the `standard` profile, the default for `prod`,
