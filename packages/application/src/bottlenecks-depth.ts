@@ -81,11 +81,13 @@ export function noisyNeighboursIn(input: NeighbourInput): NoisyNeighbours {
     min_active_minutes: HM017_DEFAULTS.minActiveMinutes,
     min_affected_tries: HM017_DEFAULTS.minAffectedTries,
     min_control_tries: HM017_DEFAULTS.minControlTries,
+    min_affected_minutes: HM017_DEFAULTS.minAffectedMinutes,
     resamples: r.resamples,
     items: r.items.map((x) => ({
       dag_id: x.dagId,
       active_minutes: x.activeMinutes,
       affected_tries: x.affectedTries,
+      affected_minutes: x.affectedMinutes,
       control_tries: x.controlTries,
       matched_share: x.matchedShare,
       median_wait_active_seconds: x.medianActiveMs / 1000,

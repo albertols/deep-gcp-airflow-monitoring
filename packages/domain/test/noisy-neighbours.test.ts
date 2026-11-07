@@ -105,6 +105,38 @@ describe('HM-017 noisy-neighbour effect (FR-BOTL-06)', () => {
     expect(noisyNeighbours({ tries: few, slots: tenSlots, ...window }).items).toEqual([]);
   });
 
+  it('HM-017: one mapped task queued in one minute cannot meet 200 affected tries alone: 30 distinct minutes', () => {
+    // hog holds 10 % of the slots in minutes 0–69. A mapped task queues 250 map indexes in minute 65; another
+    // DAG queues 4 tries a minute in minutes 70–119 (inactive, the same hour of the week).
+    const tries: NeighbourTry[] = [t('hog', 0, 0, 70 * 60, { taskId: 'big' })];
+    for (let i = 0; i < 250; i++) tries.push(t('mapped', 65, 300, 1, { taskId: 'fan', mapIndex: i }));
+    for (let m = 70; m < 120; m++) for (const dag of ['s1', 's2', 's3', 's4']) tries.push(t(dag, m, 60));
+    const r = noisyNeighbours({ tries, slots: tenSlots, ...window });
+    expect(r.qualified).toBe(0);
+    expect(r.items).toEqual([]);
+    // The rule is DCAM's addition to the spec's 60 active minutes and 200 affected tries.
+    expect(
+      noisyNeighbours({ tries, slots: tenSlots, ...window }, { minAffectedMinutes: 1 }).items,
+    ).toMatchObject([{ dagId: 'hog', affectedTries: 250, affectedMinutes: 1 }]);
+    expect(hog?.affectedMinutes).toBe(70);
+  });
+
+  it('HM-017: the bootstrap resamples minutes, so copying every try within its minute leaves the interval as it is', () => {
+    // Tries queued in one minute (a cron burst, a mapped task's expansion) are correlated: one block each.
+    const noisy = golden().map((x, i) =>
+      x.dagId === 'hog' ? x : { ...x, startAt: (x.startAt as number) + ((i * 37) % 90) * SEC },
+    );
+    const copied = noisy.flatMap((x) =>
+      x.dagId === 'hog' ? [x] : [x, { ...x, taskId: `${x.taskId}_b` }, { ...x, taskId: `${x.taskId}_c` }],
+    );
+    const once = noisyNeighbours({ tries: noisy, slots: tenSlots, ...window }).items[0];
+    const thrice = noisyNeighbours({ tries: copied, slots: tenSlots, ...window }).items[0];
+    expect(thrice?.affectedTries).toBe(3 * (once?.affectedTries ?? 0));
+    expect(thrice?.effectMs).toBeCloseTo(once?.effectMs ?? NaN, 6);
+    expect(thrice?.ci?.lowMs).toBeCloseTo(once?.ci?.lowMs ?? NaN, 6);
+    expect(thrice?.ci?.highMs).toBeCloseTo(once?.ci?.highMs ?? NaN, 6);
+  });
+
   it('HM-017: without known slots (worker_concurrency unknown) nothing is evaluated', () => {
     const none = noisyNeighbours({ tries: golden(), slots: new Array(180).fill(null), ...window });
     expect(none.evaluated).toBe(false);
@@ -151,7 +183,13 @@ describe('HM-017 noisy-neighbour effect (FR-BOTL-06)', () => {
     fc.assert(
       fc.property(arb, (specs) => {
         const tries = specs.map((s, i) => t(s.dag, s.minute, s.wait, s.run, { taskId: `x${i}` }));
-        const opts = { minActiveMinutes: 5, minAffectedTries: 5, minControlTries: 5, resamples: 50 };
+        const opts = {
+          minActiveMinutes: 5,
+          minAffectedTries: 5,
+          minAffectedMinutes: 2,
+          minControlTries: 5,
+          resamples: 50,
+        };
         const r = noisyNeighbours(
           { tries, slots: new Array(120).fill(4), from: T0, to: T0 + 2 * H, now: T0 + 2 * H },
           opts,
@@ -159,6 +197,7 @@ describe('HM-017 noisy-neighbour effect (FR-BOTL-06)', () => {
         for (const x of r.items) {
           expect(x.activeMinutes).toBeGreaterThanOrEqual(5);
           expect(x.affectedTries).toBeGreaterThanOrEqual(5);
+          expect(x.affectedMinutes).toBeGreaterThanOrEqual(2);
           expect(x.controlTries).toBeGreaterThanOrEqual(5);
           expect(x.effectMs).toBeGreaterThan(0);
           if (x.ci) expect(x.ci.lowMs).toBeLessThanOrEqual(x.ci.highMs);

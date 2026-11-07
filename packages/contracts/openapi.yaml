@@ -1119,7 +1119,9 @@ components:
       additionalProperties: false
       description: |
         HM-017: DAGs whose running load is associated with longer queue waits (HM-001) of other DAGs.
-        Association, not causation. Over the requested range, matched by hour of week.
+        Association, not causation. Over the requested range, matched by hour of week. The interval is a
+        block bootstrap: it resamples whole minutes within each hour-of-week stratum, because tries queued
+        in the same minute (a cron burst, one mapped task) are correlated.
       required:
         [
           method,
@@ -1161,6 +1163,12 @@ components:
         min_active_minutes: { type: integer, minimum: 0 }
         min_affected_tries: { type: integer, minimum: 0 }
         min_control_tries: { type: integer, minimum: 0 }
+        min_affected_minutes:
+          {
+            type: integer,
+            minimum: 0,
+            description: "DCAM's rule beside the spec's: distinct active minutes with an affected try, so one burst cannot qualify a DAG alone.",
+          }
         resamples: { type: integer, minimum: 0, description: 'Bootstrap resamples behind each interval.' }
         items:
           type: array
@@ -1192,6 +1200,12 @@ components:
                   type: integer,
                   minimum: 0,
                   description: "Other DAGs' tries queued while the DAG was active.",
+                }
+              affected_minutes:
+                {
+                  type: integer,
+                  minimum: 0,
+                  description: 'Distinct active minutes in which those tries were queued: the blocks the bootstrap resamples.',
                 }
               control_tries:
                 {

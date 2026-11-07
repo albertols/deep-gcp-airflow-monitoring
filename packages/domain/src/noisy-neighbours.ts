@@ -11,10 +11,18 @@
  * 3. Minutes are matched by hour of week: only strata with both active and inactive tries count, and the
  *    inactive tries are re-weighted to the active tries' mix of strata.
  * 4. Effect = median wait (active) − weighted median wait (inactive). A seeded bootstrap (1,000 resamples
- *    by default) gives the 95 % interval; it resamples at most 1,000 tries per group, so the interval is
- *    conservative for larger groups. Only the highest-ranked DAGs get an interval.
- * 5. D qualifies with ≥ 60 active minutes and ≥ 200 affected tries (and, DCAM's choice, ≥ 200 control
- *    tries). Ranking: effect × affected tries, the associated extra waiting in task-time.
+ *    by default) gives the 95 % interval. It is a block bootstrap: tries queued in the same minute are
+ *    correlated (a cron burst, one mapped task's expansion), so it resamples whole minutes, with replacement,
+ *    within each hour-of-week stratum and each group, keeping the number of minutes per stratum, and
+ *    re-weights the inactive tries to the resampled active mix. Resampling single tries would treat a burst
+ *    of 200 as 200 independent waits and narrow the interval. It reads at most 1,000 tries per group, evenly
+ *    spread over time, so the interval is conservative for larger groups. Only the highest-ranked DAGs get
+ *    an interval.
+ * 5. D qualifies with ≥ 60 active minutes and ≥ 200 affected tries (HM-017), and, DCAM's choice, ≥ 200
+ *    control tries and ≥ 30 distinct affected minutes (active minutes with an affected try in a matched
+ *    stratum): one mapped task queued in one minute must not meet the 200 tries alone, and a minute block
+ *    bootstrap needs enough blocks. Ranking: effect × affected tries, the associated extra waiting in
+ *    task-time.
  *
  * Pure: no clock, no I/O; the PRNG is seeded from the DAG ID, so results are reproducible.
  *
@@ -49,6 +57,8 @@ export interface NoisyNeighbourOptions {
   readonly activeShare?: number;
   readonly minActiveMinutes?: number;
   readonly minAffectedTries?: number;
+  /** Distinct active minutes with an affected try (DCAM's choice; the bootstrap's blocks). */
+  readonly minAffectedMinutes?: number;
   readonly minControlTries?: number;
   readonly resamples?: number;
   /** Most tries per group the bootstrap resamples. */
@@ -62,6 +72,7 @@ export const HM017_DEFAULTS = {
   activeShare: 0.1,
   minActiveMinutes: 60,
   minAffectedTries: 200,
+  minAffectedMinutes: 30,
   minControlTries: 200,
   resamples: 1_000,
   maxBootstrapSample: 1_000,
@@ -77,6 +88,8 @@ export interface NoisyNeighbour {
   readonly activeMinutes: number;
   /** Other DAGs' tries queued in D's active minutes, in matched strata. */
   readonly affectedTries: number;
+  /** Distinct active minutes in which those tries were queued: the blocks the bootstrap resamples. */
+  readonly affectedMinutes: number;
   /** Other DAGs' tries queued in D's inactive minutes, in matched strata. */
   readonly controlTries: number;
   /** Affected tries in matched strata ÷ all other DAGs' tries queued in D's active minutes, 0–1. */
@@ -202,56 +215,109 @@ function medianWithTotal(
 interface Group {
   /** Global ranks (indices into the sorted waits), in time order. */
   readonly ranks: number[];
-  readonly weights: number[];
+  /** The minute each member was queued in, in the same order. */
+  readonly minutes: number[];
 }
 
-/** At most `cap` members, evenly spread over time, sorted by rank (so by wait). */
-function subsample(g: Group, cap: number): { values: Float64Array; weights: Float64Array } {
+/** A group ready to resample: waits ascending, and the minute blocks of each stratum as positions in them. */
+interface Blocks {
+  readonly values: Float64Array;
+  /** Stratum of each position. */
+  readonly stratumOf: Int32Array;
+  /** Per stratum, its minute blocks; each block lists the positions of the tries queued in that minute. */
+  readonly byStratum: ReadonlyMap<number, readonly (readonly number[])[]>;
+}
+
+/**
+ * At most `cap` members, evenly spread over time (so each minute keeps about its share), sorted by rank (so
+ * by wait), grouped into minute blocks per hour-of-week stratum.
+ */
+function blocksOf(g: Group, cap: number, sortedWaits: Float64Array, stratum: Int32Array): Blocks {
   const n = g.ranks.length;
   const m = Math.min(n, cap);
   const picked: Array<[number, number]> = [];
   for (let j = 0; j < m; j++) {
     const i = Math.floor((j * n) / m);
-    picked.push([g.ranks[i] as number, g.weights[i] as number]);
+    picked.push([g.ranks[i] as number, g.minutes[i] as number]);
   }
   picked.sort((a, b) => a[0] - b[0]);
+  const byMinute = new Map<number, number[]>();
+  picked.forEach(([, k], p) => {
+    const block = byMinute.get(k);
+    if (block) block.push(p);
+    else byMinute.set(k, [p]);
+  });
+  const byStratum = new Map<number, number[][]>();
+  for (const [k, block] of byMinute) {
+    const h = stratum[k] as number;
+    const list = byStratum.get(h);
+    if (list) list.push(block);
+    else byStratum.set(h, [block]);
+  }
   return {
-    values: Float64Array.from(picked, (p) => p[0]),
-    weights: Float64Array.from(picked, (p) => p[1]),
+    values: Float64Array.from(picked, (p) => sortedWaits[p[0]] as number),
+    stratumOf: Int32Array.from(picked, (p) => stratum[p[1]] as number),
+    byStratum,
   };
 }
 
+/**
+ * Draws as many minute blocks as each matched stratum has, with replacement, adding 1 per drawn try to its
+ * position's count; `drawn[h]` gets the number of tries drawn in stratum h.
+ */
+function drawBlocks(
+  g: Blocks,
+  strata: readonly number[],
+  counts: Float64Array,
+  drawn: Float64Array,
+  random: () => number,
+): void {
+  counts.fill(0);
+  for (const h of strata) {
+    const blocks = g.byStratum.get(h) as readonly (readonly number[])[];
+    let tries = 0;
+    for (let j = 0; j < blocks.length; j++) {
+      const block = blocks[(random() * blocks.length) | 0] as readonly number[];
+      for (const p of block) counts[p] = (counts[p] as number) + 1;
+      tries += block.length;
+    }
+    drawn[h] = tries;
+  }
+}
+
+/** HM-017 interval by a stratified minute-block bootstrap (see the module comment, point 4). */
 function bootstrap(
   active: Group,
   inactive: Group,
   sortedWaits: Float64Array,
+  stratum: Int32Array,
   opts: Required<NoisyNeighbourOptions>,
   random: () => number,
 ): { lowMs: number; highMs: number } {
-  const a = subsample(active, opts.maxBootstrapSample);
-  const c = subsample(inactive, opts.maxBootstrapSample);
-  const av = Float64Array.from(a.values, (r) => sortedWaits[r] as number);
-  const cv = Float64Array.from(c.values, (r) => sortedWaits[r] as number);
-  const aw = new Float64Array(av.length);
-  const cw = new Float64Array(cv.length);
+  const a = blocksOf(active, opts.maxBootstrapSample, sortedWaits, stratum);
+  const c = blocksOf(inactive, opts.maxBootstrapSample, sortedWaits, stratum);
+  // Strata with tries of both groups in the sample; the others take no part, as in the estimate.
+  const strata = [...a.byStratum.keys()].filter((h) => c.byStratum.has(h)).sort((x, y) => x - y);
+  const na = a.values.length;
+  const nc = c.values.length;
+  const aw = new Float64Array(na);
+  const cw = new Float64Array(nc);
+  const drawnA = new Float64Array(168);
+  const drawnC = new Float64Array(168);
   const effects: number[] = [];
-  const na = av.length;
-  const nc = cv.length;
   for (let b = 0; b < opts.resamples; b++) {
-    aw.fill(0);
-    cw.fill(0);
-    for (let j = 0; j < na; j++) {
-      const i = (random() * na) | 0;
-      aw[i] = (aw[i] as number) + 1;
+    drawBlocks(a, strata, aw, drawnA, random);
+    drawBlocks(c, strata, cw, drawnC, random);
+    let totalA = 0;
+    for (const h of strata) totalA += drawnA[h] as number;
+    // Inactive tries weigh (active ÷ inactive tries drawn in their stratum), so both mixes match.
+    for (let p = 0; p < nc; p++) {
+      const count = cw[p] as number;
+      if (count === 0) continue;
+      const h = c.stratumOf[p] as number;
+      cw[p] = (count * (drawnA[h] as number)) / (drawnC[h] as number);
     }
-    let total = 0;
-    for (let j = 0; j < nc; j++) {
-      const i = (random() * nc) | 0;
-      const w = c.weights[i] as number;
-      cw[i] = (cw[i] as number) + w;
-      total += w;
-    }
-    effects.push(medianWithTotal(av, aw, na, na) - medianWithTotal(cv, cw, nc, total));
+    effects.push(medianWithTotal(a.values, aw, na, totalA) - medianWithTotal(c.values, cw, nc, totalA));
   }
   return { lowMs: percentile(effects, 0.025) ?? 0, highMs: percentile(effects, 0.975) ?? 0 };
 }
@@ -471,29 +537,32 @@ export function noisyNeighbours(
 
     wActive.fill(0);
     wInactive.fill(0);
-    const groupA: Group = { ranks: [], weights: [] };
-    const groupI: Group = { ranks: [], weights: [] };
+    const groupA: Group = { ranks: [], minutes: [] };
+    const groupI: Group = { ranks: [], minutes: [] };
+    let affectedMinutes = 0;
     for (let k = 0; k < minutes; k++) {
       if (state[k] === 0) continue;
       const h = stratum[k] as number;
       const a = countA[h] as number;
       const c = countI[h] as number;
       if (a === 0 || c === 0) continue;
+      const before = groupA.ranks.length;
       for (let i = offsets[k] as number; i < (offsets[k + 1] as number); i++) {
         if (waitDag[i] === d) continue;
         const r = rank[i] as number;
         if (state[k] === 1) {
           wActive[r] = (wActive[r] as number) + 1;
           groupA.ranks.push(r);
-          groupA.weights.push(1);
+          groupA.minutes.push(k);
         } else {
-          const w = a / c;
-          wInactive[r] = (wInactive[r] as number) + w;
+          wInactive[r] = (wInactive[r] as number) + a / c;
           groupI.ranks.push(r);
-          groupI.weights.push(w);
+          groupI.minutes.push(k);
         }
       }
+      if (groupA.ranks.length > before) affectedMinutes++;
     }
+    if (affectedMinutes < opts.minAffectedMinutes) continue;
     const medianActiveMs = weightedMedian(sortedWaits, wActive, n);
     const medianInactiveMs = weightedMedian(sortedWaits, wInactive, n);
     const effectMs = medianActiveMs - medianInactiveMs;
@@ -515,6 +584,7 @@ export function noisyNeighbours(
       dagId,
       activeMinutes: active,
       affectedTries: affected,
+      affectedMinutes,
       controlTries: control,
       matchedShare: allActive > 0 ? affected / allActive : 0,
       medianActiveMs,
@@ -535,6 +605,7 @@ export function noisyNeighbours(
         groups[0],
         groups[1],
         (waits as WaitIndex).sortedWaits,
+        stratum,
         opts,
         seeded(seedOf(q.dagId)),
       );
