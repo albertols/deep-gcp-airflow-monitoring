@@ -134,8 +134,22 @@ export interface LiveSnapshot {
   /** Running plus queued task instances per DAG (what `max_active_tasks` counts on Airflow 2). */
   readonly dagActive: Readonly<Record<string, number>>;
   readonly executor: { readonly running: number; readonly queued: number };
-  readonly workers: { readonly current: number; readonly target: number };
+  readonly workers: {
+    readonly current: number;
+    readonly target: number;
+    /** Where `current` came from ({@link WorkerCountSource}); absent on demo and older stored snapshots. */
+    readonly source?: WorkerCountSource;
+  };
 }
+
+/**
+ * Where a worker count came from (HM-011):
+ * - `monitoring`: a Cloud Monitoring worker sample;
+ * - `config`: the worker count configured for a self-managed Airflow;
+ * - `hostnames`: without Cloud Monitoring, the larger of the configured minimum and the distinct hostnames of
+ *   running tries. An estimate and a lower bound: an idle worker runs no try.
+ */
+export type WorkerCountSource = 'monitoring' | 'config' | 'hostnames';
 
 /** One sample per minute of worker capacity and load. */
 export interface WorkerSample {

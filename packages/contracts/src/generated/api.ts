@@ -550,6 +550,13 @@ export interface components {
             mttr_seconds: number | null;
         };
         /**
+         * @description HM-011: where a worker count came from. monitoring: a Cloud Monitoring worker sample. config: the
+         *     worker count configured for a self-managed Airflow. hostnames: without Cloud Monitoring, the larger of
+         *     the configured minimum and the distinct hostnames of running tries; an estimate and a lower bound.
+         * @enum {string}
+         */
+        WorkerCountSource: "monitoring" | "config" | "hostnames";
+        /**
          * @description HM-006 reasons in evaluation order, then normal-latency (a wait below the thresholds, not a platform limit).
          * @enum {string}
          */
@@ -622,6 +629,8 @@ export interface components {
                 };
                 /** @description Current workers × worker_concurrency; null when DCAM does not know [celery] worker_concurrency. */
                 worker_slots: number | null;
+                /** @description Where the current worker count came from; null when not known (demo and older snapshots). */
+                slots_source?: components["schemas"]["WorkerCountSource"] | null;
             };
             pools: {
                 name: string;
@@ -717,6 +726,8 @@ export interface components {
             min_affected_minutes?: number;
             /** @description Bootstrap resamples behind each interval. */
             resamples: number;
+            /** @description Where the worker counts behind the executor slots came from, the weakest over the range (hostnames: an estimate, a lower bound); null when not known. */
+            slots_source?: components["schemas"]["WorkerCountSource"] | null;
             items: {
                 dag_id: string;
                 active_minutes: number;

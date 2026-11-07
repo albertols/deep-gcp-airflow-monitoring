@@ -132,7 +132,9 @@ export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
               hint={
                 b.capacity.minutes_at_max_workers === null
                   ? NO_SAMPLES
-                  : `Workers ${b.current.workers.current} of ${b.current.workers.max} max`
+                  : b.current.slots_source === 'hostnames'
+                    ? `Workers at least ${b.current.workers.current} of ${b.current.workers.max} max, estimated from worker hostnames`
+                    : `Workers ${b.current.workers.current} of ${b.current.workers.max} max`
               }
             />
             <Kpi

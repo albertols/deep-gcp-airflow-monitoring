@@ -245,6 +245,18 @@ describe('S-16 bottleneck evidence (M3 demo steps 2–3)', () => {
     expect(within(p).getByText(/Data as of/)).toBeInTheDocument();
   });
 
+  it('HM-011: worker slots counted from worker hostnames are labelled as an estimate', async () => {
+    renderPage({
+      ...fixture,
+      noisy_neighbours: {
+        ...(fixture.noisy_neighbours as NonNullable<Bottlenecks['noisy_neighbours']>),
+        slots_source: 'hostnames',
+      },
+    });
+    const p = await panel('Noisy neighbours');
+    expect(within(p).getByText(/Estimated worker slots/)).toHaveTextContent(/hostnames of running tasks/);
+  });
+
   it('FR-UI-07: noisy neighbours say why nothing was evaluated, and why nothing qualified', async () => {
     const { unmount } = renderPage({
       ...fixture,

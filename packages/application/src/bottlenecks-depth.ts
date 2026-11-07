@@ -12,6 +12,7 @@ import {
   limitKnown,
   noisyNeighbours,
   slotsPerMinute,
+  slotsSourceOf,
   type EnvironmentConfig,
   type LiveSnapshot,
   type NeighbourTry,
@@ -64,6 +65,7 @@ export interface NeighbourInput {
 /** HM-017 over the window, with the reason when it cannot be evaluated. */
 export function noisyNeighboursIn(input: NeighbourInput): NoisyNeighbours {
   const slots = slotsPerMinute({ ...input, config: input.config });
+  const slotsSource = slotsSourceOf({ ...input, config: input.config });
   const r = noisyNeighbours({ tries: input.tries, slots, from: input.from, to: input.to, now: input.now });
   let notEvaluated: string | null = null;
   if (!r.evaluated)
@@ -83,6 +85,7 @@ export function noisyNeighboursIn(input: NeighbourInput): NoisyNeighbours {
     min_control_tries: HM017_DEFAULTS.minControlTries,
     min_affected_minutes: HM017_DEFAULTS.minAffectedMinutes,
     resamples: r.resamples,
+    slots_source: slotsSource,
     items: r.items.map((x) => ({
       dag_id: x.dagId,
       active_minutes: x.activeMinutes,

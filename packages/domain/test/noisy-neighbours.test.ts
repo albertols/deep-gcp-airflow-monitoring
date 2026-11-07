@@ -3,6 +3,7 @@ import fc from 'fast-check';
 import {
   noisyNeighbours,
   slotsPerMinute,
+  slotsSourceOf,
   type EnvironmentConfig,
   type LiveSnapshot,
   type NeighbourTry,
@@ -238,6 +239,38 @@ describe('HM-017 executor slots per minute', () => {
       to: T0 + 4 * MIN,
     });
     expect(slots).toEqual([24, 36, 48, null]);
+  });
+
+  it('HM-011: the slots say where the worker count came from; a count from worker hostnames is the weakest', () => {
+    const counted = (source: 'hostnames' | 'config', at = T0 + 2 * MIN) => ({
+      ...snapshot(at, 4),
+      workers: { current: 4, target: 4, source },
+    });
+    const input = { config, from: T0, to: T0 + 4 * MIN };
+    expect(slotsSourceOf({ ...input, samples: [sample(T0, 2)], snapshots: [] })).toBe('monitoring');
+    expect(slotsSourceOf({ ...input, samples: [sample(T0, 2)], snapshots: [counted('config')] })).toBe(
+      'config',
+    );
+    expect(
+      slotsSourceOf({
+        ...input,
+        samples: [sample(T0, 2)],
+        snapshots: [counted('config'), counted('hostnames', T0 + 3 * MIN)],
+      }),
+    ).toBe('hostnames');
+    // A sample of the same minute replaces the snapshot's count; snapshots stored without a source say nothing.
+    expect(
+      slotsSourceOf({ ...input, samples: [sample(T0 + 2 * MIN, 2)], snapshots: [counted('hostnames')] }),
+    ).toBe('monitoring');
+    expect(slotsSourceOf({ ...input, samples: [], snapshots: [snapshot(T0, 4)] })).toBeNull();
+    expect(
+      slotsSourceOf({
+        ...input,
+        samples: [sample(T0, 2)],
+        snapshots: [],
+        config: { workerConcurrency: 1_000_000, limitSources: { workerConcurrency: 'unknown' } },
+      }),
+    ).toBeNull();
   });
 
   it('HM-032: an unknown worker_concurrency gives no slots at all', () => {

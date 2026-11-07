@@ -127,6 +127,13 @@ export function NoisyNeighboursPanel({ b, linkTo }: { b: Bottlenecks; linkTo: Pa
   const n = b.noisy_neighbours;
   return (
     <Panel explanation={X['botl-noisy-neighbours']}>
+      {n?.evaluated && n.slots_source === 'hostnames' && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          Estimated worker slots: without Cloud Monitoring, DCAM counts workers from the hostnames of running
+          tasks, a lower bound. A DAG may look more active than it was; check that Cloud Monitoring is
+          collected on the DCAM health page.
+        </Typography>
+      )}
       {n ? (
         <Body n={n} linkTo={linkTo} />
       ) : (

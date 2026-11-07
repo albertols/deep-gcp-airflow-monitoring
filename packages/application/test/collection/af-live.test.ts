@@ -281,7 +281,7 @@ describe('HM-011 af.live workers', () => {
       { at: T0 - 3 * MIN, workers: 3, target: 5, running: 3, queued: 1, cpu: 0.5, memory: 0.5 },
     ]);
     await afLiveCollector().collect(fakeContext({ airflow, store, shared }));
-    expect(store.snaps[0]?.workers).toEqual({ current: 3, target: 5 });
+    expect(store.snaps[0]?.workers).toEqual({ current: 3, target: 5, source: 'monitoring' });
   });
 
   it('HM-011: without a fresh sample, workers are at least min_count and the distinct worker hosts', async () => {
@@ -292,8 +292,8 @@ describe('HM-011 af.live workers', () => {
       { at: T0 - 30 * MIN, workers: 6, target: 6, running: 0, queued: 0, cpu: 0, memory: 0 },
     ]);
     await afLiveCollector().collect(fakeContext({ airflow, store, shared }));
-    // run_a on worker-1, run_b on worker-2, run_c on the default host airflow-worker-abc12.
-    expect(store.snaps[0]?.workers).toEqual({ current: 3, target: 3 });
+    // run_a on worker-1, run_b on worker-2, run_c on the default host airflow-worker-abc12: a lower bound.
+    expect(store.snaps[0]?.workers).toEqual({ current: 3, target: 3, source: 'hostnames' });
   });
 
   it('FR-EMU-02: a self-managed Airflow uses the configured workers and writes its config from limits', async () => {
@@ -302,7 +302,7 @@ describe('HM-011 af.live workers', () => {
     await afLiveCollector().collect(
       fakeContext({ env: emulatorEntry, airflow, store, shared: { airflowVersion: '2.11.1' } }),
     );
-    expect(store.snaps[0]?.workers).toEqual({ current: 2, target: 2 });
+    expect(store.snaps[0]?.workers).toEqual({ current: 2, target: 2, source: 'config' });
     expect(await store.config('acme-emulator')).toMatchObject({
       envId: 'acme-emulator',
       tier: 'dev',

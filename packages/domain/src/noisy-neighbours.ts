@@ -28,7 +28,13 @@
  *
  * @implements HM-017, FR-BOTL-06
  */
-import { limitKnown, type EnvironmentConfig, type LiveSnapshot, type WorkerSample } from './model';
+import {
+  limitKnown,
+  type EnvironmentConfig,
+  type LiveSnapshot,
+  type WorkerCountSource,
+  type WorkerSample,
+} from './model';
 import type { TaskTry } from './occupancy';
 import { percentile } from './stats';
 
@@ -153,6 +159,38 @@ export function slotsPerMinute(input: SlotsInput): (number | null)[] {
     out[k] = s.workers.current * concurrency;
   }
   return out;
+}
+
+/** From the most to the least reliable: a window is as reliable as its weakest minute. */
+const SOURCE_ORDER: readonly WorkerCountSource[] = ['monitoring', 'config', 'hostnames'];
+
+/**
+ * HM-011: where the worker counts behind {@link slotsPerMinute} came from, the weakest over the minutes with
+ * slots: `hostnames` as soon as one minute's count is the hostname estimate (a lower bound). `null` when no
+ * minute has slots, or none of the snapshots used says where its count came from.
+ */
+export function slotsSourceOf(input: SlotsInput): WorkerCountSource | null {
+  if (!limitKnown(input.config, 'workerConcurrency')) return null;
+  const minutes = Math.max(0, Math.ceil((input.to - input.from) / MIN));
+  const fromSample = new Array<boolean>(minutes).fill(false);
+  const bySnapshot = new Array<WorkerCountSource | null>(minutes).fill(null);
+  for (const s of input.samples) {
+    const k = Math.floor((s.at - input.from) / MIN);
+    if (k >= 0 && k < minutes) fromSample[k] = true;
+  }
+  for (const s of input.snapshots) {
+    const k = Math.floor((s.at - input.from) / MIN);
+    if (k < 0 || k >= minutes || fromSample[k]) continue;
+    // The last snapshot of the minute sets its slots; a stored value outside the three says nothing.
+    const source = s.workers.source;
+    bySnapshot[k] = source !== undefined && SOURCE_ORDER.includes(source) ? source : null;
+  }
+  let weakest = -1;
+  for (let k = 0; k < minutes; k++) {
+    const source = fromSample[k] ? 'monitoring' : bySnapshot[k];
+    if (source) weakest = Math.max(weakest, SOURCE_ORDER.indexOf(source));
+  }
+  return weakest < 0 ? null : (SOURCE_ORDER[weakest] as WorkerCountSource);
 }
 
 /** FNV-1a: a stable 32-bit seed from the DAG ID. */

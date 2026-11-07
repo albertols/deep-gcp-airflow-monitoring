@@ -198,6 +198,8 @@ export async function bottlenecksInWindow(
       worker_slots: limitKnown(config, 'workerConcurrency')
         ? (latest?.snapshot.workers.current ?? 0) * config.workerConcurrency
         : null,
+      // HM-011: a count from worker hostnames (no Cloud Monitoring) is an estimate, a lower bound.
+      slots_source: latest?.snapshot.workers.source ?? null,
     },
     pools: config.pools.map((p) => {
       const pressure = a.pools.get(p.name);

@@ -192,6 +192,23 @@ describe('getBottlenecks in depth (FR-BOTL-01, FR-BOTL-06, FR-ENV-08, HM-023)', 
     });
   });
 
+  it('HM-011: the worker slots say where the worker count came from; without Cloud Monitoring it is an estimate', async () => {
+    const b = await getBottlenecks(deps, query);
+    expect(b.noisy_neighbours?.slots_source).toBe('monitoring');
+    const estimated = snapshots.map((x) => ({
+      ...x,
+      workers: { ...x.workers, source: 'hostnames' as const },
+    }));
+    const model: EnvironmentModelSource = {
+      ...modelWith(config),
+      snapshots: async (_id, from, to) => estimated.filter((x) => x.at >= from && x.at < to),
+      workerSamples: async () => [],
+    };
+    const e = await getBottlenecks({ ...deps, model }, query);
+    expect(e.noisy_neighbours?.slots_source).toBe('hostnames');
+    expect(e.current.slots_source).toBe('hostnames');
+  });
+
   it('HM-032: without worker_concurrency the noisy-neighbour comparison is not evaluated, and says why', async () => {
     const unknown = {
       ...config,

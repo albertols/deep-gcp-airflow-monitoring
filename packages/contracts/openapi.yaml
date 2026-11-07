@@ -812,6 +812,13 @@ components:
           type: ['number', 'null']
           minimum: 0
           description: Mean time from the first failure to the next success; null without a recovery.
+    WorkerCountSource:
+      type: string
+      description: |
+        HM-011: where a worker count came from. monitoring: a Cloud Monitoring worker sample. config: the
+        worker count configured for a self-managed Airflow. hostnames: without Cloud Monitoring, the larger of
+        the configured minimum and the distinct hostnames of running tries; an estimate and a lower bound.
+      enum: [monitoring, config, hostnames]
     WaitReasonId:
       type: string
       description: HM-006 reasons in evaluation order, then normal-latency (a wait below the thresholds, not a platform limit).
@@ -973,6 +980,9 @@ components:
                 minimum: 0,
                 description: 'Current workers × worker_concurrency; null when DCAM does not know [celery] worker_concurrency.',
               }
+            slots_source:
+              description: 'Where the current worker count came from; null when not known (demo and older snapshots).'
+              oneOf: [{ $ref: '#/components/schemas/WorkerCountSource' }, { type: 'null' }]
         pools:
           type: array
           items:
@@ -1170,6 +1180,9 @@ components:
             description: "DCAM's rule beside the spec's: distinct active minutes with an affected try, so one burst cannot qualify a DAG alone.",
           }
         resamples: { type: integer, minimum: 0, description: 'Bootstrap resamples behind each interval.' }
+        slots_source:
+          description: 'Where the worker counts behind the executor slots came from, the weakest over the range (hostnames: an estimate, a lower bound); null when not known.'
+          oneOf: [{ $ref: '#/components/schemas/WorkerCountSource' }, { type: 'null' }]
         items:
           type: array
           maxItems: 10

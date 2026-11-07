@@ -240,13 +240,15 @@ async function workersFor(
   running: readonly AirflowTaskInstance[],
   sample: WorkerSample | undefined,
 ): Promise<LiveSnapshot['workers']> {
-  if (sample) return { current: sample.workers, target: sample.target };
+  if (sample) return { current: sample.workers, target: sample.target, source: 'monitoring' };
   const source = ctx.env.source;
-  if (source.kind === 'airflow') return { current: source.limits.workers, target: source.limits.workers };
+  if (source.kind === 'airflow')
+    return { current: source.limits.workers, target: source.limits.workers, source: 'config' };
   const config = await ctx.store.config(ctx.env.id);
   const hosts = new Set(running.map((t) => t.hostname).filter((h): h is string => h !== null && h !== ''));
+  // A lower bound: a worker that runs no try has no hostname in the list (HM-011).
   const current = Math.max(config?.minWorkers ?? 0, hosts.size);
-  return { current, target: current };
+  return { current, target: current, source: 'hostnames' };
 }
 
 export function afLiveCollector(): Collector {
