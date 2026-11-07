@@ -150,18 +150,18 @@ describe('FR-SETUP-05 profiles and budgets (§17.2, §7.11)', () => {
         quotaProjectId: null,
         caBundlePath: null,
         profiles: {
-          live: { airflowLive: 10, airflowFacts: 30, airflowInventory: 900, monitoring: 60, composer: 300 },
+          live: { airflowLive: 10, airflowFacts: 30, airflowInventory: 300, monitoring: 60, composer: 300 },
           standard: {
             airflowLive: 30,
             airflowFacts: 60,
-            airflowInventory: 3600,
+            airflowInventory: 600,
             monitoring: 60,
             composer: 600,
           },
           eco: {
             airflowLive: 120,
             airflowFacts: 300,
-            airflowInventory: 3600,
+            airflowInventory: 3000,
             monitoring: 300,
             composer: 1800,
           },
@@ -201,7 +201,7 @@ describe('FR-SETUP-05 profiles and budgets (§17.2, §7.11)', () => {
     expect(result.config.profiles.live).toEqual({
       airflowLive: 15,
       airflowFacts: 30,
-      airflowInventory: 900,
+      airflowInventory: 300,
       monitoring: 60,
       composer: 300,
     });

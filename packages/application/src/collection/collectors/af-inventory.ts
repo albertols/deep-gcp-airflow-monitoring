@@ -1,10 +1,15 @@
 /**
- * `af.inventory` (background): `GET /version` (FR-COLL-08), `GET /importErrors` (HM-028) and the DAG
- * inventory from `GET /dags`, 100 per page (Appendix B.1; `/dags` is capped at `[api]
- * maximum_page_limit`, default 100). About 2,000 DAGs take 20 pages, so the listing is trickled: each
- * cycle reads at most {@link MAX_REQUESTS} requests, stops early when the budget is used up, reports
- * reduced fidelity, and resumes at the same offset next cycle (spec §7.11 budget arithmetic, "DAG
- * inventory trickled across the hour").
+ * `af.inventory` (background): `GET /version` (FR-COLL-08) and the DAG inventory from `GET /dags`, 100
+ * per page (Appendix B.1; `/dags` is capped at `[api] maximum_page_limit`, default 100). Import errors
+ * are `af.facts`' (every fact cycle, §7.5 L653).
+ *
+ * Cadence and budget: §7.7 (L716) runs it every `airflowFacts` × 10 (10 min on the standard profile).
+ * About 2,000 DAGs take 20 pages, so the listing is trickled: each cycle reads at most
+ * {@link MAX_REQUESTS} requests, stops early when the budget is used up, reports reduced fidelity, and
+ * resumes at the same offset next cycle. The first listing is complete after three cycles. A new pass
+ * starts at most {@link PASS_EVERY_MS} after the previous one started (§7.5 L647, "Full listing trickled
+ * across the hour"; §7.11 L882, "DAG inventory: 20 pages trickled across the hour, about 0.3" requests a
+ * minute); the cycles between make no request but the daily version.
  *
  * Offsets advance by the rows each page returned, not by the limit: a server whose `maximum_page_limit`
  * is below 100 returns shorter pages, and stepping by 100 would skip the rest of each page and still
@@ -14,7 +19,7 @@
  * (`saveDags` upserts); a complete pass replaces it in one transaction (`replaceDags`), so deleted and
  * inactive DAGs drop out.
  *
- * @implements FR-COLL-01, FR-COLL-06, FR-COLL-08, FR-DAGX-08 (default team rule), HM-028 (import errors)
+ * @implements FR-COLL-01, FR-COLL-03, FR-COLL-06, FR-COLL-08, FR-DAGX-08 (default team rule)
  */
 import type { DagMeta, EnvironmentConfig } from '@dcam/domain';
 import { BudgetExhaustedError, type Collector, type CollectorContext } from '../types';
@@ -27,10 +32,12 @@ import {
 
 /** `limit` of every `/dags` page (Appendix B.1: never above 100). */
 const PAGE_SIZE = 100;
-/** Version, import errors and eight pages: 800 DAGs per cycle at most. */
+/** The version and nine pages: 900 to 1,000 DAGs per cycle at most. */
 const MAX_REQUESTS = 10;
 /** Appendix B.2: the version is read at connect and then daily. */
 const VERSION_EVERY_MS = 24 * 60 * 60_000;
+/** A full listing starts at most this long after the previous one started. */
+const PASS_EVERY_MS = 60 * 60_000;
 
 interface Pass {
   offset: number;
@@ -53,6 +60,7 @@ async function dagDefaults(ctx: CollectorContext): Promise<Defaults> {
 export function afInventoryCollector(): Collector {
   const passes = new Map<string, Pass>();
   const versionReadAt = new Map<string, number>();
+  const passStartedAt = new Map<string, number>();
 
   return {
     manifest: {
@@ -62,7 +70,7 @@ export function afInventoryCollector(): Collector {
       cadence: 'airflowInventory',
       priority: 'background',
       maxRequestsPerCycle: MAX_REQUESTS,
-      outputs: ['dags', 'health'],
+      outputs: ['dags'],
       sourceKinds: ['composer', 'airflow'],
     },
     async collect(ctx) {
@@ -82,14 +90,14 @@ export function afInventoryCollector(): Collector {
         }
         assertSupportedAirflow(ctx.shared.airflowVersion);
 
-        requests++;
-        const importErrors = await airflow.importErrorCount();
-        // A patch: mon.core writes the other inputs concurrently (HM-028).
-        await ctx.store.patchPlatformHealth(envId, { importErrors });
-        wrote = true;
-
-        const pass = passes.get(envId) ?? { offset: 0, total: null, dags: new Map<string, DagMeta>() };
-        passes.set(envId, pass);
+        let pass = passes.get(envId);
+        if (!pass) {
+          const started = passStartedAt.get(envId);
+          if (started !== undefined && ctx.now() - started < PASS_EVERY_MS) return { dataAsOf: null };
+          pass = { offset: 0, total: null, dags: new Map<string, DagMeta>() };
+          passes.set(envId, pass);
+          passStartedAt.set(envId, ctx.now());
+        }
         const defaults = await dagDefaults(ctx);
         try {
           while (pass.total === null || pass.offset < pass.total) {

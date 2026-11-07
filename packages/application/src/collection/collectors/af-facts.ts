@@ -36,8 +36,13 @@
  *   (Airflow 2.10+ increments `try_number` at scheduling: RELEASE_NOTES.rst "try_number is no longer
  *   incremented during task execution (#39336)"; `airflow/models/taskinstance.py` and
  *   `airflow/models/dagrun.py` at 2.11.1). Without it a retried try would be lost once rescheduled.
+ * - Import errors (HM-028): `GET /importErrors` once a cycle, after the task instances: §7.5 (L653) reads
+ *   them "Every fact cycle" and §7.7 (L715) gives them to `af.facts`. They have a request of their own
+ *   beyond the {@link MAX_REQUESTS} for task instances (about one request a minute on the standard
+ *   profile, within the §7.11 line "Import errors, `/dagWarnings`, event log and health: about 1.5"),
+ *   and patch only that health input, because `mon.core` writes the others concurrently.
  *
- * @implements FR-COLL-01, FR-COLL-03, FR-COLL-06, FR-STORE-06
+ * @implements FR-COLL-01, FR-COLL-03, FR-COLL-06, FR-STORE-06, HM-028 (import errors)
  */
 import type { AirflowTaskInstance, StoredTaskTry } from '@dcam/ports';
 import { BudgetExhaustedError, type Collector } from '../types';
@@ -52,6 +57,7 @@ export const FACTS_SETTLE_MS = 60_000;
 export const FIRST_FACTS_WINDOW_MS = 60 * 60_000;
 /** B.3: the minimum window width, below which DCAM pages by offset. */
 const MIN_WINDOW_MS = 1_000;
+/** Task instance requests a cycle; `GET /importErrors` takes one more. */
 const MAX_REQUESTS = 6;
 const ID = 'af.facts';
 /** Requests a cycle keeps for the windows after a dense second, so that one burst never blocks them. */
@@ -112,8 +118,8 @@ export function afFactsCollector(): Collector {
       api: 'airflow',
       cadence: 'airflowFacts',
       priority: 'standard',
-      maxRequestsPerCycle: MAX_REQUESTS,
-      outputs: ['tries'],
+      maxRequestsPerCycle: MAX_REQUESTS + 1,
+      outputs: ['tries', 'health'],
       sourceKinds: ['composer', 'airflow'],
     },
     async collect(ctx) {
@@ -124,6 +130,17 @@ export function afFactsCollector(): Collector {
       const end = now - FACTS_SETTLE_MS;
       const last = progress.get(envId);
       const overlapReadAt = last?.overlapReadAt ?? null;
+      const notes: string[] = [];
+      /** Reads the import error count into platform health; a refused request waits for the next cycle. */
+      const importErrors = async () => {
+        try {
+          const count = await ctx.airflow().importErrorCount();
+          await ctx.store.patchPlatformHealth(envId, { importErrors: count });
+        } catch (e) {
+          if (!(e instanceof BudgetExhaustedError)) throw e;
+          notes.push('The Airflow request budget is used up; import errors are read next cycle.');
+        }
+      };
 
       let pending: Window[];
       let readOverlap = false;
@@ -139,7 +156,11 @@ export function afFactsCollector(): Collector {
             : readOverlap
               ? watermark - FACTS_OVERLAP_MS
               : watermark;
-        if (end <= from) return { dataAsOf: null };
+        if (end <= from) {
+          await importErrors();
+          if (notes.length > 0) ctx.reducedFidelity(notes.join(' '));
+          return { dataAsOf: null };
+        }
         pending = [{ from, to: end }];
       }
       const start = (pending[0] as Window).from;
@@ -171,7 +192,7 @@ export function afFactsCollector(): Collector {
       let frontier: number | null = null;
       /** Start of the first window left incomplete this cycle: the watermark waits there. */
       let blocked: number | null = null;
-      const notes: string[] = [];
+      let budgetUsedUp = false;
 
       /** The rows of `w` are accounted for: later parts counted over it no longer include them. */
       const settle = (w: Window, count: number) => {
@@ -260,16 +281,18 @@ export function afFactsCollector(): Collector {
           notes.push(
             `Finished task instances are read within the request budget; ${from} to ${iso(end)} continues next cycle.`,
           );
-        else if (e instanceof BudgetExhaustedError)
+        else if (e instanceof BudgetExhaustedError) {
+          budgetUsedUp = true;
           notes.push(
-            `The Airflow request budget is used up; finished task instances after ${from} continue next cycle.`,
+            `The Airflow request budget is used up; finished task instances after ${from} and import errors continue next cycle.`,
           );
-        else {
+        } else {
           await commit();
           throw e;
         }
       }
       const committed = await commit();
+      if (!budgetUsedUp) await importErrors();
       if (notes.length > 0) ctx.reducedFidelity(notes.join(' '));
       return { dataAsOf: committed };
 

@@ -97,14 +97,14 @@
             },
             "airflowFacts": {
               "default": 30,
-              "description": "Finished task instances (incremental facts), in seconds.",
+              "description": "Finished task instances (incremental facts) and import errors, in seconds.",
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
             },
             "airflowInventory": {
-              "default": 900,
-              "description": "DAG list and import errors, in seconds.",
+              "default": 300,
+              "description": "DAG list (a full listing starts at most once an hour), in seconds.",
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
@@ -143,14 +143,14 @@
             },
             "airflowFacts": {
               "default": 60,
-              "description": "Finished task instances (incremental facts), in seconds.",
+              "description": "Finished task instances (incremental facts) and import errors, in seconds.",
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
             },
             "airflowInventory": {
-              "default": 3600,
-              "description": "DAG list and import errors, in seconds.",
+              "default": 600,
+              "description": "DAG list (a full listing starts at most once an hour), in seconds.",
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
@@ -189,14 +189,14 @@
             },
             "airflowFacts": {
               "default": 300,
-              "description": "Finished task instances (incremental facts), in seconds.",
+              "description": "Finished task instances (incremental facts) and import errors, in seconds.",
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
             },
             "airflowInventory": {
-              "default": 3600,
-              "description": "DAG list and import errors, in seconds.",
+              "default": 3000,
+              "description": "DAG list (a full listing starts at most once an hour), in seconds.",
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991

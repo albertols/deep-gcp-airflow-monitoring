@@ -27,11 +27,13 @@ export const PROFILES = ['live', 'standard', 'eco', 'off'] as const satisfies re
 
 /** Collector cadences in seconds (§17.2 `profiles`). */
 export const DEFAULT_PROFILES = {
-  // `airflowInventory` (DAG list and import errors) is not in §17.2; its values are a DCAM call: the
-  // inventory changes slowly and costs many pages at 2,000 DAGs, so it runs far less often than facts.
-  live: { airflowLive: 10, airflowFacts: 30, airflowInventory: 900, monitoring: 60, composer: 300 },
-  standard: { airflowLive: 30, airflowFacts: 60, airflowInventory: 3600, monitoring: 60, composer: 600 },
-  eco: { airflowLive: 120, airflowFacts: 300, airflowInventory: 3600, monitoring: 300, composer: 1800 },
+  // `airflowInventory` (the DAG list) is not in §17.2. §7.7 (L716) runs `af.inventory` every `airflowFacts` × 10:
+  // 5 / 10 / 50 min on live / standard / eco. It starts a full listing at most once an hour (§7.5 L647, "trickled
+  // across the hour"): about 2,000 DAGs are 20 pages an hour, about 0.3 requests a minute, as the §7.11
+  // arithmetic for that profile assumes (L882). Import errors are read by `af.facts` every fact cycle (§7.5 L653).
+  live: { airflowLive: 10, airflowFacts: 30, airflowInventory: 300, monitoring: 60, composer: 300 },
+  standard: { airflowLive: 30, airflowFacts: 60, airflowInventory: 600, monitoring: 60, composer: 600 },
+  eco: { airflowLive: 120, airflowFacts: 300, airflowInventory: 3000, monitoring: 300, composer: 1800 },
 } as const satisfies Record<Exclude<Profile, 'off'>, ProfileCadences>;
 
 /** Default request budgets (§17.2 `budgets`), in requests per minute. */
@@ -69,8 +71,14 @@ function cadences(defaults: ProfileCadences, profile: string) {
   return z
     .strictObject({
       airflowLive: seconds(defaults.airflowLive, 'Live snapshot of pools and waiting task instances'),
-      airflowFacts: seconds(defaults.airflowFacts, 'Finished task instances (incremental facts)'),
-      airflowInventory: seconds(defaults.airflowInventory, 'DAG list and import errors'),
+      airflowFacts: seconds(
+        defaults.airflowFacts,
+        'Finished task instances (incremental facts) and import errors',
+      ),
+      airflowInventory: seconds(
+        defaults.airflowInventory,
+        'DAG list (a full listing starts at most once an hour)',
+      ),
       monitoring: seconds(defaults.monitoring, 'Cloud Monitoring metrics'),
       composer: seconds(defaults.composer, 'Composer environment configuration'),
       bucket: NOT_USED_YET,

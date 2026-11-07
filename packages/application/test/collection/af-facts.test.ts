@@ -139,6 +139,43 @@ describe('FR-COLL-03 af.facts: watermark, overlap and idempotent upserts', () =>
   });
 });
 
+describe('HM-028 af.facts: import errors every fact cycle (spec §7.5 L653, §7.7 L715)', () => {
+  it('HM-028: reads GET /importErrors every cycle and patches only that health input', async () => {
+    const airflow = new FakeAirflow({ importErrors: 3 });
+    const store = new MemoryStore();
+    await store.patchPlatformHealth('acme-prod', { envHealthyRatio: 0.98 });
+    const collector = afFactsCollector();
+    const ctx = fakeContext({ airflow, store, shared });
+    await collector.collect(ctx);
+    airflow.data.importErrors = 4;
+    ctx.advance(MIN);
+    await collector.collect(ctx);
+    expect(airflow.calls.filter((c) => c === 'importErrors')).toHaveLength(2);
+    expect(await store.platformHealth('acme-prod')).toMatchObject({ importErrors: 4, envHealthyRatio: 0.98 });
+  });
+
+  it('HM-028: the import errors take their own request, so a cycle that pages six windows still reads them', async () => {
+    const airflow = new FakeAirflow({ tis: spread(350, END - H + MIN, END - MIN), importErrors: 2 });
+    const store = new MemoryStore();
+    const collector = afFactsCollector();
+    await collector.collect(fakeContext({ airflow, store, shared }));
+    expect(airflow.calls.filter((c) => c === 'taskInstances')).toHaveLength(6);
+    expect(airflow.calls.at(-1)).toBe('importErrors');
+    expect(collector.manifest.maxRequestsPerCycle).toBe(7);
+    expect((await store.platformHealth('acme-prod')).importErrors).toBe(2);
+  });
+
+  it('FR-COLL-06: without budget for the import errors the cycle still commits its facts', async () => {
+    const airflow = new FakeAirflow({ tis: [ti({ updatedAt: T0 - 5 * MIN })] }, new Budget('airflow', 1));
+    const store = new MemoryStore();
+    const ctx = fakeContext({ airflow, store, shared });
+    const result = await afFactsCollector().collect(ctx);
+    expect(store.tries.size).toBe(1);
+    expect(result.dataAsOf).toBe(END);
+    expect(ctx.fidelity).toEqual([expect.stringMatching(/import errors/)]);
+  });
+});
+
 describe('FR-COLL-06 af.facts: windows that fit in one page, within the budget', () => {
   it('FR-COLL-06: splits a window with more rows than a page until each request fits, never paging by offset', async () => {
     const airflow = new FakeAirflow({ tis: spread(350, END - H + MIN, END - MIN) });
@@ -322,7 +359,7 @@ describe('FR-COLL-06 af.facts: windows that fit in one page, within the budget',
       api: 'airflow',
       cadence: 'airflowFacts',
       priority: 'standard',
-      outputs: ['tries'],
+      outputs: ['tries', 'health'],
       sourceKinds: ['composer', 'airflow'],
     });
   });

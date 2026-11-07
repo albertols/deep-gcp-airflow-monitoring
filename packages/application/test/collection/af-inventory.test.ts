@@ -84,6 +84,35 @@ describe('FR-COLL-06 af.inventory: DAG paging within the budget', () => {
     expect((await store.dags('acme-prod')).length).toBe(2_000);
   });
 
+  it('FR-COLL-06: at the standard 10-minute cadence the first listing of 2,000 DAGs takes three cycles, then one pass an hour', async () => {
+    const airflow = new FakeAirflow({ dags: manyDags(2_000) });
+    const store = new MemoryStore();
+    const collector = afInventoryCollector();
+    const ctx = fakeContext({ airflow, store, shared });
+    const stored: number[] = [];
+    const pagesPerCycle: number[] = [];
+    for (let cycle = 0; cycle < 13; cycle++) {
+      const before = airflow.calls.length;
+      await collector.collect(ctx);
+      stored.push((await store.dags('acme-prod')).length);
+      pagesPerCycle.push(airflow.calls.slice(before).filter((c) => c.startsWith('dags:')).length);
+      ctx.advance(10 * 60_000);
+    }
+    expect(stored[2]).toBe(2_000);
+    // Spec §7.5 L647 "Full listing trickled across the hour", §7.11 L882 "20 pages ... about 0.3" a minute.
+    expect(pagesPerCycle.slice(0, 3).reduce((a, b) => a + b, 0)).toBe(20);
+    expect(pagesPerCycle.slice(3, 6)).toEqual([0, 0, 0]);
+    expect(pagesPerCycle.slice(6, 9).reduce((a, b) => a + b, 0)).toBe(20);
+    expect(pagesPerCycle.slice(9, 12)).toEqual([0, 0, 0]);
+    expect(pagesPerCycle[12]).toBeGreaterThan(0);
+  });
+
+  it('HM-028: reads no import errors: af.facts reads them every fact cycle', async () => {
+    const airflow = new FakeAirflow({ dags: manyDags(3), importErrors: 3 });
+    await afInventoryCollector().collect(fakeContext({ airflow, shared }));
+    expect(airflow.calls).not.toContain('importErrors');
+  });
+
   it('FR-COLL-06: a server that returns pages smaller than 100 skips no DAG (spec §7.5, VC-11 open)', async () => {
     const airflow = new FakeAirflow({ dags: manyDags(2_000) });
     airflow.pageCap = 50;
@@ -107,8 +136,8 @@ describe('FR-COLL-06 af.inventory: DAG paging within the budget', () => {
     const store = new MemoryStore();
     const ctx = fakeContext({ airflow, store, shared });
     const result = await afInventoryCollector().collect(ctx);
-    // version, import errors and two pages fit in the budget of 4.
-    expect((await store.dags('acme-prod')).length).toBe(200);
+    // The version and three pages fit in the budget of 4.
+    expect((await store.dags('acme-prod')).length).toBe(300);
     expect(ctx.fidelity).toHaveLength(1);
     expect(result.dataAsOf).toBe(T0);
   });
@@ -125,7 +154,7 @@ describe('FR-COLL-06 af.inventory: DAG paging within the budget', () => {
       'acme_dag_0002',
     ]);
     airflow.data.dags = [dag({ dagId: 'acme_dag_0000' }), dag({ dagId: 'acme_dag_0002', active: false })];
-    ctx.advance(10 * 60_000);
+    ctx.advance(60 * 60_000);
     await collector.collect(ctx);
     expect((await store.dags('acme-prod')).map((d) => d.dagId)).toEqual(['acme_dag_0000']);
     expect(ctx.fidelity).toEqual([]);
@@ -176,16 +205,7 @@ describe('FR-DAGX-08 af.inventory: DAG metadata as the signals read it', () => {
   });
 });
 
-describe('HM-028 af.inventory: import errors', () => {
-  it('HM-028: stores the import error count without touching the other health inputs', async () => {
-    const airflow = new FakeAirflow({ importErrors: 3 });
-    const store = new MemoryStore();
-    const before = await store.platformHealth('acme-prod');
-    await store.savePlatformHealth('acme-prod', { ...before, envHealthyRatio: 0.98 });
-    await afInventoryCollector().collect(fakeContext({ airflow, store, shared }));
-    expect(await store.platformHealth('acme-prod')).toMatchObject({ importErrors: 3, envHealthyRatio: 0.98 });
-  });
-
+describe('FR-COLL-01 af.inventory: manifest', () => {
   it('FR-COLL-01: declares a background Airflow collector for Composer and self-managed Airflow', () => {
     expect(afInventoryCollector().manifest).toMatchObject({
       id: 'af.inventory',
@@ -193,7 +213,7 @@ describe('HM-028 af.inventory: import errors', () => {
       api: 'airflow',
       cadence: 'airflowInventory',
       priority: 'background',
-      outputs: ['dags', 'health'],
+      outputs: ['dags'],
       sourceKinds: ['composer', 'airflow'],
     });
     expect(composerEntry.source.kind).toBe('composer');
