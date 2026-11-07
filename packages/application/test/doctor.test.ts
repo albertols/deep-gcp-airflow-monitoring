@@ -809,6 +809,19 @@ describe('FR-AUTH-05 Airflow web server and role', () => {
     expect(check(report, 'airflow.role', 'acme-composer-prod').status).toBe('skip');
   });
 
+  it('FR-COLL-08: a 404 from the web server names Airflow 3, which replaced the REST API v1', async () => {
+    const { probes } = withAirflow({
+      health: async () => {
+        throw new SourceError('not-found', 'GET /api/v1/health returned 404', { status: 404 });
+      },
+    });
+    const c = check(await run(probes), 'airflow.health', 'acme-composer-prod');
+    expect(c.status).toBe('fail');
+    expect(c.evidence).toMatch(/^No Airflow REST API v1 here/);
+    expect(c.fixHint).toMatch(/Airflow 3 replaced the REST API v1 with \/api\/v2/);
+    expect(c.fixHint).toMatch(/M4/);
+  });
+
   it('FR-AUTH-05: an unhealthy scheduler is a warning, not a failure', async () => {
     const { probes } = withAirflow({
       health: async () => ({

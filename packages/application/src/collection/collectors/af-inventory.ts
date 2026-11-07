@@ -28,6 +28,7 @@
  * @implements FR-COLL-01, FR-COLL-03, FR-COLL-06, FR-COLL-08, FR-DAGX-08 (default team rule)
  */
 import type { DagMeta, EnvironmentConfig } from '@dcam/domain';
+import { SourceError } from '@dcam/ports';
 import { BudgetExhaustedError, type Collector, type CollectorContext } from '../types';
 import {
   assertSupportedAirflow,
@@ -67,6 +68,25 @@ async function dagDefaults(ctx: CollectorContext): Promise<Defaults> {
   };
 }
 
+/**
+ * A 404 on `GET /api/v1/version` means the web server serves no REST API v1. Airflow 3 replaced it: "REST API
+ * (``/api/v1``) replaced: Use the modern FastAPI-based stable ``/api/v2`` instead" (Airflow
+ * `airflow-core/docs/installation/upgrading_to_airflow3.rst` at tag 3.1.0, checked 2026-11-07).
+ */
+function noApiV1(error: unknown): never {
+  if (error instanceof SourceError && error.kind === 'not-found')
+    throw new SourceError(
+      'unsupported',
+      'This Airflow serves no REST API v1 (GET /api/v1/version returned 404)',
+      {
+        ...error.details,
+        fixHint:
+          'Airflow 3 replaced the REST API v1 with /api/v2, which DCAM reads from M4 (spec §22.2). If the environment runs Airflow 2, check that the URL is its Airflow web server.',
+      },
+    );
+  throw error;
+}
+
 export function afInventoryCollector(): Collector {
   const passes = new Map<string, Pass>();
   const versionReadAt = new Map<string, number>();
@@ -91,10 +111,12 @@ export function afInventoryCollector(): Collector {
       let stopped: string | null = null;
 
       try {
+        // The Composer image may already say Airflow 3: no request is spent on an API it does not serve.
+        assertSupportedAirflow(ctx.shared.airflowVersion);
         const lastVersion = versionReadAt.get(envId);
         if (lastVersion === undefined || ctx.now() - lastVersion >= VERSION_EVERY_MS) {
           requests++;
-          const { version } = await airflow.version();
+          const { version } = await airflow.version().catch(noApiV1);
           ctx.shared.airflowVersion = version;
           versionReadAt.set(envId, ctx.now());
         }

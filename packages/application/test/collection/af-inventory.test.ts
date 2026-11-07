@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { SourceError } from '@dcam/ports';
 import { afInventoryCollector } from '../../src/index';
 import {
   Budget,
@@ -42,6 +43,34 @@ describe('FR-COLL-08 af.inventory: version', () => {
     expect(ctx.shared.airflowVersion).toBe('3.1.8');
     expect(airflow.calls).toEqual(['version']);
     expect(await store.dags('acme-prod')).toEqual([]);
+  });
+});
+
+describe('FR-COLL-08 af.inventory: no REST API v1', () => {
+  it('FR-COLL-08: a 404 on GET /api/v1/version is reported as unsupported and names Airflow 3', async () => {
+    const airflow = new FakeAirflow({ dags: manyDags(3) });
+    airflow.version = async () => {
+      airflow.calls.push('version');
+      throw new SourceError('not-found', 'GET /api/v1/version returned 404', { status: 404 });
+    };
+    const ctx = fakeContext({ airflow, shared });
+    const error = await afInventoryCollector()
+      .collect(ctx)
+      .then(
+        () => null,
+        (e: unknown) => e,
+      );
+    expect(error).toMatchObject({ kind: 'unsupported', details: { status: 404 } });
+    expect((error as SourceError).message).toMatch(/REST API v1/);
+    expect((error as SourceError).details.fixHint).toMatch(/Airflow 3/);
+    expect(airflow.calls).toEqual(['version']);
+  });
+
+  it('FR-COLL-08: makes no request when the Composer image already says Airflow 3', async () => {
+    const airflow = new FakeAirflow({ version: '3.1.8', dags: manyDags(3) });
+    const ctx = fakeContext({ airflow, shared: { ...shared, airflowVersion: '3.1.8' } });
+    await expect(afInventoryCollector().collect(ctx)).rejects.toMatchObject({ kind: 'unsupported' });
+    expect(airflow.calls).toEqual([]);
   });
 });
 

@@ -510,8 +510,11 @@ function airflowFailure(error: unknown, entry: EnvironmentEntry, where: string):
         docsUrl,
       });
     case 'not-found':
+      // Airflow 3: "REST API (``/api/v1``) replaced: Use the modern FastAPI-based stable ``/api/v2`` instead"
+      // (airflow-core/docs/installation/upgrading_to_airflow3.rst at tag 3.1.0, checked 2026-11-07).
       return fail(`No Airflow REST API v1 here. ${said}`, {
-        fixHint: 'Check that the environment runs Airflow 2 and that the URL is the Airflow web server.',
+        fixHint:
+          'Airflow 3 replaced the REST API v1 with /api/v2, which DCAM reads from M4 (spec §22.2). If the environment runs Airflow 2, check that the URL is its Airflow web server.',
         docsUrl,
       });
     case 'rate-limited':
