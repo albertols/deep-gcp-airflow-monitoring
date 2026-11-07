@@ -108,6 +108,8 @@ const LeagueRow = memo(function LeagueRow({
   linkTo: (route: Route) => string;
   previousCoverage: number;
 }) {
+  // HM-015: task instances inferred flaky from the try number make the flaky rate an upper bound.
+  const inferred = row.flaky_inferred ?? 0;
   return (
     <TableRow hover aria-rowindex={index + 2}>
       <TableCell sx={cellSx} title={row.dag_id}>
@@ -135,10 +137,16 @@ const LeagueRow = memo(function LeagueRow({
         title={
           row.flaky_rate === null
             ? `Fewer than 20 task instances; ${formatInt(row.retries)} retries in ${formatInt(row.tries)} tries`
-            : `${formatInt(row.retries)} retries in ${formatInt(row.tries)} tries`
+            : `${formatInt(row.retries)} retries in ${formatInt(row.tries)} tries${
+                inferred > 0
+                  ? `; at most this flaky: ${formatInt(inferred)} inferred from the try number, which clearing a task also raises`
+                  : ''
+              }`
         }
       >
-        {formatShare(row.flaky_rate)}
+        {row.flaky_rate !== null && inferred > 0
+          ? `≤ ${formatShare(row.flaky_rate)}`
+          : formatShare(row.flaky_rate)}
       </TableCell>
       <TableCell sx={cellSx} align="right" title={describeQuantile(row.run_duration_p95)}>
         {formatQuantile(row.run_duration_p95)}

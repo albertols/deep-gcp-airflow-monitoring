@@ -150,7 +150,7 @@ export const DAG_EXPLANATIONS = {
     sources: API,
     caveats: [
       'Shown from 20 task instances; "—" below that.',
-      'History DCAM reads after the fact keeps only the latest try of a task instance, so a successful try 2 with no earlier try stored counts as flaky, inferred from the try number.',
+      'History DCAM reads after the fact keeps only the latest try of a task instance, so a successful try 2 with no earlier try stored counts as flaky, inferred from the try number. Clearing a task also raises the try number, so a rate with inferred task instances is an upper bound, shown with "≤".',
     ],
   },
   'dagx-col-duration': {

@@ -163,6 +163,7 @@ describe('FR-DAGX-01..03 DAG league use case', () => {
       tries: 2,
       retries: 0,
       flaky_rate: null,
+      flaky_inferred: 0,
       executor_slot_seconds: 3 * 3600,
       share: 0.75,
       cumulative_share: 0.75,

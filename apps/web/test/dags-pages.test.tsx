@@ -101,6 +101,18 @@ describe('S-11 DAG league table page', { timeout: UI_TIMEOUT_MS }, () => {
     expect(within(partner).getByText('≤ 25m')).toBeInTheDocument(); // low-sample p95 shows the max
   });
 
+  it('HM-015: a flaky rate with task instances inferred flaky from the try number reads as an upper bound', async () => {
+    const league = {
+      ...LEAGUE,
+      rows: LEAGUE.rows.map((r) => (r.dag_id === 'fraud_scoring_hourly' ? { ...r, flaky_inferred: 3 } : r)),
+    };
+    renderPage(DagsPage, fakeApi({ getDagLeague: async () => league }), { page: 'dags' });
+    await screen.findByRole('table', { name: 'DAG league table' });
+    const fraud = screen.getByRole('link', { name: 'fraud_scoring_hourly' }).closest('tr') as HTMLElement;
+    const cell = within(fraud).getByText('≤ 12%');
+    expect(cell).toHaveAttribute('title', expect.stringMatching(/3 inferred from the try number/));
+  });
+
   it('FR-DAGX-02: a DAG absent from the previous period is "new" only where DCAM has data for it', async () => {
     const absent = LEAGUE.rows.map((r) => ({ ...r, previous_share: null }));
     renderPage(

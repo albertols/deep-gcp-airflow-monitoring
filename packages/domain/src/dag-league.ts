@@ -40,6 +40,13 @@ export interface DagWindowStats {
   readonly retries: number;
   /** Task instances with a try starting in the window. */
   readonly taskInstances: number;
+  /** HM-015: flaky task instances, observed and inferred ({@link flakiness}). */
+  readonly flaky: number;
+  /**
+   * Of {@link flaky}, those inferred from the try number alone: with any, the rate is an upper bound (clearing
+   * a task instance also raises its try number).
+   */
+  readonly flakyInferred: number;
   /**
    * HM-015: task instances whose final try succeeded after a failed try ÷ task instances, observed or inferred
    * from the try number ({@link flakiness}); `null` below 20.
@@ -104,6 +111,8 @@ export function emptyDagStats(dagId: string): DagWindowStats {
     tries: 0,
     retries: 0,
     taskInstances: 0,
+    flaky: 0,
+    flakyInferred: 0,
     flakyRate: null,
     runDurationP50: quantile([], 0.5),
     runDurationP95: none,
@@ -150,10 +159,13 @@ export function dagWindowStats(
     const failedRuns = finished.filter((r) => r.state === 'failed').length;
     let taskInstances = 0;
     let flaky = 0;
+    let flakyInferred = 0;
     for (const ti of triesByTaskInstanceOf(dagTries)) {
       if (!ti.some((t) => startedIn(t, w) && ranTry(t))) continue;
       taskInstances++;
-      if (flakiness(ti) !== null) flaky++;
+      const f = flakiness(ti);
+      if (f !== null) flaky++;
+      if (f === 'inferred') flakyInferred++;
     }
     const durations = finished.map((r) => r.durationSeconds as number);
     result.set(dagId, {
@@ -165,6 +177,8 @@ export function dagWindowStats(
       tries: started.length,
       retries: started.filter((t) => t.tryNumber > 1).length,
       taskInstances,
+      flaky,
+      flakyInferred,
       flakyRate: taskInstances >= MIN_SAMPLES_FOR_RATE ? flaky / taskInstances : null,
       runDurationP50: quantile(durations, 0.5),
       runDurationP95: quantile(durations, 0.95),

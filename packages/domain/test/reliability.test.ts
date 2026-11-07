@@ -68,6 +68,8 @@ describe('HM-015 flakiness of one task instance', () => {
       dagIds: ['dag_a'],
     });
     expect(league.rows[0]?.flakyRate).toBe(4 / 20);
+    // The league row says how many of them are inferred, so the rate can be shown as an upper bound.
+    expect(league.rows[0]).toMatchObject({ flaky: 4, flakyInferred: 4 });
   });
 });
 

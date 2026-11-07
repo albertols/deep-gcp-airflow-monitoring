@@ -326,8 +326,10 @@ export interface components {
             success_rate: number | null;
             tries: number;
             retries: number;
-            /** @description Task instances that succeeded after at least one failed try ÷ task instances (HM-015); null below 20 task instances. */
+            /** @description Flaky task instances ÷ task instances (HM-015): those whose latest try succeeded after a failed try, observed (a failed earlier try is stored) or inferred (try number above 1 with no earlier try known). Null below 20 task instances. With flaky_inferred above 0 it is an upper bound: clearing a task instance also raises its try number. */
             flaky_rate: number | null;
+            /** @description Flaky task instances inferred from the try number alone (method HM-015/inferred), part of flaky_rate. Absent from servers before it existed. */
+            flaky_inferred?: number;
             run_duration_p50: components["schemas"]["Quantile"];
             run_duration_p95: components["schemas"]["Quantile"];
             /** @description Seconds (HM-003). */

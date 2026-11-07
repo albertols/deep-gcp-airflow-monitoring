@@ -151,6 +151,7 @@ export async function getDagLeague(deps: DagsDeps, q: DagLeagueQuery): Promise<D
       tries: r.tries,
       retries: r.retries,
       flaky_rate: r.flakyRate,
+      flaky_inferred: r.flakyInferred,
       run_duration_p50: toQuantile(r.runDurationP50),
       run_duration_p95: toQuantile(r.runDurationP95),
       executor_slot_seconds: r.executorSlotSeconds,
