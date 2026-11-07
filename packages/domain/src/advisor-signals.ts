@@ -17,6 +17,13 @@ import {
   type WorkerSample,
 } from './model';
 import { slotSeconds, type TaskTry } from './occupancy';
+import {
+  emptyDagLimitTally,
+  freeWorkerSlots,
+  observeDagLimit,
+  type DagLimitTally,
+  type DagLimitTotals,
+} from './self-throttling';
 import { collisionDensity, type CollisionDensity } from './schedule';
 import { snapshotSpans } from './snapshot-time';
 import { quantile } from './stats';
@@ -97,29 +104,12 @@ export interface PoolSignal {
   readonly lastStarved: number | null;
 }
 
-export interface DagLimitSignal {
+/** HM-005 for one DAG with its limit: the totals come from `self-throttling.ts`. */
+export interface DagLimitSignal extends DagLimitTotals {
   readonly dagId: string;
   readonly limit: number;
   /** True when the DAG uses the environment default `max_active_tasks_per_dag`. */
   readonly limitIsDefault: boolean;
-  /** Snapshots in which the DAG had running, queued or ready task instances. */
-  readonly activeObservations: number;
-  /** Time those snapshots stand for. */
-  readonly activeMs: number;
-  /** Snapshots at `max_active_tasks` with ready task instances of its own (HM-005). */
-  readonly atLimitObservations: number;
-  /** Time those snapshots stand for. */
-  readonly atLimitMs: number;
-  /** Task-time its own ready task instances waited while it was at the limit. */
-  readonly ownWaitingMs: number;
-  /** Highest running + queued + ready task instances of the DAG at the limit. */
-  readonly peakDemand: number;
-  /**
-   * At-limit snapshots with free worker slots in the environment; `null` while `worker_concurrency` is
-   * unknown (HM-032), because free slots cannot be told from full ones.
-   */
-  readonly headroomObservations: number | null;
-  readonly lastAtLimit: number | null;
 }
 
 export type SensorMode = 'poke' | 'reschedule' | 'deferrable';
@@ -297,17 +287,6 @@ interface MutablePool {
   lastStarved: number | null;
 }
 
-interface MutableDagLimit {
-  activeObservations: number;
-  activeMs: number;
-  atLimitObservations: number;
-  atLimitMs: number;
-  ownWaitingMs: number;
-  peakDemand: number;
-  headroomObservations: number | null;
-  lastAtLimit: number | null;
-}
-
 /** Pool starvation and DAG self-throttling, read straight from the snapshots (`spans`: time each stands for). */
 function snapshotSignals(
   input: AdvisorInput,
@@ -328,8 +307,7 @@ function snapshotSignals(
       },
     ]),
   );
-  const dags = new Map<string, MutableDagLimit>();
-  const slotsKnown = limitKnown(config, 'workerConcurrency');
+  const dags = new Map<string, DagLimitTally>();
 
   snapshots.forEach((s, i) => {
     const interval = spans[i] ?? 0;
@@ -354,30 +332,18 @@ function snapshotSignals(
       }
     }
     // Free worker slots are unknown without worker_concurrency (HM-032), never "free" by the placeholder.
-    const freeSlots = slotsKnown && s.executor.running < s.workers.current * config.workerConcurrency;
+    const freeSlots = freeWorkerSlots(s, config);
     for (const dagId of new Set([...Object.keys(s.dagActive), ...readyByDag.keys()])) {
-      const d = dags.get(dagId) ?? {
-        activeObservations: 0,
-        activeMs: 0,
-        atLimitObservations: 0,
-        atLimitMs: 0,
-        ownWaitingMs: 0,
-        peakDemand: 0,
-        headroomObservations: slotsKnown ? 0 : null,
-        lastAtLimit: null,
-      };
-      dags.set(dagId, d);
-      d.activeObservations++;
-      d.activeMs += interval;
-      const active = s.dagActive[dagId] ?? 0;
-      const ready = readyByDag.get(dagId) ?? 0;
-      if (active < (limits.get(dagId) ?? config.maxActiveTasksPerDag) || ready === 0) continue;
-      d.atLimitObservations++;
-      d.atLimitMs += interval;
-      d.ownWaitingMs += ready * interval;
-      d.peakDemand = Math.max(d.peakDemand, active + ready);
-      if (freeSlots && d.headroomObservations !== null) d.headroomObservations++;
-      d.lastAtLimit = s.at;
+      let d = dags.get(dagId);
+      if (!d) dags.set(dagId, (d = emptyDagLimitTally(config)));
+      observeDagLimit(d, {
+        at: s.at,
+        spanMs: interval,
+        inFlight: s.dagActive[dagId] ?? 0,
+        ready: readyByDag.get(dagId) ?? 0,
+        limit: limits.get(dagId) ?? config.maxActiveTasksPerDag,
+        freeSlots,
+      });
     }
   });
   return { pools, dags };

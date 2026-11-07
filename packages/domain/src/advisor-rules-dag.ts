@@ -18,6 +18,14 @@ const STAGGER_MAX_DAGS = 10;
 /** Minutes either side counted as overlapping demand when choosing a stagger minute (⚠️ spec open). */
 const STAGGER_SPREAD = 4;
 
+/**
+ * REC-DAG-01's condition (spec §13.6 L2867): the DAG was at its `max_active_tasks` limit for at least 10 % of its
+ * active time with its own tasks waiting (HM-005). DAG detail (FR-DAGD-05) asks the same question with this.
+ */
+export function raisesRecDag01(d: Pick<DagLimitSignal, 'activeMs' | 'atLimitMs'>): boolean {
+  return d.activeMs > 0 && d.atLimitMs / d.activeMs >= RULE_THRESHOLDS['REC-DAG-01'].minAtLimitShare;
+}
+
 const fileOf = (s: EnvironmentSignals, dagId: string) => s.dags.get(dagId)?.fileloc ?? `${dagId}.py`;
 const pyName = (taskId: string) => {
   const name = taskId.replace(/[^A-Za-z0-9_]/g, '_');
@@ -121,12 +129,7 @@ export const REC_DAG_01: RuleDefinition = {
   inputs: ['snapshots'],
   wiki: 'concurrency-stack',
   evaluate(s) {
-    const t = RULE_THRESHOLDS['REC-DAG-01'];
-    return evaluated(
-      s.dagLimits
-        .filter((d) => d.activeMs > 0 && d.atLimitMs / d.activeMs >= t.minAtLimitShare)
-        .map((d) => throttled(s, d)),
-    );
+    return evaluated(s.dagLimits.filter(raisesRecDag01).map((d) => throttled(s, d)));
   },
 };
 
