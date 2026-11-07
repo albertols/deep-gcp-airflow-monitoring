@@ -9,6 +9,9 @@ import type {
   AirflowApi,
   AirflowDag,
   AirflowTaskInstance,
+  MetricQuery,
+  MetricSeries,
+  MonitoringApi,
   StoredTaskTry,
   TaskInstanceQuery,
   TryKey,
@@ -19,11 +22,13 @@ import {
   afInventoryCollector,
   afLiveCollector,
   createCollectionEngine,
+  monBackfillCollector,
+  monCoreCollector,
   DAY_MS,
   FACTS_SETTLE_MS,
 } from '../../src/index';
 import { MemoryStore, storeKey, ti } from './collectors-harness';
-import { FakeTime, T0, airflowEnv, maxInWindow, workspace } from './engine-harness';
+import { FakeTime, T0, airflowEnv, composerEnv, maxInWindow, workspace } from './engine-harness';
 
 const MIN = 60_000;
 const H = 60 * MIN;
@@ -246,4 +251,82 @@ describe('FR-COLL-04 a week of history at 2,000 DAGs on the standard profile (NF
       expect(final?.requests_used).toBeLessThan(140_000 / 70);
     },
   );
+});
+
+/** Every Composer series mon.core and mon.backfill read, one point per aligned interval; series counted. */
+class SeriesMonitoring implements MonitoringApi {
+  readonly calls: number[] = [];
+  constructor(private readonly time: FakeTime) {}
+  async series(q: MetricQuery): Promise<readonly MetricSeries[]> {
+    this.calls.push(this.time.now());
+    await this.time.sleep(LATENCY_MS);
+    const name = q.metricType.split('/').slice(1).join('/');
+    const value =
+      name.endsWith('quota') || name.endsWith('bytes_used')
+        ? 4 * 1024 ** 3
+        : name.endsWith('scale_factor_target')
+          ? 1
+          : 2;
+    const step = q.alignmentPeriodSeconds * 1000;
+    const points: Array<{ at: number; value: number }> = [];
+    for (let at = q.from + step; at <= q.to; at += step) points.push({ at, value });
+    if (q.groupBy?.includes('resource.labels.type'))
+      return ['scheduler', 'celery-worker'].map((type) => ({
+        metricLabels: {},
+        resourceLabels: { type },
+        points: points.slice(-1),
+      }));
+    return [{ metricLabels: {}, resourceLabels: {}, points }];
+  }
+}
+
+describe('FR-COLL-04 fourteen days of worker samples within the Monitoring budget (NFR-OBS-05, NFR-OBS-06)', () => {
+  it('FR-COLL-04: completes in well under an hour beside mon.core, within 30 requests a minute and about 114 series', async () => {
+    const time = new FakeTime();
+    const monitoring = new SeriesMonitoring(time);
+    const store = new FastStore();
+    const env = composerEnv('acme-composer-prod', 'standard', 'acme-prod-123');
+    const reduced: string[] = [];
+    const engine = createCollectionEngine({
+      config: workspace([env]),
+      store,
+      clock: time,
+      sleeper: time,
+      random: () => 0.5,
+      sources: () => ({
+        monitoring,
+        airflow: () => {
+          throw new Error('no Airflow in this test');
+        },
+      }),
+      collectors: [monCoreCollector(), monBackfillCollector()],
+      log: (entry) => {
+        if (entry.message.startsWith('Reduced fidelity') && entry.collectorId)
+          reduced.push(entry.collectorId);
+      },
+    });
+    engine.start();
+    let minutes = 0;
+    const status = () => engine.status().environments[0]?.backfill?.find((b) => b.kind === 'metrics');
+    while (minutes < 120 && status()?.state !== 'complete') {
+      await time.advance(MIN);
+      minutes++;
+    }
+    const series24h = engine.status().environments[0]?.series_24h ?? 0;
+    await time.settle(engine.stop());
+    expect(status()).toMatchObject({
+      state: 'complete',
+      days: 14,
+      items_read: 14 * 1_440,
+      requests_used: 113,
+    });
+    // Measured: 14 minutes for 113 requests (the background share of 5 a minute plus spare capacity), with at
+    // most 25 Monitoring requests in any minute and 223 series in all.
+    expect(minutes).toBeLessThan(20);
+    expect(maxInWindow(monitoring.calls)).toBeLessThanOrEqual(30);
+    expect(reduced.filter((id) => id === 'mon.core')).toEqual([]);
+    // mon.core's own series (about 16 a minute) plus about 114 for the backfill, once.
+    expect(series24h).toBeLessThan(minutes * 17 + 114 + 20);
+    expect(store.samples.size).toBeGreaterThanOrEqual(14 * 1_440);
+  });
 });

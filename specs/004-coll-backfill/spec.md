@@ -3,7 +3,7 @@
 - **Epic / milestone:** COLL, SELF, UI · M2 demo step 3 (spec §22.6 L4733)
 - **Requirements:** FR-COLL-04 (main), FR-COLL-02, FR-COLL-03, FR-COLL-06, FR-STORE-06, NFR-OBS-01, NFR-OBS-05,
   NFR-OBS-06, NFR-DATA-03, FR-SELF-01, FR-UI-05, FR-UI-07, FR-UI-08
-- **Status:** in progress
+- **Status:** implemented (browser validation and code review pending)
 
 ## Intent
 
@@ -110,3 +110,23 @@ page. Pages whose range reaches past the history read so far say so instead of s
 - Rows of a backfill cycle and its progress commit in one transaction (`commitBackfill`, FR-STORE-06).
 - A backfill that yields to the budget is not "reduced fidelity": it reports progress instead. Only lost data (a
   dense second it could not read completely) is reported as reduced fidelity.
+- Background fairness: a guaranteed share (the `background` budget class, at most half the profile's budget)
+  whenever a token is free, plus spare capacity while more than a quarter of the bucket is free. Measured in the
+  simulation: the share alone took 16 h for the week; spare capacity above half the bucket changed nothing (about
+  4 requests a minute stayed unused); above a quarter it took 10 h, with `af.live` and `af.facts` on time and no
+  60 s window above 12 requests. This replaces feature 002's "background only while half the bucket is free".
+- Monitoring and Composer budgets per profile: the configured value is the live and standard budget, eco a third,
+  background a sixth (§7.11 table 30/30/10/5 and 6/6/2/1). A project's Monitoring gate uses the most demanding
+  profile among its environments.
+- The window reader (`fact-windows.ts`) is shared code, not yet used by `af.facts`: `af.facts`' page-cap rule is
+  being corrected in parallel (a cap learnt from one short page could cut every window to 1 s). The reader
+  already applies the corrected rule (a cap only when two short pages agree, raised by a larger page, forgotten on
+  a full page; a window with a short page is halved, not re-read), so `af.facts` can move onto it after that fix.
+- Parts are sized by the density of the last window read (at most 4× growth): on a day with busy and quiet hours
+  59 instead of 75 requests; 79 rows a request over the simulated week.
+- Measured results: 7 days at 20,000 tries a day (140,000 rows) in 1,777 requests and about 10 h on the
+  standard profile; the ETA a quarter of the way in was 7.1 h for an actual 7.5 h. 14 days of worker samples in
+  113 requests, 14 minutes, at most 25 Monitoring requests in a minute. Faster: the live profile for a while, or
+  a higher `budgets.airflowApi.background` (the health page says so).
+- ⚠️ VERIFY: whether Cloud Monitoring counts a series split across pages more than once (not the case here: one
+  page per query); worker workload `type` values (shared with `mon.core`).

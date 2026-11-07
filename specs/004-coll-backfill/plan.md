@@ -4,9 +4,9 @@
 
 ```text
 af.facts ──(watermark A)──▶ af.backfill: [A − 7 d, A] by updated_at, newest first, background priority
-                              └─ fact-windows.ts (shared with af.facts): split on total_entries, page cap, dense second
+                              └─ fact-windows.ts (af.facts' rules; af.facts moves onto it later): split on total_entries, page cap, dense second
 mon.core                    mon.backfill: [B − 14 d, B] one-day chunks at 60 s, newest first, background priority
-                              └─ monitoring-samples.ts (shared with mon.core): worker type, limits, six series → WorkerSample
+                              └─ worker-samples.ts (shared with mon.core): worker type, limits, six series → WorkerSample
 both ──▶ CollectionStore.commitBackfill(rows + progress, one transaction) ──▶ meta.backfill (migration 0006)
 both ──▶ ctx.reportBackfill(progress, ETA) ──▶ engine status ──▶ GET /api/v1/collection `backfill[]`
                                                                     └─ web: health page panel, history note on pages
@@ -15,16 +15,16 @@ budget.ts: background gets a guaranteed share + spare capacity; Monitoring/Compo
 
 ## Packages touched
 
-| Package                          | Change                                                                                                                                                                                                                                                      |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/ports`                 | Additive: `EnvironmentEntry.backfill?`, `BackfillDays`, `BackfillProgress`, `CollectionStore.backfill()`, `CollectionStore.commitBackfill()`                                                                                                                |
-| `packages/adapters/config-file`  | `environments[].backfill` (replaces the "not used yet" key), defaults, maxima, JSON Schema, Monitoring/Composer descriptions                                                                                                                                |
-| `packages/adapters/duckdb-store` | Migration `0006_backfill` (`meta.backfill`), the two store methods                                                                                                                                                                                          |
-| `packages/application`           | `fact-windows.ts` (extracted from `af.facts`), `af.backfill`, `monitoring-samples.ts` (extracted from `mon.core`), `mon.backfill`, `backfill.ts` (defaults, maxima, rate and ETA), budget fairness and per-profile Google budgets, `reportBackfill`, status |
-| `packages/contracts`             | Additive `CollectionEnvironment.backfill` (`BackfillStatus[]`); `pnpm gen`                                                                                                                                                                                  |
-| `apps/server`                    | Hard maxima agreement test; contract conformance of the new field                                                                                                                                                                                           |
-| `apps/web`                       | Health page backfill panel with (i) entries; `HistoryNote` on the DAG league and bottlenecks pages                                                                                                                                                          |
-| root                             | `dcam.config.example.yaml`                                                                                                                                                                                                                                  |
+| Package                          | Change                                                                                                                                                                                                                                                                  |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/ports`                 | Additive: `EnvironmentEntry.backfill?`, `BackfillDays`, `BackfillProgress`, `CollectionStore.backfill()`, `CollectionStore.commitBackfill()`                                                                                                                            |
+| `packages/adapters/config-file`  | `environments[].backfill` (replaces the "not used yet" key), defaults, maxima, JSON Schema, Monitoring/Composer descriptions                                                                                                                                            |
+| `packages/adapters/duckdb-store` | Migration `0006_backfill` (`meta.backfill`), the two store methods                                                                                                                                                                                                      |
+| `packages/application`           | `fact-windows.ts` (`af.facts`' window rules, both directions), `af.backfill`, `worker-samples.ts` (extracted from `mon.core`), `mon.backfill`, `backfill.ts` (defaults, maxima, rate and ETA), budget fairness and per-profile Google budgets, `reportBackfill`, status |
+| `packages/contracts`             | Additive `CollectionEnvironment.backfill` (`BackfillStatus[]`); `pnpm gen`                                                                                                                                                                                              |
+| `apps/server`                    | Hard maxima agreement test; contract conformance of the new field                                                                                                                                                                                                       |
+| `apps/web`                       | Health page backfill panel with (i) entries; `HistoryNote` on the DAG league and bottlenecks pages                                                                                                                                                                      |
+| root                             | `dcam.config.example.yaml`                                                                                                                                                                                                                                              |
 
 ## Constitution check
 
@@ -38,10 +38,10 @@ budget.ts: background gets a guaranteed share + spare capacity; Monitoring/Compo
 ## Budget arithmetic (standard profile, about 2,000 DAGs, 20,000 tries a day)
 
 - Live and standard Airflow work: about 6–7 of 12 requests a minute (pools, live snapshot, facts, import errors).
-- Background share: 2 a minute guaranteed (inventory about 0.3 of it), plus spare capacity while the bucket is at
-  least half full. 7 days are 140,000 rows, about 80 rows a request: about 1,800–2,500 requests, so the backfill
-  takes most of a day on standard and about 2 h on live (spare capacity). The simulation measures it.
-- Monitoring: 113 requests at 5 a minute guaranteed: about 25 min.
+- Background share: 2 a minute guaranteed (inventory about 0.3 of it), plus spare capacity while more than a
+  quarter of the bucket is free. 7 days are 140,000 rows at about 80 rows a request: measured 1,777 requests and
+  about 10 h on standard (16 h with the guaranteed share alone).
+- Monitoring: 113 requests at 5 a minute guaranteed plus spare capacity: measured 14 min.
 
 ## Testing
 
