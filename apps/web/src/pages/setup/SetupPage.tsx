@@ -1,7 +1,8 @@
 /**
  * Setup mode (FR-SETUP-02): the configuration file is missing or invalid, so DCAM runs no collector.
  * The page names the file DCAM read, lists every issue with its path and fix hint, and gives the next
- * steps as copy-only commands (spec §17.6). Nothing here calls Google Cloud or Airflow.
+ * steps as copy-only commands (spec §17.6), with the `--config` path DCAM was started with. Nothing here
+ * calls Google Cloud or Airflow.
  *
  * @implements FR-SETUP-02, FR-AUTH-02, FR-UI-05
  */
@@ -25,6 +26,17 @@ type Setup = NonNullable<Meta['setup']>;
 
 const mono = { fontFamily: '"Roboto Mono", ui-monospace, monospace' };
 
+/** A path as one shell word: quoted when it has spaces or other special characters (bash, PowerShell, cmd). */
+const shellWord = (path: string): string => (/^[\w@%+=:,./\\-]+$/.test(path) ? path : `"${path}"`);
+
+/** Text with `inline code` spans, as the server writes fix hints: the spans show as code. */
+function WithCode({ text }: { text: string }) {
+  const parts = text.split('`');
+  // An unmatched backtick is shown as it is.
+  if (parts.length % 2 === 0) return <>{text}</>;
+  return <>{parts.map((part, i) => (i % 2 === 1 ? <code key={i}>{part}</code> : part))}</>;
+}
+
 /** A step with a command to copy; DCAM never runs it. */
 function CommandStep({ title, command }: { title: string; command: string }) {
   return (
@@ -36,11 +48,19 @@ function CommandStep({ title, command }: { title: string; command: string }) {
 
 function Status({ setup }: { setup: Setup }) {
   const count = setup.issues.length;
+  const flag = setup.config_flag ?? null;
   if (setup.config_path === null)
     return (
       <Alert severity="info" variant="outlined">
         <AlertTitle>No configuration file found</AlertTitle>
-        DCAM did not find dcam.config.yaml in the folder it was started from, so it collects nothing yet.
+        {flag === null ? (
+          'DCAM found no configuration file, so it collects nothing yet.'
+        ) : (
+          <>
+            DCAM found no file at <code>{flag}</code>, the path given with --config, so it collects nothing
+            yet.
+          </>
+        )}{' '}
         Follow the steps below to create one.
       </Alert>
     );
@@ -76,8 +96,12 @@ function IssuesTable({ issues }: { issues: Setup['issues'] }) {
                   issue.path
                 )}
               </TableCell>
-              <TableCell>{issue.message}</TableCell>
-              <TableCell>{issue.fix_hint}</TableCell>
+              <TableCell>
+                <WithCode text={issue.message} />
+              </TableCell>
+              <TableCell>
+                <WithCode text={issue.fix_hint} />
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -87,6 +111,10 @@ function IssuesTable({ issues }: { issues: Setup['issues'] }) {
 }
 
 export function SetupPage({ setup }: { setup: Setup }) {
+  // Started with --config: every command names that file, else the default dcam.config.yaml.
+  const flag = setup.config_flag ? shellWord(setup.config_flag) : null;
+  const file = flag ?? 'dcam.config.yaml';
+  const withConfig = flag === null ? '' : ` --config ${flag}`;
   return (
     <Stack spacing={4}>
       <PageHeader
@@ -108,13 +136,15 @@ export function SetupPage({ setup }: { setup: Setup }) {
           >
             <CommandStep
               title="Create your configuration file from the example, in the DCAM folder"
-              command="cp dcam.config.example.yaml dcam.config.yaml"
+              command={`cp dcam.config.example.yaml ${file}`}
             />
             <Box component="li">
               <Typography variant="body2">
-                Open dcam.config.yaml and set <code>projectId</code>, <code>location</code> and{' '}
-                <code>environment</code> for each environment you want to monitor. Git ignores this file, so
-                your project IDs stay on this computer.
+                Open {file} and set <code>projectId</code>, <code>location</code> and <code>environment</code>{' '}
+                for each environment you want to monitor.{' '}
+                {flag === null
+                  ? 'Git ignores this file, so your project IDs stay on this computer.'
+                  : 'It holds your project IDs: keep it out of Git.'}
               </Typography>
             </Box>
             <CommandStep
@@ -123,9 +153,9 @@ export function SetupPage({ setup }: { setup: Setup }) {
             />
             <CommandStep
               title="Check credentials, access, the proxy and your Airflow role"
-              command="pnpm dcam doctor"
+              command={`pnpm dcam doctor${withConfig}`}
             />
-            <CommandStep title="Stop DCAM (Ctrl+C), then start it again" command="pnpm dcam" />
+            <CommandStep title="Stop DCAM (Ctrl+C), then start it again" command={`pnpm dcam${withConfig}`} />
           </Box>
           <Typography variant="body2" color="text.secondary">
             On Windows Command Prompt, use copy instead of cp. To keep the file in another folder, start DCAM

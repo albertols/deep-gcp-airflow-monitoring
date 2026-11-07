@@ -16,7 +16,7 @@ import {
   type CollectionLogEntry,
   type Collector,
 } from '@dcam/application';
-import { loadWorkspaceConfig } from '@dcam/config-file';
+import { configFileLocation, loadWorkspaceConfig } from '@dcam/config-file';
 import { openFileStore } from '@dcam/duckdb-store';
 import { networkModeFromEnv, type Transport } from '@dcam/http-guard';
 import type { AccessTokenSource, Clock, ConfigIssue, Sleeper, WorkspaceConfig } from '@dcam/ports';
@@ -172,15 +172,18 @@ export interface OpenConfiguredWorkspaceOptions extends LiveWorkspaceOverrides {
 export async function openConfiguredWorkspace(
   options: OpenConfiguredWorkspaceOptions,
 ): Promise<{ readonly workspace: RunningWorkspace; readonly warnings: readonly ConfigIssue[] }> {
-  const loaded = await loadWorkspaceConfig({
+  const input = {
     flagPath: options.configPath,
     env: options.env,
     cwd: options.cwd,
     homeDir: options.homeDir,
-  });
+  };
+  const loaded = await loadWorkspaceConfig(input);
   if (!loaded.ok) {
     const setup = await createSetupWorkspace({
       configPath: loaded.configPath,
+      // The setup page repeats --config in the commands it suggests.
+      configFlag: options.configPath ? configFileLocation(input) : null,
       issues: loaded.issues,
       ...(options.now === undefined ? {} : { now: options.now }),
     });

@@ -77,8 +77,63 @@ describe('setup page (FR-SETUP-02)', () => {
   it('FR-SETUP-02: a missing file says so and shows no issue table', () => {
     renderPage(MISSING);
     expect(screen.getByText('No configuration file found')).toBeInTheDocument();
-    expect(screen.getByText(/did not find dcam\.config\.yaml/)).toBeInTheDocument();
+    expect(screen.getByText(/found no configuration file, so it collects nothing yet/)).toBeInTheDocument();
     expect(screen.queryByRole('table', { name: 'Configuration issues' })).toBeNull();
+  });
+
+  it('FR-SETUP-02: a missing --config file is named, and every command repeats --config', () => {
+    const flag = '/home/acme/configs/acme dcam.yaml';
+    renderPage({
+      config_path: null,
+      config_flag: flag,
+      issues: [
+        {
+          path: '',
+          message: `No configuration file was found at ${flag}.`,
+          fix_hint: 'Check the path given with --config.',
+        },
+      ],
+    });
+    const alert = screen.getByRole('alert');
+    expect(alert).not.toHaveTextContent(/folder it was started from/);
+    expect(within(alert).getByText(flag).tagName).toBe('CODE');
+    const steps = screen.getByRole('list', { name: 'Steps to set up DCAM' });
+    expect(steps).toHaveTextContent('keep it out of Git');
+    for (const command of [
+      `cp dcam.config.example.yaml "${flag}"`,
+      `pnpm dcam doctor --config "${flag}"`,
+      `pnpm dcam --config "${flag}"`,
+    ])
+      expect(within(steps).getByText(command).tagName).toBe('CODE');
+  });
+
+  it('FR-SETUP-02: an invalid --config file keeps --config in the commands', () => {
+    renderPage({ ...INVALID, config_path: '/home/acme/acme.yaml', config_flag: '/home/acme/acme.yaml' });
+    const steps = screen.getByRole('list', { name: 'Steps to set up DCAM' });
+    expect(within(steps).getByText('pnpm dcam doctor --config /home/acme/acme.yaml').tagName).toBe('CODE');
+    expect(within(steps).getByText('pnpm dcam --config /home/acme/acme.yaml').tagName).toBe('CODE');
+  });
+
+  it('FR-SETUP-02: commands in backticks in a fix hint show as code, without the backticks', () => {
+    renderPage({
+      config_path: null,
+      issues: [
+        {
+          path: '',
+          message: 'No configuration file was found at /home/acme/dcam/dcam.config.yaml.',
+          fix_hint:
+            'To create it, run `cp dcam.config.example.yaml dcam.config.yaml` in the DCAM folder. To try DCAM without Google Cloud, run `pnpm dcam --demo`.',
+        },
+      ],
+    });
+    const table = screen.getByRole('table', { name: 'Configuration issues' });
+    const row = within(table).getByRole('row', { name: /No configuration file was found/ });
+    expect(row).not.toHaveTextContent('`');
+    expect(within(row).getByText('cp dcam.config.example.yaml dcam.config.yaml').tagName).toBe('CODE');
+    expect(within(row).getByText('pnpm dcam --demo').tagName).toBe('CODE');
+    expect(row).toHaveTextContent(
+      'To create it, run cp dcam.config.example.yaml dcam.config.yaml in the DCAM folder.',
+    );
   });
 
   it('FR-SETUP-02: a missing file still lists the issues the server reported', () => {

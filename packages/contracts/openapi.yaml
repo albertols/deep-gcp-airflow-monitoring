@@ -215,6 +215,11 @@ components:
           properties:
             config_path:
               { type: ['string', 'null'], description: File that was read; null when none was found. }
+            config_flag:
+              type: ['string', 'null']
+              description: |
+                The --config path DCAM was started with, made absolute, so the next steps can repeat it;
+                null or absent without --config.
             issues:
               type: array
               items: { $ref: '#/components/schemas/ConfigIssue' }

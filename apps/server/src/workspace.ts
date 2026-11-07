@@ -12,6 +12,8 @@ import type { Clock, ConfigIssue, EnvironmentModelSource } from '@dcam/ports';
 export interface SetupState {
   /** File that was read; `null` when none was found. */
   readonly configPath: string | null;
+  /** The `--config` path DCAM was started with, absolute; `null` or absent without `--config`. */
+  readonly configFlag?: string | null;
   readonly issues: readonly ConfigIssue[];
 }
 

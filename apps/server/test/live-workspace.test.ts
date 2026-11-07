@@ -174,6 +174,28 @@ describe('live workspace (FR-SETUP-02, FR-COLL-11, HM-030, FR-STORE-01)', () => 
     expect(meta.setup?.config_path).toBeNull();
   });
 
+  it('FR-SETUP-02: a missing --config file is named in setup mode, so the next steps can repeat it', async () => {
+    const flagged = await openConfiguredWorkspace({
+      configPath: join('configs', 'acme.yaml'),
+      env: {},
+      cwd: dir,
+      homeDir: dir,
+      now: () => NOW,
+      tokens,
+    });
+    try {
+      const meta = await get<Meta>(flagged.workspace, '/api/v1/meta');
+      expect(meta.setup).toMatchObject({
+        config_path: null,
+        config_flag: join(dir, 'configs', 'acme.yaml'),
+      });
+    } finally {
+      await flagged.workspace.close();
+    }
+    const { workspace: plain } = await open();
+    expect((await get<Meta>(plain, '/api/v1/meta')).setup?.config_flag).toBeNull();
+  });
+
   it('FR-SETUP-02: an invalid configuration starts setup mode with each issue and its fix', async () => {
     await writeFile(join(dir, 'dcam.config.yaml'), 'version: 1\nenvironments:\n  - id: Acme_Prod\n');
     const { workspace: ws } = await open();

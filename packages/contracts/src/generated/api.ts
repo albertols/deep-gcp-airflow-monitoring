@@ -208,6 +208,11 @@ export interface components {
             setup?: {
                 /** @description File that was read; null when none was found. */
                 config_path: string | null;
+                /**
+                 * @description The --config path DCAM was started with, made absolute, so the next steps can repeat it;
+                 *     null or absent without --config.
+                 */
+                config_flag?: string | null;
                 issues: components["schemas"]["ConfigIssue"][];
             };
         };

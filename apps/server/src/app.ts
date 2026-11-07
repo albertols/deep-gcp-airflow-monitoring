@@ -46,6 +46,7 @@ const CSP = [
 function setupMeta(setup: SetupState): NonNullable<Meta['setup']> {
   return {
     config_path: setup.configPath,
+    ...(setup.configFlag === undefined ? {} : { config_flag: setup.configFlag }),
     issues: setup.issues.map((i) => ({ path: i.path, message: i.message, fix_hint: i.fixHint })),
   };
 }

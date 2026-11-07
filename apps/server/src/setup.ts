@@ -35,6 +35,8 @@ export const EMPTY_ENVIRONMENT_MODEL: EnvironmentModelSource = {
 export interface SetupWorkspaceOptions {
   /** File that was read; `null` when no configuration file was found. */
   readonly configPath: string | null;
+  /** The `--config` path DCAM was started with, absolute, so the page's commands can repeat it. */
+  readonly configFlag?: string | null;
   /** Validation problems, each with its path in the file and a fix hint. */
   readonly issues: readonly ConfigIssue[];
   /** Injected clock (tests); the system clock by default. */
@@ -50,6 +52,10 @@ export async function createSetupWorkspace(options: SetupWorkspaceOptions): Prom
     store,
     model: EMPTY_ENVIRONMENT_MODEL,
     clock,
-    setup: { configPath: options.configPath, issues: [...options.issues] },
+    setup: {
+      configPath: options.configPath,
+      ...(options.configFlag === undefined ? {} : { configFlag: options.configFlag }),
+      issues: [...options.issues],
+    },
   };
 }
