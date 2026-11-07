@@ -8,6 +8,8 @@ import {
   SourceError,
   type AirflowApi,
   type AirflowDag,
+  type BackfillProgress,
+  type BackfillRows,
   type AirflowPool,
   type AirflowTaskInstance,
   type CollectionStore,
@@ -184,6 +186,27 @@ export class MemoryStore implements CollectionStore {
     await this.upsertTaskTries(tries);
     this.marks.set(`${envId}|${collectorId}`, watermark);
     this.commits.push({ rows: tries.length, watermark });
+  }
+  readonly backfills = new Map<string, BackfillProgress>();
+  /** Every commitBackfill call, for transaction assertions. */
+  readonly backfillCommits: Array<{ collectorId: string; rows: number; progress: BackfillProgress }> = [];
+  async backfill(envId: string, collectorId: string): Promise<BackfillProgress | null> {
+    return this.backfills.get(`${envId}|${collectorId}`) ?? null;
+  }
+  async commitBackfill(
+    envId: string,
+    collectorId: string,
+    progress: BackfillProgress,
+    rows: BackfillRows,
+  ): Promise<void> {
+    if (rows.tries?.length) await this.upsertTaskTries(rows.tries);
+    if (rows.samples?.length) await this.saveWorkerSamples(envId, rows.samples);
+    this.backfills.set(`${envId}|${collectorId}`, { ...progress });
+    this.backfillCommits.push({
+      collectorId,
+      rows: (rows.tries?.length ?? 0) + (rows.samples?.length ?? 0),
+      progress,
+    });
   }
   async prune(): Promise<void> {}
 }

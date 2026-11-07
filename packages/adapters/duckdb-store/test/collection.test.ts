@@ -17,6 +17,7 @@ describe('CollectionStore round trips (migrations 0004 and 0005)', { timeout: 60
       '0003_ready_operator',
       '0004_collection',
       '0005_estimated_end',
+      '0006_backfill',
     ]);
     store.close();
   });

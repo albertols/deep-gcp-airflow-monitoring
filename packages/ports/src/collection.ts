@@ -1,10 +1,11 @@
 /**
- * Ports for live collection (feature 002): what collectors persist, and the timer they wait on.
+ * Ports for live collection (feature 002): what collectors persist, and the timer they wait on. Backfill
+ * progress (feature 004).
  *
- * @implements FR-COLL-03, FR-STORE-01, FR-STORE-06
+ * @implements FR-COLL-03, FR-COLL-04, FR-STORE-01, FR-STORE-06
  */
 import type { DagMeta, EnvironmentConfig, PlatformHealth, WorkerSample } from '@dcam/domain';
-import type { EnvironmentModelSource, StoredLiveSnapshot, TaskInstanceStore } from './store';
+import type { EnvironmentModelSource, StoredLiveSnapshot, StoredTaskTry, TaskInstanceStore } from './store';
 
 /** Identity of one task instance try (the natural key of the task-instance fact table). */
 export interface TryKey {
@@ -64,8 +65,45 @@ export interface CollectionStore extends TaskInstanceStore, EnvironmentModelSour
     tries: Parameters<TaskInstanceStore['upsertTaskTries']>[0],
     watermark: number,
   ): Promise<void>;
+  /** The persisted plan and progress of a backfill, or `null` before it started (FR-COLL-04). */
+  backfill(envId: string, collectorId: string): Promise<BackfillProgress | null>;
+  /**
+   * Commits the rows of one backfill cycle and its progress in one transaction (FR-STORE-06): tries upsert on
+   * their natural key as {@link TaskInstanceStore.upsertTaskTries} does, samples by minute.
+   */
+  commitBackfill(
+    envId: string,
+    collectorId: string,
+    progress: BackfillProgress,
+    rows: BackfillRows,
+  ): Promise<void>;
   /** Deletes snapshots and samples older than `before` (raw retention). */
   prune(before: number): Promise<void>;
+}
+
+/**
+ * The plan and progress of one backfill on first add (FR-COLL-04), persisted so that a restart resumes it
+ * (FR-COLL-03). A backfill reads `[from, to]` newest first; times are epoch milliseconds.
+ */
+export interface BackfillProgress {
+  /** Where live collection starts: the backfill reads history up to here. */
+  readonly to: number;
+  /** The oldest time it reads back to: `to` minus the configured days. */
+  readonly from: number;
+  /** History is complete from here to `to`; `to` until the first window has been read. */
+  readonly coveredFrom: number;
+  /** Rows stored: task instance tries or worker samples. */
+  readonly itemsRead: number;
+  readonly requestsUsed: number;
+  readonly startedAt: number;
+  /** When `coveredFrom` reached `from`; `null` while the backfill runs. */
+  readonly completedAt: number | null;
+}
+
+/** The rows of one backfill cycle. */
+export interface BackfillRows {
+  readonly tries?: readonly StoredTaskTry[];
+  readonly samples?: readonly WorkerSample[];
 }
 
 /** Waiting between collection cycles; tests inject a fake that advances a fake clock. */

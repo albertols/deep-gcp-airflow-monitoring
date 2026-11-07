@@ -6,7 +6,8 @@
  * time on a dedicated connection, each in its own transaction, so concurrent collectors never share (or roll
  * back) each other's work (FR-STORE-06). Reads use a second connection and see committed data only.
  *
- * @implements FR-STORE-01, FR-STORE-06, FR-COLL-03, NFR-PORT-04, HM-003 (estimated ends), HM-006
+ * @implements FR-STORE-01, FR-STORE-06, FR-COLL-03, FR-COLL-04 (backfill progress), NFR-PORT-04, HM-003
+ *   (estimated ends), HM-006
  */
 import {
   DuckDBInstance,
@@ -18,6 +19,8 @@ import {
 } from '@duckdb/node-api';
 import type { DagMeta, EnvironmentConfig, PlatformHealth, WorkerSample } from '@dcam/domain';
 import type {
+  BackfillProgress,
+  BackfillRows,
   CollectionStore,
   StoredLiveSnapshot,
   StoredTaskTry,
@@ -473,13 +476,54 @@ export class DuckDbStore implements Store, CollectionStore {
 
   async saveWorkerSamples(envId: string, samples: readonly WorkerSample[]): Promise<void> {
     if (samples.length === 0) return;
+    await this.write((con) => this.mergeSamples(con, envId, samples));
+  }
+
+  /** Upserts samples by minute inside the caller's transaction. */
+  private async mergeSamples(
+    con: DuckDBConnection,
+    envId: string,
+    samples: readonly WorkerSample[],
+  ): Promise<void> {
+    // One statement per sample: a batch may repeat a minute, and the later sample wins.
+    for (const s of samples)
+      await con.run(
+        `INSERT OR REPLACE INTO fact.worker_sample VALUES ($1, to_timestamp($2), $3, $4, $5, $6, $7, $8)`,
+        [envId, seconds(s.at), s.workers, s.target, s.running, s.queued, s.cpu, s.memory],
+      );
+  }
+
+  /** The progress is written before the rows, so a failure in either leaves both as they were (FR-STORE-06). */
+  async commitBackfill(
+    envId: string,
+    collectorId: string,
+    progress: BackfillProgress,
+    rows: BackfillRows,
+  ): Promise<void> {
+    const foreign = rows.tries?.find((t) => t.envId !== envId);
+    if (foreign !== undefined)
+      throw new RangeError(`commitBackfill for ${envId} was given a try of environment ${foreign.envId}`);
+    const times = [progress.from, progress.to, progress.coveredFrom, progress.startedAt];
+    if (!times.every(Number.isFinite))
+      throw new RangeError(`commitBackfill for ${envId} was given a progress without finite times`);
     await this.write(async (con) => {
-      // One statement per sample: a batch may repeat a minute, and the later sample wins.
-      for (const s of samples)
-        await con.run(
-          `INSERT OR REPLACE INTO fact.worker_sample VALUES ($1, to_timestamp($2), $3, $4, $5, $6, $7, $8)`,
-          [envId, seconds(s.at), s.workers, s.target, s.running, s.queued, s.cpu, s.memory],
-        );
+      await con.run(
+        `INSERT OR REPLACE INTO meta.backfill VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, to_timestamp($10))`,
+        [
+          envId,
+          collectorId,
+          progress.from,
+          progress.to,
+          progress.coveredFrom,
+          progress.itemsRead,
+          progress.requestsUsed,
+          progress.startedAt,
+          progress.completedAt,
+          seconds(this.now()),
+        ],
+      );
+      if (rows.tries?.length) await this.mergeTries(con, rows.tries);
+      if (rows.samples?.length) await this.mergeSamples(con, envId, rows.samples);
     });
   }
 
@@ -539,6 +583,28 @@ export class DuckDbStore implements Store, CollectionStore {
   }
 
   // ── CollectionStore: reads ───────────────────────────────────────────────────────────────────────
+
+  async backfill(envId: string, collectorId: string): Promise<BackfillProgress | null> {
+    const [row] = await this.rows(`SELECT * FROM meta.backfill WHERE env_id = $1 AND collector_id = $2`, [
+      envId,
+      collectorId,
+    ]);
+    if (row === undefined) return null;
+    const required = (column: string) => {
+      const value = num(row[column]);
+      if (value === null) throw new TypeError(`meta.backfill has no ${column} for ${envId} ${collectorId}`);
+      return value;
+    };
+    return {
+      from: required('from_ms'),
+      to: required('to_ms'),
+      coveredFrom: required('covered_from_ms'),
+      itemsRead: required('items_read'),
+      requestsUsed: required('requests_used'),
+      startedAt: required('started_at_ms'),
+      completedAt: num(row['completed_at_ms']),
+    };
+  }
 
   async watermark(envId: string, collectorId: string): Promise<number | null> {
     const [row] = await this.rows(

@@ -148,4 +148,25 @@ export const MIGRATIONS: readonly Migration[] = [
       );
     `,
   },
+  {
+    // Backfill on first add (feature 004, FR-COLL-04): the plan and progress of each backfill, committed with
+    // its rows so that a restart resumes where it stopped (FR-COLL-03, FR-STORE-06). Epoch milliseconds, as in
+    // meta.watermarks.
+    id: '0006_backfill',
+    sql: `
+      CREATE TABLE meta.backfill (
+        env_id           VARCHAR NOT NULL,
+        collector_id     VARCHAR NOT NULL,
+        from_ms          DOUBLE NOT NULL,
+        to_ms            DOUBLE NOT NULL,
+        covered_from_ms  DOUBLE NOT NULL,
+        items_read       BIGINT NOT NULL,
+        requests_used    BIGINT NOT NULL,
+        started_at_ms    DOUBLE NOT NULL,
+        completed_at_ms  DOUBLE,
+        saved_at         TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY (env_id, collector_id)
+      );
+    `,
+  },
 ];

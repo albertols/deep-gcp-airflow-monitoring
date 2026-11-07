@@ -7,6 +7,7 @@
 import type { ExpectStatic } from 'vitest';
 import type { DagMeta } from '@dcam/domain';
 import type {
+  BackfillProgress,
   CollectionStore,
   SnapshotCoverage,
   StoredLiveSnapshot,
@@ -307,4 +308,67 @@ export const STORE_CONTRACT: readonly StoreContractCase[] = [
       expect(tries.get('kept#1')?.readyAt).toBe(T0 - 4 * MIN);
     },
   },
+  {
+    name: 'FR-COLL-04: a backfill has no progress before it starts; a commit stores its rows and progress together',
+    async run(store, expect) {
+      expect(await store.backfill(ENV, 'af.backfill')).toBeNull();
+      const progress = backfillProgress({ coveredFrom: T0 - DAY, itemsRead: 2, requestsUsed: 3 });
+      await store.commitBackfill(ENV, 'af.backfill', progress, {
+        tries: [tryRow({ taskId: 'old', startAt: T0 - DAY, endAt: T0 - DAY + MIN }), tryRow()],
+      });
+      expect(await store.backfill(ENV, 'af.backfill')).toEqual(progress);
+      expect([...(await all(store)).keys()].sort()).toEqual(['load#1', 'old#1']);
+      // Per environment and collector.
+      expect(await store.backfill('acme-dev', 'af.backfill')).toBeNull();
+      expect(await store.backfill(ENV, 'mon.backfill')).toBeNull();
+    },
+  },
+  {
+    name: 'FR-COLL-03: a later backfill commit replaces the progress and upserts its rows on the natural key',
+    async run(store, expect) {
+      await store.commitBackfill(ENV, 'af.backfill', backfillProgress(), { tries: [tryRow()] });
+      const done = backfillProgress({ coveredFrom: T0 - 7 * DAY, itemsRead: 1, completedAt: T0 + MIN });
+      await store.commitBackfill(ENV, 'af.backfill', done, { tries: [tryRow({ state: 'failed' })] });
+      expect(await store.backfill(ENV, 'af.backfill')).toEqual(done);
+      expect(await store.countTaskTries(ENV)).toBe(1);
+      expect((await all(store)).get('load#1')?.state).toBe('failed');
+    },
+  },
+  {
+    name: 'FR-COLL-04: a metrics backfill commit stores worker samples, upserted by minute',
+    async run(store, expect) {
+      const sample = (at: number, workers: number) => ({
+        at,
+        workers,
+        target: workers,
+        running: 3,
+        queued: 0,
+        cpu: 0.4,
+        memory: 0.5,
+      });
+      const progress = backfillProgress({ coveredFrom: T0 - 2 * MIN });
+      await store.commitBackfill(ENV, 'mon.backfill', progress, {
+        samples: [sample(T0 - 2 * MIN, 2), sample(T0 - MIN, 2)],
+      });
+      await store.commitBackfill(ENV, 'mon.backfill', progress, { samples: [sample(T0 - MIN, 3)] });
+      expect((await store.workerSamples(ENV, T0 - DAY, T0)).map((s) => [s.at, s.workers])).toEqual([
+        [T0 - 2 * MIN, 2],
+        [T0 - MIN, 3],
+      ]);
+      expect(await store.backfill(ENV, 'mon.backfill')).toEqual(progress);
+    },
+  },
 ];
+
+function backfillProgress(over: Partial<BackfillProgress> = {}): BackfillProgress {
+  return {
+    from: T0 - 7 * DAY,
+    to: T0,
+    coveredFrom: T0,
+    itemsRead: 0,
+    requestsUsed: 1,
+    startedAt: T0,
+    completedAt: null,
+    ...over,
+  };
+}
