@@ -102,23 +102,25 @@ export function attributeWaiting(
     for (const c of classified) {
       add(totals, c.reason, span);
       if (bucket) add(bucket.byReason, c.reason, span);
-      const dags = byReasonDag.get(c.reason) ?? new Map<string, number>();
+      let dags = byReasonDag.get(c.reason);
+      if (!dags) byReasonDag.set(c.reason, (dags = new Map()));
       add(dags, c.ti.dagId, span);
-      byReasonDag.set(c.reason, dags);
-      const byPool = byReasonPool.get(c.reason) ?? new Map<string, number>();
+      let byPool = byReasonPool.get(c.reason);
+      if (!byPool) byReasonPool.set(c.reason, (byPool = new Map()));
       add(byPool, c.ti.pool, span);
-      byReasonPool.set(c.reason, byPool);
       if (workersAtMax) add(atMax, c.reason, span);
       if (c.reason === 'pool-exhausted') {
         const p = pools.get(c.ti.pool);
         if (p) p.waitingMs += span;
       }
     }
+    const ready = new Set<string>();
+    for (const ti of s.scheduled) ready.add(ti.pool);
     for (const p of s.pools) {
       const pressure = pools.get(p.name);
       if (!pressure) continue;
       pressure.utilisation.push(p.slots > 0 ? (p.running + p.queued) / p.slots : 0);
-      if (p.open === 0 && s.scheduled.some((ti) => ti.pool === p.name)) pressure.starvedMs += span;
+      if (p.open === 0 && ready.has(p.name)) pressure.starvedMs += span;
     }
     if (bucket) {
       const slots = s.workers.current * config.workerConcurrency;

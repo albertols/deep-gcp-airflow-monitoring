@@ -172,6 +172,16 @@ function seeded(seed: number): () => number {
 function weightedMedian(values: ArrayLike<number>, weights: ArrayLike<number>, n: number): number {
   let total = 0;
   for (let i = 0; i < n; i++) total += weights[i] as number;
+  return medianWithTotal(values, weights, n, total);
+}
+
+/** {@link weightedMedian} when the total weight is already known: one pass that stops at the median. */
+function medianWithTotal(
+  values: ArrayLike<number>,
+  weights: ArrayLike<number>,
+  n: number,
+  total: number,
+): number {
   const half = total / 2;
   const eps = total * 1e-12;
   let cum = 0;
@@ -225,20 +235,123 @@ function bootstrap(
   const aw = new Float64Array(av.length);
   const cw = new Float64Array(cv.length);
   const effects: number[] = [];
+  const na = av.length;
+  const nc = cv.length;
   for (let b = 0; b < opts.resamples; b++) {
     aw.fill(0);
     cw.fill(0);
-    for (let j = 0; j < av.length; j++) {
-      const i = Math.floor(random() * av.length);
+    for (let j = 0; j < na; j++) {
+      const i = (random() * na) | 0;
       aw[i] = (aw[i] as number) + 1;
     }
-    for (let j = 0; j < cv.length; j++) {
-      const i = Math.floor(random() * cv.length);
-      cw[i] = (cw[i] as number) + (c.weights[i] as number);
+    let total = 0;
+    for (let j = 0; j < nc; j++) {
+      const i = (random() * nc) | 0;
+      const w = c.weights[i] as number;
+      cw[i] = (cw[i] as number) + w;
+      total += w;
     }
-    effects.push(weightedMedian(av, aw, av.length) - weightedMedian(cv, cw, cv.length));
+    effects.push(medianWithTotal(av, aw, na, na) - medianWithTotal(cv, cw, nc, total));
   }
   return { lowMs: percentile(effects, 0.025) ?? 0, highMs: percentile(effects, 0.975) ?? 0 };
+}
+
+interface WaitIndex {
+  readonly n: number;
+  /** Waits of minute k are at [offsets[k], offsets[k + 1]). */
+  readonly offsets: Int32Array;
+  readonly waitDag: Int32Array;
+  readonly dagIndex: ReadonlyMap<string, number>;
+  /** Position of each wait in ascending order. */
+  readonly rank: Int32Array;
+  readonly sortedWaits: Float64Array;
+}
+
+/** Most intervals open at once, from flat `[start, stop, …]` pairs; a stop frees its slot before a start at the same time. */
+function peakConcurrency(iv: readonly number[]): number {
+  const m = iv.length / 2;
+  const starts = new Float64Array(m);
+  const stops = new Float64Array(m);
+  for (let j = 0; j < m; j++) {
+    starts[j] = iv[2 * j] as number;
+    stops[j] = iv[2 * j + 1] as number;
+  }
+  starts.sort();
+  stops.sort();
+  let open = 0;
+  let peak = 0;
+  let s = 0;
+  for (let j = 0; j < m; j++) {
+    while (s < m && (stops[s] as number) <= (starts[j] as number)) {
+      s++;
+      open--;
+    }
+    open++;
+    if (open > peak) peak = open;
+  }
+  return peak;
+}
+
+/** Queue waits (`start − queued`) by the minute they were queued, and their global order. */
+function indexWaits(input: NoisyNeighbourInput, minutes: number): WaitIndex {
+  const { from } = input;
+  const dagIndex = new Map<string, number>();
+  const ks: number[] = [];
+  const ds: number[] = [];
+  const ws: number[] = [];
+  for (const t of input.tries) {
+    if (t.queuedAt === null || t.startAt === null || t.startAt < t.queuedAt) continue;
+    if (t.queuedAt < from || t.queuedAt >= input.to) continue;
+    let d = dagIndex.get(t.dagId);
+    if (d === undefined) {
+      d = dagIndex.size;
+      dagIndex.set(t.dagId, d);
+    }
+    ks.push(Math.floor((t.queuedAt - from) / MIN));
+    ds.push(d);
+    ws.push(t.startAt - t.queuedAt);
+  }
+  const n = ks.length;
+  const offsets = new Int32Array(minutes + 1);
+  for (const k of ks) offsets[k + 1] = (offsets[k + 1] as number) + 1;
+  for (let k = 0; k < minutes; k++) offsets[k + 1] = (offsets[k + 1] as number) + (offsets[k] as number);
+  const cursor = offsets.slice(0, minutes);
+  const waitDag = new Int32Array(n);
+  const waitMs = new Float64Array(n);
+  for (let j = 0; j < n; j++) {
+    const k = ks[j] as number;
+    const at = cursor[k] as number;
+    cursor[k] = at + 1;
+    waitDag[at] = ds[j] as number;
+    waitMs[at] = ws[j] as number;
+  }
+  // Sort (wait, index) pairs packed into one number when they fit exactly, else with a comparator.
+  let maxWait = 0;
+  let integral = true;
+  for (let i = 0; i < n; i++) {
+    const w = waitMs[i] as number;
+    if (w > maxWait) maxWait = w;
+    if (!Number.isInteger(w)) integral = false;
+  }
+  let order: ArrayLike<number>;
+  if (integral && (maxWait + 1) * n < Number.MAX_SAFE_INTEGER) {
+    const packed = new Float64Array(n);
+    for (let i = 0; i < n; i++) packed[i] = (waitMs[i] as number) * n + i;
+    packed.sort();
+    order = Int32Array.from(packed, (x) => x % n);
+  } else {
+    order = Array.from({ length: n }, (_, i) => i).sort(
+      (x, y) => (waitMs[x] as number) - (waitMs[y] as number),
+    );
+  }
+  const rank = new Int32Array(n);
+  const sortedWaits = new Float64Array(n);
+  for (let r = 0; r < n; r++) {
+    const i = order[r] as number;
+    rank[i] = r;
+    sortedWaits[r] = waitMs[i] as number;
+  }
+  return { n, offsets, waitDag, dagIndex, rank, sortedWaits };
 }
 
 const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
@@ -263,88 +376,75 @@ export function noisyNeighbours(
   });
   if (minutesWithSlots === 0) return empty(false);
 
-  // Executor slot-ms per DAG and minute (sparse).
-  const dagIndex = new Map<string, number>();
-  const dagIds: string[] = [];
-  const indexOf = (dagId: string) => {
-    let i = dagIndex.get(dagId);
-    if (i === undefined) {
-      i = dagIds.length;
-      dagIds.push(dagId);
-      dagIndex.set(dagId, i);
-    }
-    return i;
-  };
-  const occupancy: Array<Map<number, number>> = [];
+  // 1. Running intervals per DAG, clipped to the observed window.
+  const intervals = new Map<string, number[]>();
   for (const t of input.tries) {
     if (t.startAt === null) continue;
     const stop = Math.min(t.endAt ?? input.now, end);
     const start = Math.max(t.startAt, from);
     if (!(stop > start)) continue;
-    const d = indexOf(t.dagId);
-    const occ = (occupancy[d] ??= new Map());
-    for (let k = Math.floor((start - from) / MIN); k < minutes; k++) {
-      const kFrom = from + k * MIN;
-      if (kFrom >= stop) break;
-      const overlap = Math.min(stop, kFrom + MIN) - Math.max(start, kFrom);
-      if (overlap > 0) occ.set(k, (occ.get(k) ?? 0) + overlap);
-    }
+    const list = intervals.get(t.dagId);
+    if (list) list.push(start, stop);
+    else intervals.set(t.dagId, [start, stop]);
   }
 
-  // Other DAGs' queue waits, by the minute they were queued (CSR layout), and their global wait order.
-  const raw: Array<{ k: number; d: number; wait: number }> = [];
-  for (const t of input.tries) {
-    if (t.queuedAt === null || t.startAt === null || t.startAt < t.queuedAt) continue;
-    if (t.queuedAt < from || t.queuedAt >= input.to) continue;
-    raw.push({ k: Math.floor((t.queuedAt - from) / MIN), d: indexOf(t.dagId), wait: t.startAt - t.queuedAt });
+  // 2. A DAG whose peak concurrency stays below the active share of the fewest slots can never be active,
+  //    so its minutes are never swept: at thousands of DAGs, almost all of them.
+  let fewestSlots = Infinity;
+  for (const x of slots) if (x !== null && x < fewestSlots) fewestSlots = x;
+  const needed = opts.activeShare * fewestSlots * (1 - 1e-9);
+  const occupancy = new Map<string, Map<number, number>>();
+  for (const [dagId, iv] of intervals) {
+    if (iv.length / 2 < needed || peakConcurrency(iv) < needed) continue;
+    const occ = new Map<number, number>();
+    for (let j = 0; j < iv.length; j += 2) {
+      const start = iv[j] as number;
+      const stop = iv[j + 1] as number;
+      for (let k = Math.floor((start - from) / MIN); k < minutes; k++) {
+        const kFrom = from + k * MIN;
+        if (kFrom >= stop) break;
+        const overlap = Math.min(stop, kFrom + MIN) - Math.max(start, kFrom);
+        if (overlap > 0) occ.set(k, (occ.get(k) ?? 0) + overlap);
+      }
+    }
+    occupancy.set(dagId, occ);
   }
-  const n = raw.length;
-  const offsets = new Int32Array(minutes + 1);
-  for (const r of raw) offsets[r.k + 1] = (offsets[r.k + 1] as number) + 1;
-  for (let k = 0; k < minutes; k++) offsets[k + 1] = (offsets[k + 1] as number) + (offsets[k] as number);
-  const cursor = offsets.slice(0, minutes);
-  const waitDag = new Int32Array(n);
-  const waitMs = new Float64Array(n);
-  for (const r of raw) {
-    const at = cursor[r.k] as number;
-    cursor[r.k] = at + 1;
-    waitDag[at] = r.d;
-    waitMs[at] = r.wait;
-  }
-  const order = Array.from({ length: n }, (_, i) => i).sort(
-    (x, y) => (waitMs[x] as number) - (waitMs[y] as number),
-  );
-  const rank = new Int32Array(n);
-  order.forEach((i, r) => (rank[i] = r));
-  const sortedWaits = Float64Array.from(order, (i) => waitMs[i] as number);
+
   const stratum = Int32Array.from(
     { length: minutes },
     (_, k) => (Math.floor((from + k * MIN) / HOUR) + EPOCH_HOUR_OF_WEEK) % 168,
   );
-
-  const wActive = new Float64Array(n);
-  const wInactive = new Float64Array(n);
+  let waits: WaitIndex | null = null;
+  let wActive = new Float64Array(0);
+  let wInactive = new Float64Array(0);
   let candidates = 0;
   const qualified: Array<Omit<NoisyNeighbour, 'ci' | 'confidence'> & { groups: [Group, Group] }> = [];
 
-  for (let d = 0; d < dagIds.length; d++) {
-    const occ = occupancy[d];
-    if (!occ) continue;
-    const state = new Int8Array(minutes); // 1 active, 2 inactive, 0 neither
+  for (const [dagId, occ] of occupancy) {
     let active = 0;
-    for (let k = 0; k < minutes; k++) {
-      const s = slots[k];
-      if (s === null || s === undefined) continue;
-      const held = occ.get(k) ?? 0;
-      if (held === 0) state[k] = 2;
-      else if (held >= opts.activeShare * s * MIN * (1 - 1e-9)) {
-        state[k] = 1;
-        active++;
-      }
+    for (const [k, held] of occ) {
+      const x = slots[k];
+      if (x !== null && x !== undefined && held >= opts.activeShare * x * MIN * (1 - 1e-9)) active++;
     }
     if (active === 0) continue;
     candidates++;
     if (active < opts.minActiveMinutes) continue;
+
+    // 3. Minute states (1 active, 2 inactive, 0 neither) and, once, the index of other DAGs' waits.
+    const state = new Int8Array(minutes);
+    for (let k = 0; k < minutes; k++) if (slots[k] !== null) state[k] = 2;
+    for (const [k, held] of occ) {
+      const x = slots[k];
+      if (x === null || x === undefined) continue;
+      state[k] = held >= opts.activeShare * x * MIN * (1 - 1e-9) ? 1 : 0;
+    }
+    if (!waits) {
+      waits = indexWaits(input, minutes);
+      wActive = new Float64Array(waits.n);
+      wInactive = new Float64Array(waits.n);
+    }
+    const { offsets, waitDag, rank, sortedWaits, n } = waits;
+    const d = waits.dagIndex.get(dagId) ?? -1;
 
     const countA = new Float64Array(168);
     const countI = new Float64Array(168);
@@ -412,7 +512,7 @@ export function noisyNeighbours(
       .sort((x, y) => x.from - y.from);
 
     qualified.push({
-      dagId: dagIds[d] as string,
+      dagId,
       activeMinutes: active,
       affectedTries: affected,
       controlTries: control,
@@ -431,7 +531,13 @@ export function noisyNeighbours(
     .sort((x, y) => y.scoreTaskMs - x.scoreTaskMs || cmp(x.dagId, y.dagId))
     .slice(0, opts.limit)
     .map(({ groups, ...q }): NoisyNeighbour => {
-      const ci = bootstrap(groups[0], groups[1], sortedWaits, opts, seeded(seedOf(q.dagId)));
+      const ci = bootstrap(
+        groups[0],
+        groups[1],
+        (waits as WaitIndex).sortedWaits,
+        opts,
+        seeded(seedOf(q.dagId)),
+      );
       const confidence: NeighbourConfidence =
         ci.lowMs > 0 ? (q.matchedShare >= 0.8 ? 'high' : 'medium') : 'low';
       return { ...q, ci, confidence };

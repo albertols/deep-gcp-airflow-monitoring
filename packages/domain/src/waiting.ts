@@ -58,6 +58,9 @@ export interface ClassifiedWait {
   readonly secondary: readonly WaitReasonId[];
 }
 
+/** Shared empty list of secondary reasons: most waits match one reason. */
+const NONE: readonly WaitReasonId[] = Object.freeze([]);
+
 export function classifySnapshot(s: LiveSnapshot, ctx: ClassifierContext): ClassifiedWait[] {
   const { config } = ctx;
   const pools = new Map(s.pools.map((p) => [p.name, p]));
@@ -72,15 +75,28 @@ export function classifySnapshot(s: LiveSnapshot, ctx: ClassifierContext): Class
   for (const ti of s.scheduled) {
     const pool = pools.get(ti.pool);
     const limit = ctx.dagMaxActiveTasks.get(ti.dagId) ?? config.maxActiveTasksPerDag;
-    const matches: WaitReasonId[] = [];
-    if (!pool) matches.push('pool-missing');
-    else if (ti.poolSlots > pool.slots) matches.push('task-larger-than-pool');
-    if (parallelismFull) matches.push('parallelism');
-    if (pool && ti.poolSlots <= pool.slots && pool.open < ti.poolSlots) matches.push('pool-exhausted');
-    if ((s.dagActive[ti.dagId] ?? 0) >= limit) matches.push('dag-max-active-tasks');
-    if (matches.length === 0)
-      matches.push(s.at - ti.since >= PRE_QUEUE_GRACE_MS ? 'scheduler-throughput' : 'normal-latency');
-    out.push({ ti, phase: 'pre-queue', reason: matches[0] as WaitReasonId, secondary: matches.slice(1) });
+    // The matches in check order, without an array per task instance: most match one reason or none.
+    const a: WaitReasonId | null = !pool
+      ? 'pool-missing'
+      : ti.poolSlots > pool.slots
+        ? 'task-larger-than-pool'
+        : null;
+    const b: WaitReasonId | null = parallelismFull ? 'parallelism' : null;
+    const c: WaitReasonId | null =
+      pool && ti.poolSlots <= pool.slots && pool.open < ti.poolSlots ? 'pool-exhausted' : null;
+    const d: WaitReasonId | null = (s.dagActive[ti.dagId] ?? 0) >= limit ? 'dag-max-active-tasks' : null;
+    const first = a ?? b ?? c ?? d;
+    if (first === null) {
+      const reason = s.at - ti.since >= PRE_QUEUE_GRACE_MS ? 'scheduler-throughput' : 'normal-latency';
+      out.push({ ti, phase: 'pre-queue', reason, secondary: NONE });
+      continue;
+    }
+    const later =
+      (a === null ? 0 : 1) + (b === null ? 0 : 1) + (c === null ? 0 : 1) + (d === null ? 0 : 1) > 1;
+    const secondary: readonly WaitReasonId[] = later
+      ? ([a, b, c, d] as (WaitReasonId | null)[]).filter((r): r is WaitReasonId => r !== null).slice(1)
+      : NONE;
+    out.push({ ti, phase: 'pre-queue', reason: first, secondary });
   }
 
   for (const ti of s.queued) {
@@ -92,7 +108,7 @@ export function classifySnapshot(s: LiveSnapshot, ctx: ClassifierContext): Class
     } else if (s.at - ti.since < POST_QUEUE_GRACE_MS) reason = 'normal-latency';
     // Without worker_concurrency, free slots cannot be told from full ones.
     else reason = slotsKnown ? 'worker-pickup' : 'unknown';
-    out.push({ ti, phase: 'post-queue', reason, secondary: [] });
+    out.push({ ti, phase: 'post-queue', reason, secondary: NONE });
   }
   return out;
 }

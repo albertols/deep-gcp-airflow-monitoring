@@ -16,7 +16,7 @@
  *
  * @implements HM-023
  */
-import type { LiveSnapshot } from './model';
+import type { LiveSnapshot, SnapshotTaskInstance } from './model';
 import { quantile, type Quantile } from './stats';
 
 export type PriorityBandId = 'low' | 'mid' | 'high';
@@ -42,6 +42,8 @@ export interface PoolPriority {
 }
 
 interface Seen {
+  readonly mapIndex: number;
+  readonly tryNumber: number;
   pool: string;
   weight: number;
   firstSince: number;
@@ -55,25 +57,49 @@ export function priorityFairness(
   snapshots: readonly LiveSnapshot[],
   window: { readonly from: number; readonly to: number },
 ): PoolPriority[] {
-  const tries = new Map<string, Seen>();
+  // Nested maps (DAG → run → task → tries) instead of one string key per sighting: no string is built per
+  // task instance, and each ID string is hashed once.
+  const byDag = new Map<string, Map<string, Map<string, Seen[]>>>();
+  const all: Seen[] = [];
+  const see = (ti: SnapshotTaskInstance, at: number) => {
+    let runs = byDag.get(ti.dagId);
+    if (!runs) byDag.set(ti.dagId, (runs = new Map()));
+    let tasks = runs.get(ti.runId);
+    if (!tasks) runs.set(ti.runId, (tasks = new Map()));
+    let tries = tasks.get(ti.taskId);
+    if (!tries) tasks.set(ti.taskId, (tries = []));
+    let seen: Seen | undefined;
+    for (const x of tries)
+      if (x.mapIndex === ti.mapIndex && x.tryNumber === ti.tryNumber) {
+        seen = x;
+        break;
+      }
+    if (!seen) {
+      seen = {
+        mapIndex: ti.mapIndex,
+        tryNumber: ti.tryNumber,
+        pool: ti.pool,
+        weight: ti.priorityWeight,
+        firstSince: ti.since,
+        lastAt: at,
+      };
+      tries.push(seen);
+      all.push(seen);
+    } else {
+      seen.pool = ti.pool;
+      seen.weight = ti.priorityWeight;
+      if (ti.since < seen.firstSince) seen.firstSince = ti.since;
+      if (at > seen.lastAt) seen.lastAt = at;
+    }
+  };
   for (const s of snapshots) {
     if (s.at < window.from || s.at >= window.to) continue;
-    for (const ti of [...s.scheduled, ...s.queued]) {
-      const key = `${ti.dagId}\u0000${ti.runId}\u0000${ti.taskId}\u0000${ti.mapIndex}\u0000${ti.tryNumber}`;
-      const seen = tries.get(key);
-      if (!seen)
-        tries.set(key, { pool: ti.pool, weight: ti.priorityWeight, firstSince: ti.since, lastAt: s.at });
-      else {
-        seen.pool = ti.pool;
-        seen.weight = ti.priorityWeight;
-        seen.firstSince = Math.min(seen.firstSince, ti.since);
-        seen.lastAt = Math.max(seen.lastAt, s.at);
-      }
-    }
+    for (const ti of s.scheduled) see(ti, s.at);
+    for (const ti of s.queued) see(ti, s.at);
   }
 
   const byPool = new Map<string, Seen[]>();
-  for (const t of tries.values()) {
+  for (const t of all) {
     const list = byPool.get(t.pool);
     if (list) list.push(t);
     else byPool.set(t.pool, [t]);
@@ -98,14 +124,20 @@ export function priorityFairness(
         bandOf.set(w, band);
       });
       const bands = BANDS.map((band, b) => {
-        const members = list.filter((t) => bandOf.get(t.weight) === b);
-        const waits = members.map((t) => Math.max(0, t.lastAt - t.firstSince));
-        const ws = members.map((t) => t.weight);
+        const waits: number[] = [];
+        let minWeight = Infinity;
+        let maxWeight = -Infinity;
+        for (const t of list) {
+          if (bandOf.get(t.weight) !== b) continue;
+          waits.push(Math.max(0, t.lastAt - t.firstSince));
+          if (t.weight < minWeight) minWeight = t.weight;
+          if (t.weight > maxWeight) maxWeight = t.weight;
+        }
         return {
           band,
-          minWeight: Math.min(...ws),
-          maxWeight: Math.max(...ws),
-          tries: members.length,
+          minWeight,
+          maxWeight,
+          tries: waits.length,
           waitP50: quantile(waits, 0.5),
           waitP95: quantile(waits, 0.95),
         };
