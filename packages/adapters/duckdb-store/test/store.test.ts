@@ -94,8 +94,8 @@ describe('FR-STORE-01 embedded store with migrations', { timeout: 60_000 }, () =
     const to = T0 + 120_000;
     const expected = (await store.taskTries('acme-prod', from, to)).filter((t) => t.dagId === 'orders_daily');
     expect(expected.map((t) => t.taskId).sort()).toEqual(['load', 'running']);
-    expect(await store.dagTaskTries!('acme-prod', 'orders_daily', from, to)).toEqual(expected);
-    expect(await store.dagTaskTries!('acme-prod', 'nope', from, to)).toEqual([]);
+    expect(await store.dagTaskTries('acme-prod', 'orders_daily', from, to)).toEqual(expected);
+    expect(await store.dagTaskTries('acme-prod', 'nope', from, to)).toEqual([]);
     store.close();
   });
 
