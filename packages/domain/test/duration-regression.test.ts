@@ -202,6 +202,58 @@ describe('HM-016 duration regression of one DAG', () => {
     expect([...result.tasks.values()].every((v) => v.status === 'no-baseline')).toBe(true);
   });
 
+  it('HM-016: a mapped task is one sample per run, its longest map index (the HM-007 collapse rule)', () => {
+    // One daily run over 28 baseline days and one run today, each with 30 map indexes; today 1.4 × slower.
+    const current = { from: T0, to: T0 + 24 * H };
+    const baseline = { from: T0 - 28 * 24 * H, to: T0 };
+    const tries: DagTaskTry[] = [];
+    const mapped = (run: string, start: number, minutes: number) => {
+      for (let i = 0; i < 30; i++)
+        tries.push(
+          tryAt({ taskId: 'm', mapIndex: i, runId: run, start, end: start + minutes + (i % 5) * 0.1 }),
+        );
+    };
+    for (let d = 1; d <= 28; d++) mapped(`scheduled__d${d}`, -d * 24 * 60 + 60, 10);
+    mapped('scheduled__today', 60, 14);
+    const verdict = dagDurationRegression(tries, current, baseline).tasks.get('m');
+    expect(verdict?.current.samples).toBe(1);
+    expect(verdict?.baseline.samples).toBe(28);
+    expect(verdict?.status).toBe('low-sample');
+    // The sample of a run is its longest map index: 14.4 min.
+    expect(verdict?.current.max).toBeCloseTo(14.4 * 60, 6);
+  });
+
+  it('HM-016: the latest successful try of each map index counts, so a retried map index is one sample', () => {
+    const tries = [
+      ...baselineHours.map((h) =>
+        tryAt({ runId: runId(h), taskId: 'm', start: h * 60 + 1, end: h * 60 + 2 }),
+      ),
+      ...currentHours.flatMap((h) => [
+        tryAt({ runId: runId(h), taskId: 'm', mapIndex: 0, start: h * 60 + 1, end: h * 60 + 2 }),
+        tryAt({
+          runId: runId(h),
+          taskId: 'm',
+          mapIndex: 1,
+          start: h * 60 + 1,
+          end: h * 60 + 9,
+          state: 'failed',
+        }),
+        tryAt({
+          runId: runId(h),
+          taskId: 'm',
+          mapIndex: 1,
+          tryNumber: 2,
+          start: h * 60 + 10,
+          end: h * 60 + 11,
+        }),
+      ]),
+    ];
+    const verdict = dagDurationRegression(tries, CURRENT, BASELINE).tasks.get('m');
+    expect(verdict?.current.samples).toBe(24);
+    expect(verdict?.current.max).toBe(60);
+    expect(verdict?.status).toBe('within-baseline');
+  });
+
   it('HM-016: tasks that did not run in the window get no verdict', () => {
     const tries = [
       ...hourlyRuns(baselineHours, () => 60),

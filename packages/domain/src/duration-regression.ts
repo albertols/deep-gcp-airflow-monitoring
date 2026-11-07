@@ -2,9 +2,9 @@
  * Duration regression (HM-016, spec §8.4 L1262) and the duration distribution per task (FR-TASK-01): is a
  * DAG or task now slower than its own baseline? Pure; times are epoch ms, durations are seconds.
  *
- * - Samples: successful tries per task (end − start), and successful runs per DAG (last end − first start).
- *   A try counts in the window it started in; a run in the window its first try started in, so no run is in
- *   both samples.
+ * - Samples: one per task per run, the longest map index's successful try (end − start, the HM-007 collapse
+ *   rule), and successful runs per DAG (last end − first start). Both count in the window the run's (or the
+ *   task's) first try started in, so no run is in both samples, and 10 current samples are 10 distinct runs.
  * - Current window: the selected range (FR-TASK-01). Baseline: the 28 days before it (HM-016), as far as DCAM
  *   has history; the caller states the coverage.
  * - Flag: current p95 ≥ 1.3 × baseline p95, ≥ 10 current samples, one-sided Mann–Whitney p < 0.01, and a
@@ -157,20 +157,36 @@ const push = (m: Map<string, number[]>, k: string, v: number) => {
 };
 
 /**
- * Successful try durations per task for tries starting in each window. Every task with a try starting in
- * the current window has an entry, empty when none of its tries there succeeded.
+ * One duration per task per run: the longest map index (the collapse rule HM-007 uses), each map index by its
+ * latest successful try. Counting every map index as a sample would let one run of a task mapped 30 ways meet
+ * the 10-sample rule alone; with one sample per run, 10 samples are 10 distinct runs. A task's sample belongs
+ * to the window its first try in the run started in. Every task with a try starting in the current window has
+ * an entry, empty when none of its runs there succeeded.
  */
 function taskDurations(tries: readonly DagTaskTry[], current: Span, baseline: Span) {
   const now = new Map<string, number[]>();
   const before = new Map<string, number[]>();
-  for (const t of tries) {
-    if (t.startAt === null) continue;
-    const isCurrent = inSpan(t.startAt, current);
-    if (isCurrent && !now.has(t.taskId)) now.set(t.taskId, []);
-    if (t.state !== 'success' || t.endAt === null || t.endAt < t.startAt) continue;
-    const seconds = (t.endAt - t.startAt) / 1000;
-    if (isCurrent) push(now, t.taskId, seconds);
-    else if (inSpan(t.startAt, baseline)) push(before, t.taskId, seconds);
+  for (const runTries of triesByRun(tries)) {
+    const byTask = new Map<string, { first: number; latest: Map<number, DagTaskTry> }>();
+    for (const t of runTries) {
+      if (t.startAt === null) continue;
+      let task = byTask.get(t.taskId);
+      if (!task) byTask.set(t.taskId, (task = { first: t.startAt, latest: new Map() }));
+      else if (t.startAt < task.first) task.first = t.startAt;
+      if (t.state !== 'success' || t.endAt === null || t.endAt < t.startAt) continue;
+      const seen = task.latest.get(t.mapIndex);
+      if (!seen || t.tryNumber > seen.tryNumber) task.latest.set(t.mapIndex, t);
+    }
+    for (const [taskId, task] of byTask) {
+      const isCurrent = inSpan(task.first, current);
+      if (isCurrent && !now.has(taskId)) now.set(taskId, []);
+      if (task.latest.size === 0) continue;
+      let longest = 0;
+      for (const t of task.latest.values())
+        longest = Math.max(longest, ((t.endAt as number) - (t.startAt as number)) / 1000);
+      if (isCurrent) push(now, taskId, longest);
+      else if (inSpan(task.first, baseline)) push(before, taskId, longest);
+    }
   }
   return { now, before };
 }
