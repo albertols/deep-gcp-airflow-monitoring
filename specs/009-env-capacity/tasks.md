@@ -16,7 +16,7 @@ Test tasks come before the code they cover.
 - [x] T-910 Test + code: `getCapacity` and the `Capacity` contract (FR-ENV-02, FR-DAGX-06)
 - [x] T-911 Test + code: `getForecast` and the `Forecast` contract (HM-010, FR-BOTL-05)
 - [x] T-912 Test: 7 days capacity and a 28-day forecast at 2,000 DAGs, each under 2 s of CPU (NFR-PERF)
-- [ ] T-913 Test + code: `GET …/capacity` and `GET …/forecast`; the demo forecast shows the 01:30 UTC window
+- [x] T-913 Test + code: `GET …/capacity` and `GET …/forecast`; the demo forecast shows the 01:30 UTC window
       (FR-EMU-01)
 
 ## Not in this feature

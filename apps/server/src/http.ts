@@ -2,7 +2,7 @@
  * Shared HTTP helpers for route modules: RFC 9457 problems, environment lookup and range parsing.
  */
 import type { FastifyReply } from 'fastify';
-import type { Meta, Problem, Range, SourceId } from '@dcam/contracts';
+import type { CapacityRange, Meta, Problem, Range, SourceId } from '@dcam/contracts';
 import type { Workspace } from './workspace';
 
 const ERRORS = 'https://github.com/albertols/deep-gcp-airflow-monitoring/blob/main/docs/errors.md';
@@ -28,16 +28,32 @@ export function findEnvironment(ws: Workspace, reply: FastifyReply, envId: strin
   return null;
 }
 
-/** The requested range (24 h by default), or `null` after sending a 400 problem. */
-export function parseRange(reply: FastifyReply, raw: string | undefined): Range | null {
+/** The capacity page's ranges (`CapacityRange`): the shared ones and 7 days. */
+export const CAPACITY_RANGES: ReadonlySet<CapacityRange> = new Set<CapacityRange>(['1h', '6h', '24h', '7d']);
+
+const listed = (xs: readonly string[]) =>
+  xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} or ${xs.at(-1) ?? ''}`;
+
+/** The requested range (24 h by default) among `allowed`, or `null` after sending a 400 problem. */
+export function parseRange(reply: FastifyReply, raw: string | undefined): Range | null;
+export function parseRange<R extends string>(
+  reply: FastifyReply,
+  raw: string | undefined,
+  allowed: ReadonlySet<R>,
+): R | null;
+export function parseRange(
+  reply: FastifyReply,
+  raw: string | undefined,
+  allowed: ReadonlySet<string> = RANGES,
+): string | null {
   const range = raw ?? '24h';
-  if (RANGES.has(range)) return range as Range;
+  if (allowed.has(range)) return range;
   void problem(reply, {
     type: `${ERRORS}#invalid-range`,
     title: 'Invalid time range',
     status: 400,
     detail: `"${raw}" is not a supported range.`,
-    fix_hint: 'Use one of 1h, 6h or 24h.',
+    fix_hint: `Use one of ${listed([...allowed])}.`,
   });
   return null;
 }

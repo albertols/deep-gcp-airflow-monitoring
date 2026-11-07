@@ -15,6 +15,7 @@ import { createMemo } from './cache';
 import { problem } from './http';
 import { alertsFiringFor, registerAlertRoutes } from './routes/alerts';
 import { registerBottleneckRoutes } from './routes/bottlenecks';
+import { registerCapacityRoutes } from './routes/capacity';
 import { registerCollectionRoutes } from './routes/collection';
 import { registerDagRoutes } from './routes/dags';
 import { findingCountsFor, registerFindingRoutes, topFindingsFor } from './routes/findings';
@@ -90,6 +91,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   registerDagRoutes(app, options, memo, { findingCounts: findingCountsFor(options, memo) });
   registerBottleneckRoutes(app, options, memo);
   registerScheduleRoutes(app, options, memo);
+  registerCapacityRoutes(app, options, memo);
   registerFindingRoutes(app, options, memo);
   registerAlertRoutes(app, options, memo);
   registerFleetRoutes(app, options, memo, {
