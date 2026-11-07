@@ -66,110 +66,191 @@ export interface ProfileOptions {
 const demandStart = (t: DemandTry) =>
   t.startAt === null ? null : t.queuedAt === null ? t.startAt : Math.min(t.queuedAt, t.startAt);
 
-/** Adds `weight × share of each minute held` for `[a, b)` ms since run start; returns the last minute touched. */
-function addInterval(buf: Float64Array, a: number, b: number, weight: number): number {
+/** A try that wants a slot for a positive time: `[a, end)`; `null` otherwise. */
+function demandOf(t: DemandTry): number | null {
+  const a = demandStart(t);
+  return a === null || t.endAt === null || t.endAt <= a ? null : a;
+}
+
+/**
+ * Adds `weight × share of each minute held` for `[a, b)` ms since run start to run `r` of the column-major
+ * matrix `m` (minute `k` of run `r` at `k × runs + r`, so each minute's runs are contiguous).
+ */
+function addInterval(m: Float64Array, runs: number, r: number, a: number, b: number, weight: number) {
   const end = Math.min(b, MAX_PROFILE_MINUTES * MIN);
-  let last = -1;
   for (let k = Math.floor(a / MIN); k * MIN < end; k++) {
     const overlap = Math.min(end, (k + 1) * MIN) - Math.max(a, k * MIN);
-    if (overlap <= 0) continue;
-    buf[k] = (buf[k] as number) + (weight * overlap) / MIN;
-    last = k;
-  }
-  return last;
-}
-
-/** Moves the non-zero minutes `0..last` of `buf` into `offsets` and clears them. */
-function collect(buf: Float64Array, last: number, offsets: number[][]) {
-  for (let k = 0; k <= last; k++) {
-    const v = buf[k] as number;
-    if (v === 0) continue;
-    (offsets[k] ??= []).push(v);
-    buf[k] = 0;
+    if (overlap > 0) m[k * runs + r] = (m[k * runs + r] as number) + (weight * overlap) / MIN;
   }
 }
 
-/** Type-7 percentiles per minute over `n` runs, the runs without a value at that minute counting as zero. */
-function percentiles(offsets: readonly (number[] | undefined)[], n: number, ps: readonly number[]) {
-  const out = ps.map(() => new Float64Array(offsets.length));
-  offsets.forEach((values, k) => {
-    if (!values) return;
-    values.sort((a, b) => a - b);
-    const zeros = n - values.length;
-    const at = (i: number) => (i < zeros ? 0 : (values[i - zeros] as number));
-    ps.forEach((p, j) => {
-      const rank = p * (n - 1);
-      const lo = Math.floor(rank);
-      const a = at(lo);
-      (out[j] as Float64Array)[k] = a + (at(Math.ceil(rank)) - a) * (rank - lo);
+/** Moves the `k`-th smallest of `a[lo..hi]` to `a[k]`, smaller ones before it and larger ones after (Hoare). */
+function select(a: Float64Array, lo: number, hi: number, k: number) {
+  while (hi > lo) {
+    const x = a[lo] as number;
+    const y = a[(lo + hi) >> 1] as number;
+    const z = a[hi] as number;
+    const pivot = x < y ? (y < z ? y : x < z ? z : x) : x < z ? x : y < z ? z : y;
+    let i = lo;
+    let j = hi;
+    while (i <= j) {
+      while ((a[i] as number) < pivot) i++;
+      while ((a[j] as number) > pivot) j--;
+      if (i <= j) {
+        const t = a[i] as number;
+        a[i++] = a[j] as number;
+        a[j--] = t;
+      }
+    }
+    if (k <= j) hi = j;
+    else if (k >= i) lo = i;
+    else return;
+  }
+}
+
+/** Places every index of `ks[kLo..kHi]` (ascending) as {@link select} would, in O(n log ks) instead of a sort. */
+function selectAll(a: Float64Array, lo: number, hi: number, ks: readonly number[], kLo: number, kHi: number) {
+  if (kLo > kHi || lo > hi) return;
+  const mid = (kLo + kHi) >> 1;
+  const k = ks[mid] as number;
+  select(a, lo, hi, k);
+  selectAll(a, lo, k - 1, ks, kLo, mid - 1);
+  selectAll(a, k + 1, hi, ks, mid + 1, kHi);
+}
+
+/**
+ * Type-7 percentiles per minute of a column-major matrix of `runs` rows. Only the order statistics the
+ * percentiles interpolate between are placed (reordering each minute's runs in place), not a full sort.
+ */
+function percentiles(m: Float64Array, runs: number, length: number, ps: readonly number[]): Float64Array[] {
+  const out = ps.map(() => new Float64Array(length));
+  const ranks = ps.map((p) => p * (runs - 1));
+  const ks = [...new Set(ranks.flatMap((r) => [Math.floor(r), Math.ceil(r)]))].sort((a, b) => a - b);
+  for (let k = 0; k < length; k++) {
+    const minute = m.subarray(k * runs, (k + 1) * runs);
+    let lo = minute[0] as number;
+    let hi = lo;
+    for (let r = 1; r < runs; r++) {
+      const v = minute[r] as number;
+      if (v < lo) lo = v;
+      else if (v > hi) hi = v;
+    }
+    if (lo !== hi) selectAll(minute, 0, runs - 1, ks, 0, ks.length - 1);
+    ranks.forEach((rank, j) => {
+      const below = Math.floor(rank);
+      const a = minute[below] as number;
+      (out[j] as Float64Array)[k] =
+        lo === hi ? lo : a + ((minute[Math.ceil(rank)] as number) - a) * (rank - below);
     });
-  });
+  }
   return out;
 }
 
-function profileOf(runs: Iterable<readonly DemandTry[]>, readFrom: number): RunProfile | null {
-  const buf = new Float64Array(MAX_PROFILE_MINUTES);
-  const poolBufs = new Map<string, { buf: Float64Array; last: number }>();
-  const offsets: number[][] = [];
-  const poolOffsets = new Map<string, number[][]>();
-  let n = 0;
+/** One reusable, zeroed matrix per profile: DAGs are profiled one after the other. */
+class Scratch {
+  #buf = new Float64Array(0);
+  take(size: number): Float64Array {
+    if (this.#buf.length < size) this.#buf = new Float64Array(Math.max(size, this.#buf.length * 2));
+    const m = this.#buf.subarray(0, size);
+    m.fill(0);
+    return m;
+  }
+}
+
+function profileOf(
+  runs: Iterable<readonly DemandTry[]>,
+  readFrom: number,
+  scratch: Scratch,
+): RunProfile | null {
+  // The finished runs that start inside the read, their starts, and the profile length.
+  const kept: Array<{ start: number; tries: readonly DemandTry[] }> = [];
+  let length = 0;
   for (const tries of runs) {
     let start = Infinity;
+    let end = -Infinity;
     let running = false;
     for (const t of tries) {
-      if (t.endAt === null) running = true;
-      const a = demandStart(t);
-      if (a !== null && a < start) start = a;
+      if (t.endAt === null) {
+        running = true;
+        break;
+      }
+      const a = demandOf(t);
+      if (a === null) continue;
+      if (a < start) start = a;
+      if (t.endAt > end) end = t.endAt;
     }
     if (running || !Number.isFinite(start) || start < readFrom) continue;
-    let last = -1;
-    for (const t of tries) {
-      const a = demandStart(t);
-      if (a === null || t.endAt === null || t.endAt <= a) continue;
-      last = Math.max(last, addInterval(buf, a - start, t.endAt - start, 1));
-      let pool = poolBufs.get(t.pool);
-      if (!pool) poolBufs.set(t.pool, (pool = { buf: new Float64Array(MAX_PROFILE_MINUTES), last: -1 }));
-      pool.last = Math.max(pool.last, addInterval(pool.buf, a - start, t.endAt - start, t.poolSlots));
-    }
-    if (last < 0) continue;
-    n++;
-    collect(buf, last, offsets);
-    for (const [name, pool] of poolBufs) {
-      if (pool.last < 0) continue;
-      let list = poolOffsets.get(name);
-      if (!list) poolOffsets.set(name, (list = []));
-      collect(pool.buf, pool.last, list);
-      pool.last = -1;
-    }
+    kept.push({ start, tries });
+    length = Math.max(length, Math.min(MAX_PROFILE_MINUTES, Math.ceil((end - start) / MIN)));
   }
+  const n = kept.length;
   if (n === 0) return null;
-  const [p10, p50, p90] = percentiles(offsets, n, [0.1, 0.5, 0.9]) as [
+  const m = scratch.take(n * length);
+  // One pool and one `pool_slots` for every try (the usual case): the pool profile is a multiple of the run's.
+  let pool: { readonly name: string; readonly slots: number } | null | undefined;
+  kept.forEach((run, r) => {
+    for (const t of run.tries) {
+      const a = demandOf(t);
+      if (a === null) continue;
+      addInterval(m, n, r, a - run.start, (t.endAt as number) - run.start, 1);
+      if (pool === undefined) pool = { name: t.pool, slots: t.poolSlots };
+      else if (pool && (pool.name !== t.pool || pool.slots !== t.poolSlots)) pool = null;
+    }
+  });
+  const pools = new Map<string, Float64Array>();
+  if (pool === null) {
+    const matrices = new Map<string, Float64Array>();
+    kept.forEach((run, r) => {
+      for (const t of run.tries) {
+        const a = demandOf(t);
+        if (a === null) continue;
+        let pm = matrices.get(t.pool);
+        if (!pm) matrices.set(t.pool, (pm = new Float64Array(n * length)));
+        addInterval(pm, n, r, a - run.start, (t.endAt as number) - run.start, t.poolSlots);
+      }
+    });
+    for (const [name, pm] of matrices) pools.set(name, percentiles(pm, n, length, [0.5])[0] as Float64Array);
+  }
+  const [p10, p50, p90] = percentiles(m, n, length, [0.1, 0.5, 0.9]) as [
     Float64Array,
     Float64Array,
     Float64Array,
   ];
-  const pools = new Map<string, Float64Array>();
-  for (const [name, list] of poolOffsets) pools.set(name, percentiles(list, n, [0.5])[0] as Float64Array);
+  if (pool) {
+    const { name, slots } = pool;
+    pools.set(name, slots === 1 ? p50 : p50.map((v) => v * slots));
+  }
   return { runs: n, p10, p50, p90, pools };
+}
+
+const isScheduled = (runId: string) => runId.startsWith(SCHEDULED_PREFIX);
+
+function addRun(runs: Map<string, DemandTry[]>, t: DemandTry) {
+  const run = runs.get(t.runId);
+  if (run) run.push(t);
+  else runs.set(t.runId, [t]);
+}
+
+function profilesOf(byDag: ReadonlyMap<string, ReadonlyMap<string, readonly DemandTry[]>>, readFrom: number) {
+  const scratch = new Scratch();
+  const out = new Map<string, RunProfile>();
+  for (const [dagId, runs] of byDag) {
+    const profile = profileOf(runs.values(), readFrom, scratch);
+    if (profile) out.set(dagId, profile);
+  }
+  return out;
 }
 
 /** HM-010: run occupancy profiles of every DAG with a finished scheduled run in the history read. */
 export function dagRunProfiles(tries: readonly DemandTry[], opts: ProfileOptions): Map<string, RunProfile> {
   const byDag = new Map<string, Map<string, DemandTry[]>>();
   for (const t of tries) {
-    if (!t.runId.startsWith(SCHEDULED_PREFIX)) continue;
+    if (!isScheduled(t.runId)) continue;
     let runs = byDag.get(t.dagId);
     if (!runs) byDag.set(t.dagId, (runs = new Map<string, DemandTry[]>()));
-    const run = runs.get(t.runId);
-    if (run) run.push(t);
-    else runs.set(t.runId, [t]);
+    addRun(runs, t);
   }
-  const out = new Map<string, RunProfile>();
-  for (const [dagId, runs] of byDag) {
-    const profile = profileOf(runs.values(), opts.readFrom);
-    if (profile) out.set(dagId, profile);
-  }
-  return out;
+  return profilesOf(byDag, opts.readFrom);
 }
 
 export interface ForecastInput {
@@ -407,29 +488,33 @@ export function loadForecast(input: ForecastInput): LoadForecast {
   const evaluated = coveredFrom !== null && coveredFrom < now;
   const historyDays = evaluated ? (now - coveredFrom) / DAY : 0;
 
-  // DAG classes: unpaused cron DAGs are forecast from their runs; other unpaused DAGs feed the baseline.
+  // DAG classes: unpaused cron DAGs are forecast from their scheduled runs (`runs`); other unpaused DAGs, and
+  // the other runs of cron DAGs, feed the baseline. One pass groups every try.
   const cron = new Map<string, DagMeta>();
-  const unscheduled = new Set<string>();
+  const state = new Map<string, { firstSeen: number; runs: Map<string, DemandTry[]> | null }>();
+  let unscheduledDags = 0;
   for (const d of input.dags) {
     if (d.paused) continue;
-    if (cronTimesBetween(d.schedule, 0, 0) === null) unscheduled.add(d.dagId);
-    else cron.set(d.dagId, d);
+    const isCron = cronTimesBetween(d.schedule, 0, 0) !== null;
+    if (isCron) cron.set(d.dagId, d);
+    else unscheduledDags++;
+    state.set(d.dagId, { firstSeen: Infinity, runs: isCron ? new Map<string, DemandTry[]>() : null });
   }
-  const firstSeen = new Map<string, number>();
-  const scheduledTries: DemandTry[] = [];
   const baselineTries: DemandTry[] = [];
   for (const t of input.tries) {
-    const forecast = cron.has(t.dagId);
-    if (!forecast && !unscheduled.has(t.dagId)) continue;
+    const s = state.get(t.dagId);
+    if (!s) continue;
     const a = demandStart(t);
-    if (a !== null && a < (firstSeen.get(t.dagId) ?? Infinity)) firstSeen.set(t.dagId, a);
-    if (forecast && t.runId.startsWith(SCHEDULED_PREFIX)) scheduledTries.push(t);
+    if (a !== null && a < s.firstSeen) s.firstSeen = a;
+    if (s.runs && isScheduled(t.runId)) addRun(s.runs, t);
     else baselineTries.push(t);
   }
-  const profiles = dagRunProfiles(scheduledTries, { readFrom: input.historyReadFrom });
+  const grouped = new Map<string, Map<string, DemandTry[]>>();
+  for (const [dagId, s] of state) if (s.runs && s.runs.size > 0) grouped.set(dagId, s.runs);
+  const profiles = profilesOf(grouped, input.historyReadFrom);
   const dagHistoryDays = (dagId: string) => {
-    const seen = firstSeen.get(dagId);
-    if (seen === undefined) return null;
+    const seen = state.get(dagId)?.firstSeen ?? Infinity;
+    if (!Number.isFinite(seen)) return null;
     return (now - Math.max(seen, coveredFrom ?? seen)) / DAY;
   };
 
@@ -601,7 +686,7 @@ export function loadForecast(input: ForecastInput): LoadForecast {
     plannedRuns,
     runsProfiled,
     dagsWithoutHistory,
-    unscheduledDags: unscheduled.size,
+    unscheduledDags,
     historyFrom: evaluated ? coveredFrom : null,
     historyDays,
     lowConfidenceShare: runMinutes > 0 ? lowMinutes / runMinutes : null,
