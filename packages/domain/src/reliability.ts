@@ -22,6 +22,7 @@ import { MIN_SAMPLES_FOR_RATE, runsInWindow } from './dag-league';
 import {
   flakiness,
   isFailedTry,
+  ranTry,
   startedIn,
   triesByTaskInstanceOf,
   type DagTaskTry,
@@ -205,7 +206,8 @@ export function dagReliability(
   const all = newTally();
   const allRecoveries: number[] = [];
   let allUnrecovered = 0;
-  for (const [taskId, t] of tallyByTask(tries, w)) {
+  // Skipped and upstream_failed task instances never ran: no tries, no task instances (they still fail runs).
+  for (const [taskId, t] of tallyByTask(tries.filter(ranTry), w)) {
     // Only tasks with a try starting in the window are reported.
     if (t.tries === 0) continue;
     const outage = taskOutages(t.events);

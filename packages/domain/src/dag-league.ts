@@ -11,6 +11,7 @@
 import {
   flakiness,
   groupBy,
+  ranTry,
   startedIn,
   summariseRun,
   triesByRun,
@@ -139,7 +140,8 @@ export function dagWindowStats(
   const byDag = groupBy(tries, (t) => t.dagId);
   const result = new Map<string, DagWindowStats>();
   for (const [dagId, dagTries] of byDag) {
-    const started = dagTries.filter((t) => startedIn(t, w));
+    // Skipped and upstream_failed task instances never ran: no tries and no task instances (HM-015).
+    const started = dagTries.filter((t) => startedIn(t, w) && ranTry(t));
     const slot = seconds.get(dagId)?.executorSlotSeconds ?? 0;
     if (started.length === 0 && slot === 0) continue;
 
@@ -149,7 +151,7 @@ export function dagWindowStats(
     let taskInstances = 0;
     let flaky = 0;
     for (const ti of triesByTaskInstanceOf(dagTries)) {
-      if (!ti.some((t) => startedIn(t, w))) continue;
+      if (!ti.some((t) => startedIn(t, w) && ranTry(t))) continue;
       taskInstances++;
       if (flakiness(ti) !== null) flaky++;
     }

@@ -11,12 +11,13 @@
  * Each step's wait is the gap since the previous step ended (since the run's first start for the first),
  * so the path sums to the run duration. Slack per task needs the graph and is not computed.
  *
- * Mapped task instances collapse to the map index that ended last, skipped ones never started, and retries
- * add their wait and run time, as HM-007 asks.
+ * Mapped task instances collapse to the map index that ended last, skipped and upstream_failed task instances
+ * are left out (Airflow gives them start = end, {@link ranTry}), and retries add their wait and run time, as
+ * HM-007 asks. A run still in progress ({@link summariseRun}) has no critical path.
  *
  * @implements HM-007 (timing method), FR-DAGD-03 (critical path)
  */
-import { startedIn, summariseRun, triesByRun, type DagTaskTry, type RunOptions } from './dag-runs';
+import { ranTry, startedIn, summariseRun, triesByRun, type DagTaskTry, type RunOptions } from './dag-runs';
 
 export interface CriticalStep {
   readonly taskId: string;
@@ -65,9 +66,14 @@ function lastEndingBy(sorted: readonly Finished[], at: number): number {
   return lo - 1;
 }
 
-/** HM-007 for one finished run: `runTries` are all its tries. `null` while a try runs, or without tries. */
+/**
+ * HM-007 for one finished run: `runTries` are all its tries. `null` while the run is in progress (a try runs,
+ * or a task instance waits for its retry or reschedule), or without tries that ran.
+ */
 export function criticalPath(runTries: readonly DagTaskTry[]): CriticalPath | null {
-  const started = runTries.filter((t) => t.startAt !== null);
+  const run = summariseRun(runTries);
+  if (!run || run.state === 'running') return null;
+  const started = runTries.filter((t) => t.startAt !== null && ranTry(t));
   if (started.length === 0 || started.some((t) => t.endAt === null)) return null;
   const finished = started.filter((t): t is Finished => (t.endAt as number) >= (t.startAt as number));
   if (finished.length === 0) return null;

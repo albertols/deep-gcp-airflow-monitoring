@@ -43,6 +43,20 @@ const FINISHED_STATES: ReadonlySet<string> = new Set([
   'removed',
 ]);
 
+/**
+ * States of task instances that never ran. Airflow 2.11.1 gives them a start and an end anyway: `SkipMixin`
+ * sets `start_date = end_date = now` on the task instances it skips (`airflow/models/skipmixin.py` L83, L94),
+ * and `TaskInstance._set_state` sets `start_date = start_date or now` and the same end on any finished state
+ * (`airflow/models/taskinstance.py` L2443-2446), which is how the trigger rule sets upstream_failed
+ * (`airflow/ti_deps/deps/trigger_rule_dep.py` L327, L451). They are no tries for HM-015 and no steps for HM-007.
+ * A task that raised `AirflowSkipException` after running ends `skipped` too; HM-007 excludes skipped
+ * branches, and it neither failed nor succeeded.
+ */
+const NEVER_RAN_STATES: ReadonlySet<string> = new Set(['skipped', 'upstream_failed']);
+
+/** True unless the try is a skipped or upstream_failed task instance, which never ran ({@link NEVER_RAN_STATES}). */
+export const ranTry = (t: Pick<DagTaskTry, 'state'>) => t.state === null || !NEVER_RAN_STATES.has(t.state);
+
 /** True when the try reached a terminal state: an end time alone does not say the task instance is done. */
 export const isFinishedTry = (t: Pick<DagTaskTry, 'state'>) =>
   t.state !== null && FINISHED_STATES.has(t.state);

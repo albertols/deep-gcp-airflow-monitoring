@@ -158,6 +158,22 @@ describe('HM-015 failures, retries and flakiness of one DAG', () => {
     expect(r).toMatchObject({ runRecoveries: 0, runUnrecovered: 1, runMttrSeconds: null });
   });
 
+  it('HM-015: skipped and upstream_failed task instances never ran: they are no tries and no task instances', () => {
+    const tries = [
+      tryAt({ runId: run(0), taskId: 'a', start: 10, end: 12, state: 'failed' }),
+      tryAt({ runId: run(0), taskId: 'b', start: 12, end: 12, state: 'upstream_failed', queued: null }),
+      tryAt({ runId: run(1), taskId: 'a', start: 70, end: 72 }),
+      tryAt({ runId: run(1), taskId: 'b', start: 72, end: 72, state: 'skipped', queued: null }),
+    ];
+    const r = dagReliability(tries, W);
+    expect(r.tasks).toMatchObject({ tries: 2, failedTries: 1, taskInstances: 2 });
+    expect(r.byTask.has('b')).toBe(false);
+    expect(
+      dagLeague({ tries, window: W, previousWindow: windowOf(-24 * 60, 0, 24 * 60), dagIds: ['dag_a'] })
+        .rows[0],
+    ).toMatchObject({ tries: 2, taskInstances: 2 });
+  });
+
   it('HM-015: outages are per map index: another map index succeeding is no recovery', () => {
     const tries = [
       tryAt({ taskId: 'm', mapIndex: 0, start: 10, end: 20, state: 'failed' }),

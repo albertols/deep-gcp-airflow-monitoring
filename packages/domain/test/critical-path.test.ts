@@ -61,9 +61,26 @@ describe('HM-007 critical path of one run, estimated from timing', () => {
     ]);
   });
 
+  it('HM-007: skipped and upstream_failed task instances are excluded, though Airflow gives them start = end', () => {
+    // Airflow 2.11.1 SkipMixin and TaskInstance._set_state set start_date = end_date = now on them.
+    const branched = [
+      tryAt({ taskId: 'a', start: 0, end: 10 }),
+      tryAt({ taskId: 'branch', start: 10, end: 11, ready: 10 }),
+      tryAt({ taskId: 'skipped_d', start: 11, end: 11, state: 'skipped', queued: null }),
+      tryAt({ taskId: 'never_e', start: 11, end: 11, state: 'upstream_failed', queued: null }),
+      tryAt({ taskId: 'c', start: 11.2, end: 30, ready: 11 }),
+      tryAt({ taskId: 'join', start: 31, end: 40, ready: 30.5 }),
+    ];
+    expect(steps(branched)).toEqual(['a', 'branch', 'c', 'join']);
+  });
+
   it('HM-007: a run with a try still running, or without tries, has no critical path yet', () => {
     expect(criticalPath([...run, tryAt({ taskId: 'late', start: 41, end: null })])).toBeNull();
     expect(criticalPath([])).toBeNull();
+    // The latest try failed into up_for_retry: Airflow set its end, but the retry has not run yet.
+    expect(
+      criticalPath([...run, tryAt({ taskId: 'late', start: 41, end: 42, state: 'up_for_retry' })]),
+    ).toBeNull();
   });
 
   it('HM-007: across the finished runs of a window, how often each task is on the critical path', () => {
