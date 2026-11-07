@@ -46,15 +46,16 @@ interface Column {
 }
 
 const COLUMNS: readonly Column[] = [
-  { key: 'dag_id', explanation: 'dagx-col-dag', numeric: false, width: '18%' },
-  { key: 'team', explanation: 'dagx-col-team', numeric: false, width: '10%' },
+  { key: 'dag_id', explanation: 'dagx-col-dag', numeric: false, width: '16%' },
+  { key: 'team', explanation: 'dagx-col-team', numeric: false, width: '9%' },
   { key: 'runs', explanation: 'dagx-col-runs', numeric: true, width: '6%' },
   { key: 'success_rate', explanation: 'dagx-col-success', numeric: true, width: '7%' },
-  { key: 'run_duration_p95', explanation: 'dagx-col-duration', numeric: true, width: '9%' },
+  { key: 'flaky_rate', explanation: 'dagx-col-flaky', numeric: true, width: '6%' },
+  { key: 'run_duration_p95', explanation: 'dagx-col-duration', numeric: true, width: '8%' },
   { key: 'executor_slot_seconds', explanation: 'dagx-col-slot-hours', numeric: true, width: '8%' },
-  { key: 'share', explanation: 'dagx-col-share', numeric: true, width: '11%' },
+  { key: 'share', explanation: 'dagx-col-share', numeric: true, width: '10%' },
   { key: 'queue_wait_p95', explanation: 'dagx-col-queue', numeric: true, width: '8%' },
-  { key: 'ready_wait_p95', explanation: 'dagx-col-ready', numeric: true, width: '9%' },
+  { key: 'ready_wait_p95', explanation: 'dagx-col-ready', numeric: true, width: '8%' },
   { key: 'peak_concurrency', explanation: 'dagx-col-peak', numeric: true, width: '7%' },
   { key: 'open_findings', explanation: 'dagx-col-findings', numeric: true, width: '7%' },
 ];
@@ -127,6 +128,17 @@ const LeagueRow = memo(function LeagueRow({
       </TableCell>
       <TableCell sx={cellSx} align="right">
         {formatShare(row.success_rate)}
+      </TableCell>
+      <TableCell
+        sx={cellSx}
+        align="right"
+        title={
+          row.flaky_rate === null
+            ? `Fewer than 20 task instances; ${formatInt(row.retries)} retries in ${formatInt(row.tries)} tries`
+            : `${formatInt(row.retries)} retries in ${formatInt(row.tries)} tries`
+        }
+      >
+        {formatShare(row.flaky_rate)}
       </TableCell>
       <TableCell sx={cellSx} align="right" title={describeQuantile(row.run_duration_p95)}>
         {formatQuantile(row.run_duration_p95)}
@@ -201,7 +213,7 @@ export function LeagueTable({
         size="small"
         aria-label="DAG league table"
         aria-rowcount={rows.length + 1}
-        sx={{ tableLayout: 'fixed', minWidth: 1240 }}
+        sx={{ tableLayout: 'fixed', minWidth: 1320 }}
       >
         <TableHead>
           <TableRow aria-rowindex={1}>

@@ -73,6 +73,7 @@ export type SortKey =
   | 'team'
   | 'runs'
   | 'success_rate'
+  | 'flaky_rate'
   | 'run_duration_p95'
   | 'executor_slot_seconds'
   | 'share'

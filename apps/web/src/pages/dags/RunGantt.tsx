@@ -1,9 +1,10 @@
 /**
  * Run Gantt (FR-DAGD-03): every try of one run on a time axis, with the wait before the queue, the wait
  * in the queue and the running time in visually distinct, accessible styles (hatched, dotted, solid),
- * a legend, a text summary and a table view.
+ * a legend, a text summary and a table view. Tries on the critical path (HM-007, estimated from timing)
+ * have a dashed outline, a legend entry and a table column.
  *
- * @implements FR-DAGD-03
+ * @implements FR-DAGD-03, HM-007
  */
 import { useId, useState } from 'react';
 import Box from '@mui/material/Box';
@@ -108,9 +109,12 @@ export function RunGantt({ gantt, dataAsOf }: { gantt: DagDetail['gantt']; dataA
     .filter(Boolean)
     .join('; ');
   const tasks = new Set(gantt.rows.map((r) => r.task_id)).size;
+  const critical = new Set(gantt.critical_path?.row_indexes ?? []);
   const description = `${formatInt(gantt.rows.length)} tries of ${formatInt(tasks)} tasks${
     gantt.rows.length > MAX_ROWS ? `, the first ${MAX_ROWS} drawn` : ''
-  }. ${summary ? `${summary[0]?.toUpperCase()}${summary.slice(1)}.` : ''}`;
+  }. ${summary ? `${summary[0]?.toUpperCase()}${summary.slice(1)}.` : ''}${
+    critical.size > 0 ? ` Critical path, estimated from timing: ${formatInt(critical.size)} tries.` : ''
+  }`;
   const ticks = Array.from({ length: 5 }, (_, i) => t0 + ((t1 - t0) * i) / 4);
 
   return (
@@ -158,6 +162,22 @@ export function RunGantt({ gantt, dataAsOf }: { gantt: DagDetail['gantt']; dataA
               <Typography variant="caption">{text}</Typography>
             </Box>
           ))}
+          {critical.size > 0 && (
+            <Box component="li" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <svg width="18" height="12" aria-hidden="true">
+                <rect
+                  x="0.5"
+                  y="0.5"
+                  width="17"
+                  height="11"
+                  fill="none"
+                  stroke={t.textPrimary}
+                  strokeDasharray="3 2"
+                />
+              </svg>
+              <Typography variant="caption">Critical path (estimate)</Typography>
+            </Box>
+          )}
         </Box>
         <Button size="small" variant="outlined" onClick={() => setAsTable((v) => !v)}>
           {asTable ? 'View Gantt as chart' : 'View Gantt as table'}
@@ -179,6 +199,7 @@ export function RunGantt({ gantt, dataAsOf }: { gantt: DagDetail['gantt']; dataA
                 <TableCell align="right">Wait before queue</TableCell>
                 <TableCell align="right">Queue wait</TableCell>
                 <TableCell align="right">Running</TableCell>
+                {critical.size > 0 && <TableCell>Critical path</TableCell>}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -200,6 +221,7 @@ export function RunGantt({ gantt, dataAsOf }: { gantt: DagDetail['gantt']; dataA
                     <TableCell align="right">
                       {formatDuration(seconds(b.find((s) => s.kind === 'running')))}
                     </TableCell>
+                    {critical.size > 0 && <TableCell>{critical.has(i) ? 'On the path' : '—'}</TableCell>}
                   </TableRow>
                 );
               })}
@@ -227,8 +249,26 @@ export function RunGantt({ gantt, dataAsOf }: { gantt: DagDetail['gantt']; dataA
             const top = i * ROW_H;
             const failed = r.state === 'failed';
             const text = rowLabel(r);
+            const rowBars = bars[i] ?? [];
+            const onPath = critical.has(i) && rowBars.length > 0;
+            const pathFrom = Math.min(...rowBars.map((b) => x(b.from)));
+            const pathTo = Math.max(...rowBars.map((b) => x(b.to)));
             return (
               <g key={`${r.task_id}-${r.try_number}-${i}`}>
+                {onPath && (
+                  <rect
+                    data-critical="true"
+                    x={pathFrom - 2}
+                    y={top + 1}
+                    width={Math.max(4, pathTo - pathFrom + 4)}
+                    height={ROW_H - 2}
+                    fill="none"
+                    stroke={t.textPrimary}
+                    strokeDasharray="3 2"
+                  >
+                    <title>{`${text}: on the critical path (estimated from timing)`}</title>
+                  </rect>
+                )}
                 <text x={4} y={top + 15} fontSize={11} fill={t.textPrimary} fontFamily={MONO}>
                   {text.length > 30 ? `${text.slice(0, 29)}…` : text}
                 </text>

@@ -140,6 +140,19 @@ export const DAG_EXPLANATIONS = {
       'Until DCAM reads DAG run states directly (M1), a run whose retry has not started yet shows as failed.',
     ],
   },
+  'dagx-col-flaky': {
+    id: 'dagx-col-flaky',
+    title: 'Flaky',
+    summary:
+      'Task instances that succeeded only after a failed try ÷ task instances in the range (HM-015). The tooltip has the retries.',
+    howToRead:
+      'The "Flaky" preset lists DAGs at 5 % or more. Open a DAG to see which of its tasks are flaky.',
+    sources: API,
+    caveats: [
+      'Shown from 20 task instances; "—" below that.',
+      'History DCAM reads after the fact keeps only the latest try of a task instance, so a successful try 2 with no earlier try stored counts as flaky, inferred from the try number.',
+    ],
+  },
   'dagx-col-duration': {
     id: 'dagx-col-duration',
     title: 'p95 duration',
@@ -375,6 +388,7 @@ export const LEAGUE_PANELS: readonly DagExplanationId[] = [
   'dagx-col-team',
   'dagx-col-runs',
   'dagx-col-success',
+  'dagx-col-flaky',
   'dagx-col-duration',
   'dagx-col-slot-hours',
   'dagx-col-share',

@@ -1,8 +1,10 @@
 /**
  * One DAG in detail (spec §12.4 S-12): header with every limit that can throttle it, KPIs, a runs
- * timeline, the Gantt chart of one run and per-task statistics.
+ * timeline, the Gantt chart of one run with its critical path, per-task statistics, durations against
+ * their baseline, and failures, retries and flakiness.
  *
- * @implements FR-DAGD-01, FR-DAGD-02, FR-DAGD-03, FR-DAGD-04, HM-005, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements FR-DAGD-01, FR-DAGD-02, FR-DAGD-03, FR-DAGD-04, FR-TASK-01, HM-005, HM-007, HM-015, HM-016,
+ *   FR-UI-05, FR-UI-07, FR-UI-08
  */
 import { useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -37,7 +39,10 @@ import {
   formatSlotHours,
 } from '../../components/format';
 import type { PageProps } from '../types';
+import { CriticalPathSummary } from './CriticalPathSummary';
+import { DurationPanel } from './DurationPanel';
 import { DAG_EXPLANATIONS as E, type DagExplanationId } from './explanations';
+import { ReliabilityPanel } from './ReliabilityPanel';
 import { RunGantt } from './RunGantt';
 import { RunsTimeline, STATE_LABEL } from './RunsTimeline';
 import { RANGE_LABEL, formatUtc } from './time';
@@ -356,11 +361,16 @@ export function DagDetailPage({ api, envId, route, linkTo }: PageProps) {
             }
           >
             <RunGantt gantt={d.gantt} dataAsOf={d.data_as_of} />
+            <CriticalPathSummary detail={d} />
           </Panel>
 
           <Panel explanation={E['dagd-tasks']}>
             <Tasks tasks={d.tasks} />
           </Panel>
+
+          <DurationPanel detail={d} api={api} envId={envId} healthHref={linkTo({ page: 'health' })} />
+
+          <ReliabilityPanel detail={d} api={api} envId={envId} />
 
           <ProvenanceFooter
             dataAsOf={d.data_as_of}
