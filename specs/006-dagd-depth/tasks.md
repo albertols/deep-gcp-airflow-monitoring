@@ -33,6 +33,6 @@ Test tasks come before the code they cover.
 - [x] T-690 Package tests and typecheck, lint, depcruise, hygiene, prettier
 - [ ] T-691 Browser validation against `pnpm dcam --demo` (the demo API was checked with curl; no browser here);
       code review
-- [ ] T-692 Follow-up for the `duckdb-store` owner: implement `dagTaskTries` (one DAG, with an index on
-      `env_id, dag_id, start_at`). DAG detail time in demo and live is dominated by the existing environment-wide
+- [x] T-692 Follow-up for the `duckdb-store` owner: implement `dagTaskTries` (one DAG). Done without an extra
+      index: the DAG filter runs in DuckDB's column scan, and an ART index would slow every upsert. DAG detail time in demo and live is dominated by the existing environment-wide
       read of the range and its previous period, not by the baseline

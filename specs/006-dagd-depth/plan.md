@@ -49,8 +49,8 @@ run_mttr_seconds, tasks: TaskReliability }`.
 
 ## Performance
 
-The baseline read is environment-wide on DuckDB until `dagTaskTries` exists there (the alert pack already reads 7
-days environment-wide). Domain work is linear in the DAG's tries plus a sort per task. Test: 50 tasks × 96 runs a
+The baseline reads one DAG through `dagTaskTries`, which DuckDB implements (T-692); a store without it falls back
+to the environment-wide read filtered by DAG. Domain work is linear in the DAG's tries plus a sort per task. Test: 50 tasks × 96 runs a
 day × 7 days (33,600 tries) plus 100 other DAGs, `getDagDetail` < 1 s.
 
 ## Testing

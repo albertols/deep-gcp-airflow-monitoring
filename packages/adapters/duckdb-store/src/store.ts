@@ -50,6 +50,18 @@ import { MIGRATIONS, type Migration } from './migrations';
 /** Bump when a migration cannot be read by older DCAM versions. */
 export const STORE_MAJOR = 1;
 
+/** The columns {@link toTry} reads, from `fact.task_instance`. */
+const TRY_COLUMNS = `SELECT env_id, dag_id, run_id, task_id, map_index, try_number, state, pool, pool_slots,
+         epoch_ms(queued_at)::DOUBLE AS queued_at, epoch_ms(start_at)::DOUBLE AS start_at,
+         epoch_ms(end_at)::DOUBLE AS end_at, epoch_ms(source_updated_at)::DOUBLE AS source_updated_at,
+         epoch_ms(ready_at)::DOUBLE AS ready_at, operator, coalesce(end_estimated, false) AS end_estimated,
+         epoch_ms(seen_running_at)::DOUBLE AS seen_running_at
+       FROM fact.task_instance`;
+
+/** Tries of environment $1 whose running interval overlaps [$2, $3) seconds, or that are still running. */
+const TRY_OVERLAPS = `env_id = $1 AND start_at IS NOT NULL AND start_at < to_timestamp($3)
+         AND (end_at IS NULL OR end_at > to_timestamp($2))`;
+
 export class StoreVersionError extends Error {
   override readonly name = 'StoreVersionError';
 }
@@ -386,17 +398,18 @@ export class DuckDbStore implements Store, CollectionStore, RetentionStore {
   }
 
   async taskTries(envId: string, from: number, to: number): Promise<StoredTaskTry[]> {
-    const rows = await this.rows(
-      `SELECT env_id, dag_id, run_id, task_id, map_index, try_number, state, pool, pool_slots,
-              epoch_ms(queued_at)::DOUBLE AS queued_at, epoch_ms(start_at)::DOUBLE AS start_at,
-              epoch_ms(end_at)::DOUBLE AS end_at, epoch_ms(source_updated_at)::DOUBLE AS source_updated_at,
-              epoch_ms(ready_at)::DOUBLE AS ready_at, operator, coalesce(end_estimated, false) AS end_estimated,
-              epoch_ms(seen_running_at)::DOUBLE AS seen_running_at
-       FROM fact.task_instance
-       WHERE env_id = $1 AND start_at IS NOT NULL AND start_at < to_timestamp($3)
-         AND (end_at IS NULL OR end_at > to_timestamp($2))`,
-      [envId, seconds(from), seconds(to)],
-    );
+    const rows = await this.rows(`${TRY_COLUMNS} WHERE ${TRY_OVERLAPS}`, [envId, seconds(from), seconds(to)]);
+    return rows.map(toTry);
+  }
+
+  /** {@link taskTries} for one DAG: DAG detail's 28-day baseline (HM-016) without the other DAGs' rows. */
+  async dagTaskTries(envId: string, dagId: string, from: number, to: number): Promise<StoredTaskTry[]> {
+    const rows = await this.rows(`${TRY_COLUMNS} WHERE ${TRY_OVERLAPS} AND dag_id = $4`, [
+      envId,
+      seconds(from),
+      seconds(to),
+      dagId,
+    ]);
     return rows.map(toTry);
   }
 

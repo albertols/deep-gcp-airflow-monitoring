@@ -81,6 +81,24 @@ describe('FR-STORE-01 embedded store with migrations', { timeout: 60_000 }, () =
     store.close();
   });
 
+  it('HM-016: dagTaskTries returns the rows of taskTries for one DAG only', async () => {
+    const store = await openStore({ path: ':memory:' });
+    await store.upsertTaskTries([
+      row(),
+      row({ taskId: 'running', endAt: null, state: 'running' }),
+      row({ taskId: 'old', startAt: T0 - 600_000, endAt: T0 - 300_000 }),
+      row({ dagId: 'billing_hourly' }),
+      row({ envId: 'acme-test' }),
+    ]);
+    const from = T0 - 1_000;
+    const to = T0 + 120_000;
+    const expected = (await store.taskTries('acme-prod', from, to)).filter((t) => t.dagId === 'orders_daily');
+    expect(expected.map((t) => t.taskId).sort()).toEqual(['load', 'running']);
+    expect(await store.dagTaskTries!('acme-prod', 'orders_daily', from, to)).toEqual(expected);
+    expect(await store.dagTaskTries!('acme-prod', 'nope', from, to)).toEqual([]);
+    store.close();
+  });
+
   it('FR-STORE-01: ingests a large batch quickly through the staging table', async () => {
     const store = await openStore({ path: ':memory:' });
     const rows = Array.from({ length: 100_000 }, (_, i) =>
