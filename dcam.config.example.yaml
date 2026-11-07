@@ -1,0 +1,41 @@
+# yaml-language-server: $schema=./packages/adapters/config-file/dcam.config.schema.json
+#
+# DCAM workspace configuration (example, spec §17). To run DCAM against your own environment:
+#   1. cp dcam.config.example.yaml dcam.config.yaml   (the copy is git-ignored)
+#   2. set projectId, location and environment below
+#   3. pnpm dcam doctor, then pnpm dcam
+# Never commit real project IDs or environment names to this repository (spec §18.12).
+# This file holds no secrets: DCAM uses your Application Default Credentials
+# (gcloud auth application-default login) and keeps tokens in memory only.
+version: 1
+
+workspace:
+  dataDir: ~/.dcam/data # DuckDB store and backups, owner-only; DCAM_DATA_DIR overrides it
+
+auth:
+  # Project billed for Google API quota (sent as x-goog-user-project). Leave it out to bill each
+  # environment's own project; you need serviceusage.services.use on the project that is billed.
+  # quotaProjectId: acme-ops-123
+
+network:
+  # Proxy: DCAM reads HTTPS_PROXY, HTTP_PROXY and NO_PROXY from the environment for Google API and Airflow
+  # calls, for example:
+  #   export HTTPS_PROXY=http://proxy.acme.example:3128
+  #   export NO_PROXY=localhost,127.0.0.1
+  proxy: from-env
+  # CA bundle: if the proxy inspects TLS, point DCAM at your corporate root CA (PEM), here or with
+  # NODE_EXTRA_CA_CERTS. `~` is your home folder; a relative path is relative to this file.
+  # caBundlePath: ~/certs/acme-root-ca.pem
+
+environments:
+  - id: acme-prod # DCAM's own slug, used in URLs: lowercase letters, digits and hyphens
+    displayName: Production
+    projectId: acme-prod-123 # Google Cloud project of the Composer environment
+    location: europe-west1 # region of the Composer environment
+    environment: acme-composer-prod # Composer environment name
+    tier: prod # dev | test | uat | prod | other
+    profile: standard # live | standard | eco | off; defaults to standard for prod, eco otherwise
+    # History DCAM reads in the background when it first collects this environment, within its request
+    # budget: finished task instances (at most 90 days) and Cloud Monitoring worker metrics (at most 42).
+    # 0 turns a backfill off. The DCAM health page shows its progress and when it should finish.
+    backfill: { taskInstancesDays: 7, metricsDays: 14 }

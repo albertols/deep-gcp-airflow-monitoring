@@ -1,0 +1,22 @@
+{
+  "name": "@dcam/airflow-v1",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Airflow REST API v1 (Airflow 2) client behind the AirflowApi port: Zod at the boundary, errors as SourceError. Spec Appendix B, FR-COLL-08.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:emulator": "vitest run --config vitest.emulator.config.ts"
+  },
+  "dependencies": {
+    "@dcam/ports": "workspace:*",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@dcam/http-guard": "workspace:*"
+  }
+}

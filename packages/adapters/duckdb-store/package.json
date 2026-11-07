@@ -1,0 +1,19 @@
+{
+  "name": "@dcam/duckdb-store",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DuckDB analytical store: migrations, idempotent upserts, storage-version check, the live CollectionStore, the data-directory file store with pre-migration backups. Spec §11.7, §17.5, ADR-0005.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dcam/domain": "workspace:*",
+    "@dcam/ports": "workspace:*",
+    "@duckdb/node-api": "2.0.0-r.1"
+  }
+}

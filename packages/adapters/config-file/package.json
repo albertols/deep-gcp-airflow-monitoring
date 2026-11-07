@@ -1,0 +1,21 @@
+{
+  "name": "@dcam/config-file",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Loads and validates dcam.config.yaml (FR-SETUP-02): schema, defaults, precedence, issues with path and fix hint. Spec §17.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./dcam.config.schema.json": "./dcam.config.schema.json"
+  },
+  "scripts": {
+    "gen": "tsx scripts/gen-schema.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dcam/ports": "workspace:*",
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  }
+}

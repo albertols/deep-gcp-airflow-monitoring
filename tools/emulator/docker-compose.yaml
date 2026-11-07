@@ -1,0 +1,186 @@
+# DCAM emulator: a local Airflow 2.11.1 with CeleryExecutor, Postgres and Redis (spec §20.2, FR-EMU-02).
+#
+# Adapted from the official Apache Airflow 2.11.1 Docker Compose file
+# (https://airflow.apache.org/docs/apache-airflow/2.11.1/docker-compose.yaml, Apache License 2.0):
+# - images pinned by tag and digest; example DAGs off; DAGs run as soon as they are parsed;
+# - the web server is published on 127.0.0.1:8080 only; Postgres and Redis are not published;
+# - the REST API accepts basic authentication (the emulator has no Google sign-in);
+# - the init step also creates a Viewer user for DCAM (least privilege, spec §18.3) and the pools;
+# - one Celery worker with a low concurrency keeps memory modest (Docker with 4 GB is enough);
+# - the triggerer is optional (profile "triggerer"): the acme DAGs defer nothing.
+#
+# Keep the limits below in step with tools/emulator/dcam.config.emulator.yaml (`airflow.limits`).
+# Local development only: the passwords are well-known defaults.
+name: dcam-emulator
+
+x-airflow-common: &airflow-common
+  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.11.1@sha256:18130e49360be9e5cbe8bad00f5cda56995f347f4c7c0b5de143c6b746ede16d}
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres/airflow
+    AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    # The acme DAGs start running as soon as the scheduler has parsed them.
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
+    # Limits (dcam.config.emulator.yaml mirrors them). Per-DAG defaults follow spec §20.2.
+    AIRFLOW__CORE__PARALLELISM: '8'
+    AIRFLOW__CORE__MAX_ACTIVE_TASKS_PER_DAG: '16'
+    AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: '25'
+    AIRFLOW__CELERY__WORKER_CONCURRENCY: '4'
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: '120'
+    AIRFLOW__SCHEDULER__MIN_FILE_PROCESS_INTERVAL: '30'
+    AIRFLOW__SCHEDULER__TASK_QUEUED_TIMEOUT: '2400'
+    AIRFLOW__SCHEDULER__PARSING_PROCESSES: '1'
+    AIRFLOW__WEBSERVER__WORKERS: '2'
+    # Basic authentication for the REST API (the official file's default), plus the browser session.
+    AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
+    # The DAG folder is mounted read-only: no __pycache__ in the repository.
+    PYTHONDONTWRITEBYTECODE: '1'
+  volumes:
+    - ./dags:/opt/airflow/dags:ro
+    - airflow-logs:/opt/airflow/logs
+  user: '${AIRFLOW_UID:-50000}:0'
+  depends_on: &airflow-common-depends-on
+    redis:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:13.23@sha256:4689940c683801b4ab839ab3b0a0a3555a5fe425371422310944e89eca7d8068
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', 'airflow']
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: always
+
+  redis:
+    image: redis:7.2.17-bookworm@sha256:5b816bb37d9707a70f10ef5002ecf8ee431750d397010fc4314c93dca887962f
+    expose:
+      - 6379
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 30s
+      retries: 50
+      start_period: 30s
+    restart: always
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    hostname: acme-webserver
+    ports:
+      - '127.0.0.1:8080:8080'
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', 'http://localhost:8080/health']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    hostname: acme-scheduler-1
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', 'http://localhost:8974/health']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-worker:
+    <<: *airflow-common
+    command: celery worker
+    # Task instances report this as their hostname: keep it fictitious.
+    hostname: acme-worker-1
+    healthcheck:
+      test:
+        - 'CMD-SHELL'
+        - 'celery --app airflow.providers.celery.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}" || celery --app airflow.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}"'
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    environment:
+      <<: *airflow-common-env
+      # Required to handle warm shutdown of the Celery workers properly
+      # (https://airflow.apache.org/docs/docker-stack/entrypoint.html#signal-propagation).
+      DUMB_INIT_SETSID: '0'
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-triggerer:
+    <<: *airflow-common
+    command: triggerer
+    hostname: acme-triggerer-1
+    profiles:
+      - triggerer
+    healthcheck:
+      test: ['CMD-SHELL', 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        set -euo pipefail
+        # Migrate the database and create the admin user (_AIRFLOW_* variables below).
+        /entrypoint airflow version
+        airflow pools set acme_small_pool 2 "Two slots: makes acme work wait"
+        # The Viewer, User and Op roles exist only after a permission sync (on a fresh database
+        # only Admin and Public do).
+        airflow sync-perm
+        # DCAM's own user: Viewer is all it needs (spec §18.3). Creating an existing user is a no-op.
+        airflow users create --role Viewer \
+          --username "$${DCAM_EMULATOR_USER}" --password "$${DCAM_EMULATOR_PASSWORD}" \
+          --firstname Acme --lastname Viewer --email acme-viewer@example.com
+        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/logs
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+      _AIRFLOW_WWW_USER_USERNAME: ${DCAM_EMULATOR_ADMIN_USER:-airflow}
+      _AIRFLOW_WWW_USER_PASSWORD: ${DCAM_EMULATOR_ADMIN_PASSWORD:-airflow}
+      DCAM_EMULATOR_USER: ${DCAM_EMULATOR_USER:-acme_viewer}
+      DCAM_EMULATOR_PASSWORD: ${DCAM_EMULATOR_PASSWORD:-acme_viewer}
+    user: '0:0'
+
+volumes:
+  postgres-db-volume:
+  airflow-logs:

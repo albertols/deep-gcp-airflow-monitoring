@@ -1,0 +1,138 @@
+/**
+ * (i) explanations for the bottlenecks page (FR-UI-05, spec §12.9).
+ */
+import type { Explanation } from '@dcam/ui-kit';
+import { WIKI_SLUGS, wikiHref } from '../wiki/content/slugs';
+import { DEPTH_EXPLANATIONS } from './explanations-depth';
+
+const POOLS_DOC = {
+  title: 'Airflow documentation: pools',
+  url: 'https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/pools.html',
+};
+const CONFIG_DOC = {
+  title: 'Airflow configuration reference: [core] parallelism and max_active_tasks_per_dag',
+  url: 'https://airflow.apache.org/docs/apache-airflow/stable/configurations-ref.html',
+};
+const SCALING_DOC = {
+  title: 'Managed Airflow (Gen 3): optimize environment performance',
+  url: 'https://docs.cloud.google.com/composer/docs/composer-3/optimize-environments',
+};
+const SNAPSHOT_CAVEAT =
+  'Airflow 2.11 does not record when a task became ready, so pre-queue reasons come only from DCAM’s live snapshots (every 10 s, 30 s or 120 s, by collection profile; the footer shows the cadence observed). History older than DCAM’s collection is not observed.';
+const GAP_CAVEAT =
+  'Each snapshot stands for the time until the next one, at most two cadences: a longer gap in collection is unknown, not waiting.';
+
+export const BOTTLENECK_EXPLANATIONS = {
+  'botl-answer': {
+    id: 'botl-answer',
+    wiki: { href: wikiHref(WIKI_SLUGS.whyWorkWaits) },
+    title: 'Main cause of waiting',
+    summary: 'The limit that caused the largest share of waiting task-time in the range.',
+    whyItMatters: 'Change the setting behind this limit first; other changes will not shorten the wait.',
+    formula:
+      'share = waiting task-time attributed to the reason ÷ all waiting task-time attributed to platform limits',
+    sources: ['SRC-AF-API', 'SRC-MON', 'SRC-COMPOSER'],
+    freshness: '≤ 2 × the live snapshot cadence',
+    caveats: [SNAPSHOT_CAVEAT],
+  },
+  'botl-waiting-total': {
+    id: 'botl-waiting-total',
+    wiki: { href: wikiHref(WIKI_SLUGS.whyWorkWaits) },
+    title: 'Waiting task-hours',
+    summary:
+      'Time ready task instances spent not running because a platform limit bound, summed over all of them.',
+    formula:
+      'Σ over snapshots of (waiting task instances × time to the next snapshot, at most 2 × the cadence), excluding normal latency',
+    howToRead: 'Ten tasks waiting six minutes each is one task-hour.',
+    sources: ['SRC-AF-API'],
+    caveats: [
+      SNAPSHOT_CAVEAT,
+      GAP_CAVEAT,
+      'Dependency wait (upstream, sensors, depends_on_past) is not a platform limit and is not counted.',
+    ],
+  },
+  'botl-current': {
+    id: 'botl-current',
+    wiki: { href: wikiHref(WIKI_SLUGS.whyWorkWaits) },
+    title: 'Binding now',
+    summary: 'The reason most waiting task instances are held by in the latest snapshot.',
+    sources: ['SRC-AF-API', 'SRC-MON'],
+    freshness: 'The live snapshot cadence (10 s, 30 s or 120 s by collection profile)',
+  },
+  'botl-at-max': {
+    id: 'botl-at-max',
+    wiki: { href: wikiHref(WIKI_SLUGS.workerCapacity) },
+    title: 'Minutes at max workers',
+    summary: 'Minutes the environment ran at its maximum number of workers (max_count).',
+    whyItMatters: 'At max_count the autoscaler cannot add capacity; queued work waits for a free slot.',
+    sources: ['SRC-MON', 'SRC-COMPOSER'],
+    docs: [SCALING_DOC],
+  },
+  'botl-capacity-bound': {
+    id: 'botl-capacity-bound',
+    wiki: { href: wikiHref(WIKI_SLUGS.workerCapacity) },
+    title: 'Capacity-bound minutes',
+    summary: 'Minutes at max workers with a long queue: the environment was out of worker capacity (HM-011).',
+    formula: 'workers = max_count and queued task instances ≥ max(10, 20 % of worker slots)',
+    sources: ['SRC-MON', 'SRC-COMPOSER'],
+    docs: [SCALING_DOC],
+  },
+  'botl-scale-lag': {
+    id: 'botl-scale-lag',
+    wiki: { href: wikiHref(WIKI_SLUGS.rb14) },
+    title: 'Scale-up lag (p95)',
+    summary: 'How long new workers took to arrive after the autoscaler asked for them (HM-012).',
+    formula: 'time from the autoscaler target rising above the current workers to the workers reaching it',
+    caveats: ['Worker samples are one minute apart, so lags shorter than two minutes are below resolution.'],
+    sources: ['SRC-MON'],
+    docs: [SCALING_DOC],
+  },
+  'botl-waiting-chart': {
+    id: 'botl-waiting-chart',
+    wiki: { href: wikiHref(WIKI_SLUGS.whyWorkWaits) },
+    title: 'Waiting by reason over time',
+    summary: 'Waiting task-minutes per time bucket, stacked by the limit that held the work.',
+    howToRead:
+      'Tall bars at the same minute every hour usually mean schedules collide; compare with worker use below.',
+    sources: ['SRC-AF-API', 'SRC-MON'],
+    caveats: [SNAPSHOT_CAVEAT],
+  },
+  'botl-utilisation-chart': {
+    id: 'botl-utilisation-chart',
+    wiki: { href: wikiHref(WIKI_SLUGS.workerCapacity) },
+    title: 'Worker slots in use',
+    summary: 'Running task instances ÷ worker slots (workers × worker_concurrency), averaged per bucket.',
+    howToRead: 'Near 100 % with waiting above means worker capacity is the bottleneck.',
+    sources: ['SRC-AF-API', 'SRC-MON'],
+    docs: [SCALING_DOC],
+  },
+  'botl-reasons': {
+    id: 'botl-reasons',
+    wiki: { href: wikiHref(WIKI_SLUGS.whyWorkWaits) },
+    title: 'Waiting by reason',
+    summary:
+      'Every HM-006 reason in the order Airflow’s scheduler checks it, with the DAGs that waited most.',
+    formula: 'First matching reason wins; later matches are kept as secondary evidence',
+    sources: ['SRC-AF-API', 'SRC-MON', 'SRC-COMPOSER'],
+    caveats: [
+      'Reasons marked "Not collected yet" need inputs DCAM does not gather in this version; they are never guessed.',
+    ],
+    docs: [CONFIG_DOC, POOLS_DOC],
+  },
+  'botl-sensors': {
+    id: 'botl-sensors',
+    wiki: { href: wikiHref(WIKI_SLUGS.sensorSlotWaste) },
+    title: 'Sensors holding worker slots',
+    summary: 'Worker slot time used by sensors in poke mode, which occupy a slot while they wait (HM-008).',
+    whyItMatters: 'Reschedule mode or deferrable operators free the slot between checks (REC-DAG-05).',
+    sources: ['SRC-AF-API'],
+    caveats: [
+      'Sensors are detected by operator name; custom sensors that do not end in "Sensor" are missed.',
+    ],
+  },
+  // Top contributors, noisy neighbours, pools and priority fairness (feature 007).
+  ...DEPTH_EXPLANATIONS,
+} as const satisfies Record<string, Explanation>;
+
+export type BottleneckExplanationId = keyof typeof BOTTLENECK_EXPLANATIONS;
+export const BOTTLENECK_PANELS = Object.keys(BOTTLENECK_EXPLANATIONS) as BottleneckExplanationId[];
