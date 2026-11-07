@@ -248,6 +248,81 @@ describe('FR-COLL-06 af.facts: windows that fit in one page, within the budget',
       expect(store.commits.at(-1)?.watermark).toBe(END);
       expect(airflow.tiQueries.filter((q) => q.offset > 0).map((q) => q.offset)).toEqual([50, 100]);
     });
+
+    describe('one short page from a race, not a cap', () => {
+      /**
+       * Airflow counts a window, then selects it: a row that leaves the window in between (an
+       * `up_for_retry` row rescheduled, a cleared run) gives one page shorter than its `total_entries`.
+       */
+      class RacyAirflow extends FakeAirflow {
+        raceOnce = false;
+        override async taskInstances(q: Parameters<FakeAirflow['taskInstances']>[0]) {
+          const page = await super.taskInstances(q);
+          if (this.raceOnce && page.total >= 2 && page.items.length === page.total) {
+            this.raceOnce = false;
+            return { items: page.items.slice(0, 1), total: page.total };
+          }
+          return page;
+        }
+      }
+      /** Watermark lag in seconds after each of `cycles` cycles, following a 15-minute sleep. */
+      const lagAfterRace = async (airflow: RacyAirflow, cycles: number) => {
+        const store = new MemoryStore();
+        const ctx = fakeContext({ airflow, store, shared, now: T0 - 59 * MIN });
+        const collector = afFactsCollector();
+        for (let i = 0; i < 5; i++) {
+          await collector.collect(ctx);
+          ctx.advance(MIN);
+        }
+        airflow.raceOnce = true;
+        await collector.collect(ctx);
+        expect(airflow.raceOnce).toBe(false);
+        ctx.advance(16 * MIN);
+        const lags: number[] = [];
+        for (let i = 0; i < cycles; i++) {
+          await collector.collect(ctx);
+          const mark = (await store.watermark('acme-prod', 'af.facts')) ?? 0;
+          lags.push((ctx.now() - MIN - mark) / 1000);
+          ctx.advance(MIN);
+        }
+        return lags;
+      };
+      // One finished task instance every 2 s, for two and a half hours.
+      const steady = () =>
+        Array.from({ length: 4_500 }, (_, i) => {
+          const at = T0 - 60 * MIN + i * 2_000;
+          return ti({ taskId: `t_${i}`, startAt: at - MIN, endAt: at, updatedAt: at });
+        });
+
+      it('FR-COLL-06: a single short page does not lower the page size, so a backlog still clears', async () => {
+        const lags = await lagAfterRace(new RacyAirflow({ tis: steady() }), 20);
+        expect(lags.at(-1)).toBe(0);
+      });
+    });
+
+    it('FR-COLL-06: a page with the full limit forgets a learnt cap', async () => {
+      /** Requests a 20-minute backlog of 800 rows takes after 350 rows were read with `cap`. */
+      const backlogRequests = async (cap: number) => {
+        const airflow = capped(spread(350, END - H + MIN, END - MIN), cap);
+        const store = new MemoryStore();
+        const collector = afFactsCollector();
+        const ctx = fakeContext({ airflow, store, shared });
+        for (let i = 0; i < 10 && store.commits.at(-1)?.watermark !== END; i++) await collector.collect(ctx);
+        expect(store.commits.at(-1)?.watermark).toBe(END);
+        airflow.pageCap = Number.POSITIVE_INFINITY;
+        airflow.data.tis.push(
+          ...spread(800, END + 1_000, END + 20 * MIN).map((t) => ({ ...t, taskId: `later_${t.taskId}` })),
+        );
+        ctx.advance(21 * MIN);
+        const before = airflow.tiQueries.length;
+        for (let i = 0; i < 10 && store.commits.at(-1)?.watermark !== END + 21 * MIN; i++)
+          await collector.collect(ctx);
+        expect(store.commits.at(-1)?.watermark).toBe(END + 21 * MIN);
+        expect(store.tries.size).toBe(1_150);
+        return airflow.tiQueries.length - before;
+      };
+      expect(await backlogRequests(40)).toBe(await backlogRequests(Number.POSITIVE_INFINITY));
+    });
   });
 
   describe('a second with more finished task instances than a cycle can page', () => {

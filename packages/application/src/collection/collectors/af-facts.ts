@@ -16,9 +16,12 @@
  *   says so) until each part fits. Only a window of the minimum width (1 s, B.3) is paged by offset.
  * - Page size: upstream Airflow 2.11.1 does not cap `limit` on this list, but Composer's cap is not
  *   documented (spec §7.5 "Pagination and consistency", VC-11 open). A page shorter than both the limit
- *   and the rows left shows a lower cap: from then on the environment's windows are split to the largest
- *   page the server returned, and offsets advance by the rows each page returned, so a cap below 100
- *   neither repeats a window forever nor skips rows.
+ *   and the rows left is a cap or a race: Airflow counts `total_entries` and selects the page in two
+ *   queries, so a row that leaves the window in between (an `up_for_retry` row rescheduled, a cleared
+ *   run) makes one page short. Such a window is halved rather than read again. Only when two short pages
+ *   agree on their size are later windows split to it, and a page with the full limit forgets it, so one
+ *   race never slows every later window for good. Offsets advance by the rows each page
+ *   returned, so a cap below 100 neither repeats a window forever nor skips rows.
  * - A dense second (one statement can mark hundreds of mapped task instances skipped) may need more
  *   pages than a cycle allows. Its rows are kept across cycles until every key is seen, and it gets at
  *   most {@link MAX_REQUESTS} − {@link LATER_RESERVE} requests a cycle while later windows wait, so they
@@ -109,8 +112,10 @@ const copy = (w: Window): Window => {
 
 export function afFactsCollector(): Collector {
   const progress = new Map<string, Progress>();
-  /** Per environment, the largest page the server returned once a short page showed a cap below the limit. */
+  /** Per environment, the page size of a cap below the limit, once two short pages agreed on it. */
   const served = new Map<string, number>();
+  /** Per environment, the rows of the last short page: shorter than the limit and the rows left. */
+  const shortPage = new Map<string, number>();
   return {
     manifest: {
       id: ID,
@@ -169,6 +174,20 @@ export function afFactsCollector(): Collector {
       let requests = 0;
       /** Rows the server returns per page. */
       const pageRows = () => served.get(envId) ?? PAGE_SIZE;
+      /**
+       * A page of `n` rows with `left` rows at or after its offset. A cap is learnt only when two short
+       * pages agree on it, and forgotten as soon as a page returns the full limit: one short page may be a
+       * row that left the window between Airflow's count and its select.
+       */
+      const learnCap = (n: number, left: number) => {
+        if (n >= PAGE_SIZE) {
+          served.delete(envId);
+          shortPage.delete(envId);
+        } else if (n > 0 && n < left) {
+          if (shortPage.get(envId) === n) served.set(envId, n);
+          shortPage.set(envId, n);
+        }
+      };
       const request = async (w: Window, offset: number) => {
         if (requests >= MAX_REQUESTS) throw new Stop();
         requests++;
@@ -179,9 +198,7 @@ export function afFactsCollector(): Collector {
           limit: PAGE_SIZE,
           offset,
         });
-        const n = page.items.length;
-        if (n > 0 && n < PAGE_SIZE && n < page.total - offset)
-          served.set(envId, Math.max(n, served.get(envId) ?? 0));
+        learnCap(page.items.length, page.total - offset);
         return page;
       };
 
@@ -194,6 +211,11 @@ export function afFactsCollector(): Collector {
       let blocked: number | null = null;
       let budgetUsedUp = false;
 
+      /** Replaces `w` by its first `share` of the width, then the rest, which keeps the count `known`. */
+      const split = (i: number, w: Window, known: NonNullable<Window['known']>, share: number) => {
+        const mid = w.from + Math.max(MIN_WINDOW_MS, Math.floor((w.to - w.from) * share));
+        pending.splice(i, 1, { from: w.from, to: mid }, { from: mid, to: w.to, known });
+      };
       /** The rows of `w` are accounted for: later parts counted over it no longer include them. */
       const settle = (w: Window, count: number) => {
         for (const p of pending)
@@ -259,14 +281,17 @@ export function afFactsCollector(): Collector {
           }
           if (w.known && w.known.total > pageRows() && width > MIN_WINDOW_MS) {
             const share = Math.min(0.5, Math.max(1, Math.floor(pageRows() * TARGET_SHARE)) / w.known.total);
-            const mid = w.from + Math.max(MIN_WINDOW_MS, Math.floor(width * share));
-            pending.splice(i, 1, { from: w.from, to: mid }, { from: mid, to: w.to, known: w.known });
+            split(i, w, w.known, share);
             continue;
           }
           const page = await request(w, 0);
           if (page.total <= page.items.length) accept(i, w, stored(page.items));
-          else if (width > MIN_WINDOW_MS) w.known = { total: page.total, countFrom: w.from };
-          else
+          else if (width > MIN_WINDOW_MS) {
+            w.known = { total: page.total, countFrom: w.from };
+            // Short of a count that fits a page: a cap not learnt yet, or a row that left the window
+            // between Airflow's count and its select. Halving the window, not reading it again, ends both.
+            if (page.total <= pageRows()) split(i, w, w.known, 0.5);
+          } else
             w.dense = {
               seen: new Map(stored(page.items)),
               offset: page.items.length > 0 ? page.items.length : page.total,
