@@ -17,7 +17,7 @@ Test tasks come before the code they cover.
       HM-023)
 - [x] T-711 Test: 7 days × 2,000 DAGs × 60 s snapshots under 2 s (NFR-PERF)
 - [x] T-712 Test + code: schedule intelligence use case, `GET …/schedule`, contract (FR-BOTL-03)
-- [ ] T-713 Test: the demo shows a noisy neighbour, pool starvation and the minute-0 collision (FR-EMU-01)
+- [x] T-713 Test: the demo shows a noisy neighbour, pool starvation and the minute-0 collision (FR-EMU-01)
 
 ## Web
 

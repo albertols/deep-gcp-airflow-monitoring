@@ -5,7 +5,8 @@
  * - acme-prod: a nightly batch window at 01:30 UTC keeps workers at `max_count` with tasks queued for
  *   about an hour (REC-CAP-01, AL-05), a 4-slot `external_api` pool starves (REC-CONC-02), a fan-out
  *   DAG is capped by `max_active_tasks` (REC-DAG-01), a poke-mode sensor holds slots (REC-DAG-05),
- *   schedules collide on minute 0 (REC-SCHED-01), and one DAG is flaky.
+ *   schedules collide on minute 0 (REC-SCHED-01), a 60-way rebuild every 3 hours is a noisy neighbour
+ *   (HM-017), and one DAG is flaky.
  * - acme-test: `parallelism` is below worker capacity and binds first (REC-CONC-01).
  * - acme-dev: quiet and healthy.
  *
@@ -90,6 +91,11 @@ function blueprint(b: Blueprint, config: EnvironmentConfig): DagBlueprint {
     cpu: b.cpu ?? 0.04,
     ...(b.sensorWaitMs === undefined ? {} : { sensorWaitMs: b.sensorWaitMs }),
   };
+}
+
+/** An hourly blueprint moved to every third hour at the same minute (cron step 3 in the hour field). */
+function everyThreeHours(b: DagBlueprint): DagBlueprint {
+  return { ...b, periodMinutes: 180, meta: { ...b.meta, schedule: `${b.offsetMinutes % 60} */3 * * *` } };
 }
 
 /** Background DAGs: mostly light, a few heavy, schedules clustered on round minutes. */
@@ -308,6 +314,27 @@ export function acmeScenario(env: AcmeEnvironment): Scenario {
               sensorWaitMs: 35 * MIN,
             },
             PROD,
+          ),
+          // The noisy neighbour (HM-017): every 3 hours at minute 30, away from the minute-0 collisions, a
+          // 60-way rebuild holds most of the six workers' 72 slots for a quarter of an hour, and other DAGs'
+          // tries queue behind it.
+          everyThreeHours(
+            blueprint(
+              {
+                dagId: 'search_index_rebuild',
+                team: 'ml-platform',
+                domain: 'search_index',
+                hourly: true,
+                offsetMinutes: 30,
+                layers: [1, 60, 1],
+                medianTaskMs: 10 * MIN,
+                pool: 'default_pool',
+                operator: 'DataflowStartFlexTemplateOperator',
+                maxActiveTasks: 60,
+                cpu: 0.06,
+              },
+              PROD,
+            ),
           ),
           blueprint(
             {
