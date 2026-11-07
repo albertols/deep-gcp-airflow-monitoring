@@ -1,5 +1,6 @@
 export * from './occupancy';
 export * from './stats';
+export * from './significance';
 export * from './model';
 export * from './waiting';
 export * from './snapshot-time';
@@ -19,3 +20,6 @@ export * from './advisor-signals';
 export * from './advisor-rule';
 export * from './advisor';
 export * from './retention';
+export * from './duration-regression';
+export * from './reliability';
+export * from './critical-path';

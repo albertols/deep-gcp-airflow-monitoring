@@ -51,6 +51,27 @@ export function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<s
   return groups;
 }
 
+/**
+ * HM-015 flakiness of one task instance: its latest try succeeded after a failed try.
+ * - `observed`: an earlier failed try is stored.
+ * - `inferred`: only the successful latest try is stored and its try number is above 1. The backfill and
+ *   `af.facts` read the current row of a task instance, so an earlier try retried before DCAM read it is
+ *   never stored (spec 004). ⚠️ VERIFY: in Airflow 2.10+ clearing a task instance also raises `try_number`,
+ *   so an inferred count is an upper bound.
+ * `null` when the task instance is not flaky.
+ */
+export type Flakiness = 'observed' | 'inferred';
+
+export function flakiness(taskInstanceTries: readonly DagTaskTry[]): Flakiness | null {
+  let final: DagTaskTry | undefined;
+  for (const t of taskInstanceTries) if (!final || t.tryNumber > final.tryNumber) final = t;
+  if (!final || final.state !== 'success') return null;
+  const last = final;
+  const earlier = taskInstanceTries.filter((t) => t.tryNumber < last.tryNumber);
+  if (earlier.some(isFailedTry)) return 'observed';
+  return earlier.length === 0 && last.tryNumber > 1 ? 'inferred' : null;
+}
+
 /** The latest try of each task instance among the given tries. */
 export function finalTries<T extends DagTaskTry>(tries: readonly T[]): T[] {
   const latest = new Map<string, T>();

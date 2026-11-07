@@ -9,9 +9,8 @@
  * @implements FR-DAGX-02, FR-DAGX-03 (Gini), HM-001 (queue wait), HM-003 (slot-seconds), HM-015 (flaky rate)
  */
 import {
-  finalTries,
+  flakiness,
   groupBy,
-  isFailedTry,
   runKey,
   startedIn,
   summariseRun,
@@ -40,7 +39,10 @@ export interface DagWindowStats {
   readonly retries: number;
   /** Task instances with a try starting in the window. */
   readonly taskInstances: number;
-  /** HM-015: task instances whose final try succeeded after a failed try ÷ task instances; `null` below 20. */
+  /**
+   * HM-015: task instances whose final try succeeded after a failed try ÷ task instances, observed or inferred
+   * from the try number ({@link flakiness}); `null` below 20.
+   */
   readonly flakyRate: number | null;
   /** Finished runs: last end − first start, seconds. */
   readonly runDurationP50: Quantile;
@@ -111,11 +113,6 @@ export function emptyDagStats(dagId: string): DagWindowStats {
   };
 }
 
-const isFlaky = (tries: readonly DagTaskTry[]) => {
-  const [final] = finalTries(tries);
-  return final?.state === 'success' && tries.some((t) => t !== final && isFailedTry(t));
-};
-
 /** The runs that have a try starting in the window, summarised from all their tries. */
 export function runsInWindow(
   tries: readonly DagTaskTry[],
@@ -153,7 +150,7 @@ export function dagWindowStats(
     const byTi = groupBy(dagTries, taskInstanceKey);
     const tiKeys = new Set(started.map(taskInstanceKey));
     let flaky = 0;
-    for (const k of tiKeys) if (isFlaky(byTi.get(k) ?? [])) flaky++;
+    for (const k of tiKeys) if (flakiness(byTi.get(k) ?? []) !== null) flaky++;
     const durations = finished.map((r) => r.durationSeconds as number);
     result.set(dagId, {
       dagId,

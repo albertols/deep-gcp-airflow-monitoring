@@ -18,15 +18,15 @@ fakes ── blueprint `slowdown` (a step change in some tasks' duration), demo 
 
 ## Packages touched
 
-| Package                  | Change                                                                                       |
-| ------------------------ | -------------------------------------------------------------------------------------------- |
-| `packages/domain`        | New `significance.ts`, `duration-regression.ts`, `reliability.ts`, `critical-path.ts`; shared `flakiness()` in `dag-runs.ts` (league uses it) |
-| `packages/ports`         | Additive, optional `TaskInstanceStore.dagTaskTries?(envId, dagId, from, to)`                 |
-| `packages/application`   | `getDagDetail` reads the baseline and fills the new fields; performance test                 |
-| `packages/contracts`     | Additive optional `DagDetail` fields and schemas `DurationDistribution`, `DurationRegression`, `TaskReliability`; `pnpm gen` |
-| `packages/adapters/fakes`| `DagBlueprint.slowdown`; demo DAG `search_ranking_refresh`                                   |
-| `apps/server`            | Demo conformance and demo stories (regression, flaky) through the HTTP API                   |
-| `apps/web`               | New panels and explanations (`depth-explanations.ts`); critical path on the Gantt; league "Flaky" column |
+| Package                   | Change                                                                                                                                        |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/domain`         | New `significance.ts`, `duration-regression.ts`, `reliability.ts`, `critical-path.ts`; shared `flakiness()` in `dag-runs.ts` (league uses it) |
+| `packages/ports`          | Additive, optional `TaskInstanceStore.dagTaskTries?(envId, dagId, from, to)`                                                                  |
+| `packages/application`    | `getDagDetail` reads the baseline and fills the new fields; performance test                                                                  |
+| `packages/contracts`      | Additive optional `DagDetail` fields and schemas `DurationDistribution`, `DurationRegression`, `TaskReliability`; `pnpm gen`                  |
+| `packages/adapters/fakes` | `DagBlueprint.slowdown`; demo DAG `search_ranking_refresh`                                                                                    |
+| `apps/server`             | Demo conformance and demo stories (regression, flaky) through the HTTP API                                                                    |
+| `apps/web`                | New panels and explanations (`depth-explanations.ts`); critical path on the Gantt; league "Flaky" column                                      |
 
 ## Constitution check
 
@@ -42,7 +42,7 @@ fakes ── blueprint `slowdown` (a step change in some tasks' duration), demo 
 - `DagDetail.baseline` `{ from, to, history_from, coverage, margin }`.
 - `DagDetail.regression` (`DurationRegression` of successful run durations).
 - `DagDetail.reliability` `{ runs, failed_runs, run_failure_rate, run_recoveries, run_unrecovered,
-  run_mttr_seconds, tasks: TaskReliability }`.
+run_mttr_seconds, tasks: TaskReliability }`.
 - `DagDetail.tasks[]`: `duration_regression`, `reliability`, `critical_path_runs`, `critical_path_share`.
 - `DagDetail.gantt.critical_path` `{ method, row_indexes, duration_seconds, waiting_seconds, running_seconds }` or
   null.
