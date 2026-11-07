@@ -103,13 +103,15 @@ describe('FR-SETUP-02 schema issues name the path and a fix', () => {
 
   it('FR-SETUP-02: keys documented in §17.2 but not used yet are warnings, and the file still loads', async () => {
     const warnings = await warningsOf(
-      `${MINIMAL}    color: "#F28B82"\n    team: data-platform\nserver:\n  port: 8787\nretention:\n  rawTaskInstancesDays: 90\nworkspace:\n  name: acme-data-platform\n  displayTimezone: browser\nprofiles:\n  live: { bucket: 300 }\n`,
+      `${MINIMAL}    color: "#F28B82"\n    team: data-platform\n    retention: { logSignaturesDays: 30 }\nserver:\n  port: 8787\nretention:\n  rawTaskInstancesDays: 90\n  rollup5mDays: 90\n  findingsDays: 400\nworkspace:\n  name: acme-data-platform\n  displayTimezone: browser\nprofiles:\n  live: { bucket: 300 }\n`,
     );
     expect(warnings.map((w) => w.path).sort()).toEqual([
       'environments.0.color',
+      'environments.0.retention.logSignaturesDays',
       'environments.0.team',
       'profiles.live.bucket',
-      'retention',
+      'retention.findingsDays',
+      'retention.rollup5mDays',
       'server',
       'workspace.displayTimezone',
       'workspace.name',
@@ -228,6 +230,23 @@ describe('FR-SETUP-05 budgets cannot exceed the hard maxima of §7.11', () => {
       `${MINIMAL}budgets:\n  airflowApi: { live: 120, maxConcurrent: 4 }\n  monitoring: { perProjectPerMinute: 120 }\n  composerApi: { perMinute: 30 }\n`,
     );
     expect(warnings).toEqual([]);
+  });
+
+  it('FR-STORE-02: retention outside its limits is an error that names the limit and the unit', async () => {
+    const issues = await issuesOf(
+      `${MINIMAL}    retention: { rawMetricPointsDays: 0 }\nretention:\n  rawMetricPointsDays: 91\n  rawTaskInstancesDays: 3\n  findingsDays: 731\n  diskBudgetGb: 0.5\n`,
+    );
+    expect(issues.map((i) => i.path).sort()).toEqual([
+      'environments.0.retention.rawMetricPointsDays',
+      'retention.diskBudgetGb',
+      'retention.findingsDays',
+      'retention.rawMetricPointsDays',
+      'retention.rawTaskInstancesDays',
+    ]);
+    expect(byPath(issues, 'retention.rawMetricPointsDays')?.message).toMatch(/at most 90 days/);
+    expect(byPath(issues, 'retention.rawTaskInstancesDays')?.message).toMatch(/at least 7 days/);
+    expect(byPath(issues, 'retention.diskBudgetGb')?.message).toMatch(/at least 1 GB/);
+    expectActionable(issues);
   });
 
   it('FR-SETUP-05: a cadence or budget must be greater than zero', async () => {

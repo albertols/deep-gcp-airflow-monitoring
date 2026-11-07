@@ -4,7 +4,7 @@ Test tasks come before the code they cover.
 
 - [x] T-500 Domain: retention classes, defaults and limits; `thinSnapshots`; `snapshotSpans` and the observed
       cadence honour `spanMs` (FR-STORE-02, FR-STORE-07)
-- [ ] T-501 Config: `retention` with defaults and hard limits, `environments[].retention`, unused classes
+- [x] T-501 Config: `retention` with defaults and hard limits, `environments[].retention`, unused classes
       warned, JSON Schema and example regenerated (FR-STORE-02)
 - [ ] T-502 Ports and store: migration 0006, `deleteExpired` in batches with the horizon, `thinSnapshots`,
       `storageUsage`, `checkpoint`, `snapshotHorizon`, `spanMs` round trip (FR-STORE-02, FR-STORE-06, FR-STORE-07)

@@ -7,10 +7,11 @@
  * so the server can stay up in setup mode (FR-SETUP-02). It reads one file and nothing else; credentials are
  * referenced by environment variable name and never read here (FR-SETUP-07).
  *
- * @implements FR-SETUP-02, FR-SETUP-05, FR-AUTH-07
+ * @implements FR-SETUP-02, FR-SETUP-05, FR-AUTH-07, FR-STORE-02
  */
 import { readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import type { RetentionDays } from '@dcam/domain';
 import type { ConfigIssue, EnvironmentEntry, EnvironmentSource, Profile, WorkspaceConfig } from '@dcam/ports';
 import { schemaIssues, unusedKeyWarnings } from './issues';
 import { resolvePath } from './paths';
@@ -116,6 +117,15 @@ const cadences = ({
   composer,
 });
 
+/** The classes an environment sets; the others keep the workspace's value. */
+function retentionOverride(
+  retention: ConfigFile['environments'][number]['retention'],
+): Pick<EnvironmentEntry, 'retention'> {
+  if (retention === undefined) return {};
+  const set = Object.entries(retention).filter(([, days]) => days !== undefined);
+  return set.length === 0 ? {} : { retention: Object.fromEntries(set) as Partial<RetentionDays> };
+}
+
 function toWorkspaceConfig(file: ConfigFile, path: string, input: LoadWorkspaceConfigInput): WorkspaceConfig {
   const fileDir = dirname(path);
   const dataDirEnv = input.env['DCAM_DATA_DIR'];
@@ -146,6 +156,7 @@ function toWorkspaceConfig(file: ConfigFile, path: string, input: LoadWorkspaceC
       monitoringPerProjectPerMinute: monitoring.perProjectPerMinute,
       composerApiPerMinute: composerApi.perMinute,
     },
+    retention: { ...file.retention },
     environments: file.environments.map((entry) => ({
       id: entry.id,
       displayName: entry.displayName ?? entry.id,
@@ -156,6 +167,7 @@ function toWorkspaceConfig(file: ConfigFile, path: string, input: LoadWorkspaceC
         taskInstancesDays: entry.backfill.taskInstancesDays,
         metricsDays: entry.backfill.metricsDays,
       },
+      ...retentionOverride(entry.retention),
     })),
   };
 }

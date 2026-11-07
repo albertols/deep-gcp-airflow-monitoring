@@ -480,6 +480,49 @@
               }
             },
             "additionalProperties": false
+          },
+          "retention": {
+            "type": "object",
+            "properties": {
+              "rawTaskInstancesDays": {
+                "description": "Task instance tries: days kept for this environment (7 to 400).",
+                "type": "integer",
+                "minimum": 7,
+                "maximum": 400
+              },
+              "rawMetricPointsDays": {
+                "description": "Live snapshots, worker samples and first-seen ready times: days kept for this environment (1 to 90).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 90
+              },
+              "rollup5mDays": {
+                "description": "5-minute rollups (not stored by this version): days kept for this environment (1 to 400).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 400
+              },
+              "rollup1hDays": {
+                "description": "1-hour rollups (not stored by this version): days kept for this environment (1 to 730).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 730
+              },
+              "logSignaturesDays": {
+                "description": "Log signatures (not stored by this version): days kept for this environment (1 to 90).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 90
+              },
+              "findingsDays": {
+                "description": "Findings and alert history (not stored by this version): days kept for this environment (1 to 730).",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 730
+              }
+            },
+            "additionalProperties": false,
+            "description": "Retention of this environment's data; a class you leave out keeps the workspace value."
           }
         },
         "required": [
@@ -514,7 +557,61 @@
       "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
     },
     "retention": {
-      "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."
+      "description": "How long DCAM keeps collected data, and the disk budget of its store (FR-STORE-02, FR-STORE-07).",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "rawTaskInstancesDays": {
+          "default": 90,
+          "description": "Task instance tries: days kept (7 to 400).",
+          "type": "integer",
+          "minimum": 7,
+          "maximum": 400
+        },
+        "rawMetricPointsDays": {
+          "default": 14,
+          "description": "Live snapshots, worker samples and first-seen ready times: days kept (1 to 90).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 90
+        },
+        "rollup5mDays": {
+          "default": 90,
+          "description": "5-minute rollups (not stored by this version): days kept (1 to 400).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 400
+        },
+        "rollup1hDays": {
+          "default": 400,
+          "description": "1-hour rollups (not stored by this version): days kept (1 to 730).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 730
+        },
+        "logSignaturesDays": {
+          "default": 30,
+          "description": "Log signatures (not stored by this version): days kept (1 to 90).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 90
+        },
+        "findingsDays": {
+          "default": 400,
+          "description": "Findings and alert history (not stored by this version): days kept (1 to 730).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 730
+        },
+        "diskBudgetGb": {
+          "default": 5,
+          "description": "Disk budget of the local store, in GB (1 to 1000; 1 GB is 10^9 bytes). From 90 % of it DCAM warns, thins live snapshots older than 24 h, then deletes the oldest data (FR-STORE-07).",
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      },
+      "additionalProperties": false
     },
     "teams": {
       "description": "Documented in spec §17.2 but not used in this version of DCAM; it is ignored."

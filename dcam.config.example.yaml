@@ -27,6 +27,16 @@ network:
   # NODE_EXTRA_CA_CERTS. `~` is your home folder; a relative path is relative to this file.
   # caBundlePath: ~/certs/acme-root-ca.pem
 
+retention:
+  # How long DCAM keeps what it collects, and how much disk its store may use. DCAM deletes expired data
+  # on start and every 24 h. From 90 % of the disk budget it warns, thins live snapshots older than 24 h to
+  # one per 5 minutes, then deletes the oldest data first (never the last 8 days).
+  rawTaskInstancesDays: 90 # task instance tries, 7 to 400
+  rawMetricPointsDays: 14 # live snapshots, worker samples and ready times, 1 to 90
+  diskBudgetGb: 5 # 1 GB is 10^9 bytes
+  # An environment can keep its data for less (or more) time: add a retention block to it, for example
+  #   retention: { rawMetricPointsDays: 7 }
+
 environments:
   - id: acme-prod # DCAM's own slug, used in URLs: lowercase letters, digits and hyphens
     displayName: Production

@@ -3,7 +3,7 @@
  * validated `dcam.config.yaml` and applied defaults and environment variables. No secrets: credentials
  * are referenced by environment variable name only (FR-SETUP-07).
  */
-import type { Tier } from '@dcam/domain';
+import type { RetentionDays, Tier } from '@dcam/domain';
 
 /** Collection profiles (FR-SETUP-05). `off` keeps the environment listed but collects nothing. */
 export type Profile = 'live' | 'standard' | 'eco' | 'off';
@@ -80,6 +80,14 @@ export interface EnvironmentEntry {
   readonly source: EnvironmentSource;
   /** The configuration adapter always sets it; left out, the collectors use the §17.2 defaults (7 and 14). */
   readonly backfill?: BackfillDays;
+  /** Retention of this environment's data where it differs from the workspace's (FR-STORE-02). */
+  readonly retention?: Partial<RetentionDays>;
+}
+
+/** Retention of the local store and its disk budget (spec §9.4 FR-STORE-02, FR-STORE-07; §17.2 `retention`). */
+export interface RetentionSettings extends RetentionDays {
+  /** Disk budget of the store, in GB (10⁹ bytes). */
+  readonly diskBudgetGb: number;
 }
 
 export interface WorkspaceConfig {
@@ -93,6 +101,8 @@ export interface WorkspaceConfig {
   readonly caBundlePath: string | null;
   readonly profiles: Readonly<Record<Exclude<Profile, 'off'>, ProfileCadences>>;
   readonly budgets: Budgets;
+  /** Retention and the disk budget; absent means the defaults of `@dcam/domain` `retention.ts`. */
+  readonly retention?: RetentionSettings;
   readonly environments: readonly EnvironmentEntry[];
 }
 

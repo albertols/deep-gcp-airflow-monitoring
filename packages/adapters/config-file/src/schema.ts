@@ -3,11 +3,20 @@
  * file's shape, its defaults and the published JSON Schema (`dcam.config.schema.json`, spec §17.1).
  *
  * Keys that §17.2 documents but this version does not use are accepted as {@link NOT_USED_YET} so the
- * loader can warn about them; every other unknown key is an error (strict objects).
+ * loader can warn about them; every other unknown key is an error (strict objects). Retention classes whose
+ * data DCAM does not store yet (rollups, log signatures, findings) are validated and warned about too
+ * ({@link VALIDATED_NOT_USED_YET}).
  *
- * @implements FR-SETUP-02, FR-SETUP-05
+ * @implements FR-SETUP-02, FR-SETUP-05, FR-STORE-02, FR-STORE-07
  */
 import { z } from 'zod';
+import {
+  DEFAULT_DISK_BUDGET_GB,
+  DEFAULT_RETENTION_DAYS,
+  DISK_BUDGET_GB_LIMITS,
+  RETENTION_DAY_LIMITS,
+  type RetentionClass,
+} from '@dcam/domain';
 import type { EnvironmentEntry, Profile, ProfileCadences } from '@dcam/ports';
 
 /** Marks a key documented in §17.2 that this version accepts and ignores (the loader warns). */
@@ -15,6 +24,16 @@ export const NOT_USED_YET = z
   .unknown()
   .optional()
   .describe('Documented in spec §17.2 but not used in this version of DCAM; it is ignored.');
+
+/**
+ * Settings that are validated, because a later version will use them, but ignored by this one: the loader
+ * warns about them like {@link NOT_USED_YET} keys.
+ */
+export const VALIDATED_NOT_USED_YET: ReadonlySet<z.ZodType> = new Set();
+const notUsedYet = <T extends z.ZodType>(schema: T): T => {
+  (VALIDATED_NOT_USED_YET as Set<z.ZodType>).add(schema);
+  return schema;
+};
 
 export const TIERS = [
   'dev',
@@ -154,6 +173,53 @@ const loopbackUrl = z
     }
   });
 
+/** What each retention class holds (FR-STORE-02, §17.2 `retention`). */
+const RETENTION_CLASSES: Readonly<
+  Record<RetentionClass, { readonly what: string; readonly stored: boolean }>
+> = {
+  rawTaskInstancesDays: { what: 'Task instance tries', stored: true },
+  rawMetricPointsDays: { what: 'Live snapshots, worker samples and first-seen ready times', stored: true },
+  rollup5mDays: { what: '5-minute rollups (not stored by this version)', stored: false },
+  rollup1hDays: { what: '1-hour rollups (not stored by this version)', stored: false },
+  logSignaturesDays: { what: 'Log signatures (not stored by this version)', stored: false },
+  findingsDays: { what: 'Findings and alert history (not stored by this version)', stored: false },
+};
+
+/** Days of one retention class, within DCAM's limits; classes DCAM does not store yet are warned about. */
+function retentionDays<T extends z.ZodType>(
+  key: RetentionClass,
+  wrap: (days: z.ZodNumber, range: string, what: string) => T,
+): T {
+  const { min, max } = RETENTION_DAY_LIMITS[key];
+  const { what, stored } = RETENTION_CLASSES[key];
+  const schema = wrap(z.number().int().min(min).max(max), `${min} to ${max}`, what);
+  return stored ? schema : notUsedYet(schema);
+}
+
+/** The workspace's days of each class, with the §17.2 default. */
+const workspaceDays = (key: RetentionClass) =>
+  retentionDays(key, (days, range, what) =>
+    days.default(DEFAULT_RETENTION_DAYS[key]).describe(`${what}: days kept (${range}).`),
+  );
+/** An environment's days of each class; absent keeps the workspace value. */
+const environmentDays = (key: RetentionClass) =>
+  retentionDays(key, (days, range, what) =>
+    days.optional().describe(`${what}: days kept for this environment (${range}).`),
+  );
+
+const retentionShape = <T extends z.ZodType>(build: (key: RetentionClass) => T) => ({
+  rawTaskInstancesDays: build('rawTaskInstancesDays'),
+  rawMetricPointsDays: build('rawMetricPointsDays'),
+  rollup5mDays: build('rollup5mDays'),
+  rollup1hDays: build('rollup1hDays'),
+  logSignaturesDays: build('logSignaturesDays'),
+  findingsDays: build('findingsDays'),
+});
+
+export const environmentRetentionSchema = z
+  .strictObject(retentionShape(environmentDays))
+  .describe("Retention of this environment's data; a class you leave out keeps the workspace value.");
+
 export const airflowSourceSchema = z
   .strictObject({
     baseUrl: loopbackUrl,
@@ -213,6 +279,7 @@ export const environmentEntrySchema = z
       .describe(
         'Backfill on first add (FR-COLL-04): history DCAM reads in the background, within the request budget.',
       ),
+    retention: environmentRetentionSchema.optional(),
   })
   .describe(
     'One monitored environment: either a Composer environment (projectId, location, environment) or an airflow block.',
@@ -393,7 +460,20 @@ export const configFileSchema = z
     server: NOT_USED_YET,
     tiers: NOT_USED_YET,
     discovery: NOT_USED_YET,
-    retention: NOT_USED_YET,
+    retention: section(
+      {
+        ...retentionShape(workspaceDays),
+        diskBudgetGb: z
+          .number()
+          .min(DISK_BUDGET_GB_LIMITS.min)
+          .max(DISK_BUDGET_GB_LIMITS.max)
+          .default(DEFAULT_DISK_BUDGET_GB)
+          .describe(
+            `Disk budget of the local store, in GB (${DISK_BUDGET_GB_LIMITS.min} to ${DISK_BUDGET_GB_LIMITS.max}; 1 GB is 10^9 bytes). From 90 % of it DCAM warns, thins live snapshots older than 24 h, then deletes the oldest data (FR-STORE-07).`,
+          ),
+      },
+      'How long DCAM keeps collected data, and the disk budget of its store (FR-STORE-02, FR-STORE-07).',
+    ),
     teams: NOT_USED_YET,
     cost: NOT_USED_YET,
     advisor: NOT_USED_YET,

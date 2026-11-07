@@ -171,6 +171,15 @@ describe('FR-SETUP-05 profiles and budgets (§17.2, §7.11)', () => {
           monitoringPerProjectPerMinute: 30,
           composerApiPerMinute: 6,
         },
+        retention: {
+          rawTaskInstancesDays: 90,
+          rawMetricPointsDays: 14,
+          rollup5mDays: 90,
+          rollup1hDays: 400,
+          logSignaturesDays: 30,
+          findingsDays: 400,
+          diskBudgetGb: 5,
+        },
         environments: [
           {
             id: 'acme-prod',
@@ -211,6 +220,24 @@ describe('FR-SETUP-05 profiles and budgets (§17.2, §7.11)', () => {
       monitoringPerProjectPerMinute: 30,
       composerApiPerMinute: 3,
     });
+  });
+
+  it('FR-STORE-02: retention per class and per environment overrides the workspace value', async () => {
+    const cwd = tempDir();
+    writeFile(
+      cwd,
+      'dcam.config.yaml',
+      `${MINIMAL}    retention: { rawTaskInstancesDays: 30 }\nretention:\n  rawMetricPointsDays: 7\n  diskBudgetGb: 2.5\n`,
+    );
+    const result = await loadWorkspaceConfig({ env: {}, cwd, homeDir: HOME });
+    if (!result.ok) throw new Error(JSON.stringify(result.issues));
+    expect(result.warnings).toEqual([]);
+    expect(result.config.retention).toMatchObject({
+      rawTaskInstancesDays: 90,
+      rawMetricPointsDays: 7,
+      diskBudgetGb: 2.5,
+    });
+    expect(result.config.environments[0]?.retention).toEqual({ rawTaskInstancesDays: 30 });
   });
 
   it('FR-SETUP-05: the profile defaults by tier (prod standard, every other tier eco); an explicit profile wins', async () => {

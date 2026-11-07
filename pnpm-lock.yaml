@@ -167,6 +167,9 @@ importers:
 
   packages/adapters/config-file:
     dependencies:
+      '@dcam/domain':
+        specifier: workspace:*
+        version: link:../../domain
       '@dcam/ports':
         specifier: workspace:*
         version: link:../../ports

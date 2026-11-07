@@ -5,11 +5,17 @@
  * Messages are built from the issue code, the path and the schema, never from the value in the file: a value
  * in the wrong place may be a secret pasted by mistake (FR-SETUP-07). Key names are repeated, values are not.
  *
- * @implements FR-SETUP-02, FR-SETUP-05
+ * @implements FR-SETUP-02, FR-SETUP-05, FR-STORE-02
  */
 import type { ConfigIssue } from '@dcam/ports';
 import { z } from 'zod';
-import { ENV_ID_PATTERN, ENV_VAR_PATTERN, NOT_USED_YET, configFileSchema } from './schema';
+import {
+  ENV_ID_PATTERN,
+  ENV_VAR_PATTERN,
+  NOT_USED_YET,
+  VALIDATED_NOT_USED_YET,
+  configFileSchema,
+} from './schema';
 
 type Path = readonly PropertyKey[];
 type Schema = z.core.$ZodType;
@@ -49,6 +55,14 @@ function elementOf(schema: Schema): Schema | undefined {
 
 const fieldOf = (shape: Readonly<Record<string, Schema>>, key: string): Schema | undefined =>
   Object.hasOwn(shape, key) ? shape[key] : undefined;
+
+/** A key this version accepts but ignores: documented for later, validated or not. */
+const notUsed = (field: Schema | undefined): boolean =>
+  field === NOT_USED_YET || (field instanceof z.ZodType && VALIDATED_NOT_USED_YET.has(field));
+
+/** Retention settings: in the `retention` section or an environment's `retention` block. */
+const isRetention = (path: Path): boolean => path[0] === 'retention' || path[2] === 'retention';
+const retentionUnit = (key: string): string => (key === 'diskBudgetGb' ? 'GB' : 'days');
 
 function child(schema: Schema, key: PropertyKey): Schema | undefined {
   if (typeof key === 'number') return elementOf(schema);
@@ -101,7 +115,7 @@ function unknownKeyHint(parent: Path, key: string): string {
   const s = schemaAt(parent);
   const shape = (s === undefined ? undefined : shapeOf(s)) ?? {};
   const known = Object.keys(shape);
-  const read = known.filter((k) => fieldOf(shape, k) !== NOT_USED_YET);
+  const read = known.filter((k) => !notUsed(fieldOf(shape, k)));
   const closest = known.toSorted((a, b) => remoteness(key, a) - remoteness(key, b))[0];
   if (closest === undefined) return 'Remove it.';
   const near = remoteness(key, closest) <= Math.max(2, Math.ceil(key.length / 3));
@@ -203,6 +217,14 @@ function convert(issue: z.core.$ZodIssue, input: unknown): ConfigIssue[] {
           },
         ];
       }
+      if (isRetention(path))
+        return [
+          {
+            path: at,
+            message: `${key} must be at most ${max} ${retentionUnit(key)} (a DCAM limit).`,
+            fixHint: `Use ${max} or less. The limits keep the local store within reach of its disk budget (spec §9.4 FR-STORE-02).`,
+          },
+        ];
       return [{ path: at, message: `${key} must be at most ${max}.`, fixHint: `Use ${max} or less.` }];
     }
     case 'too_small': {
@@ -220,6 +242,17 @@ function convert(issue: z.core.$ZodIssue, input: unknown): ConfigIssue[] {
           { path: at, message: `${key} is empty.`, fixHint: `Write a value for ${key}, or remove the line.` },
         ];
       const bound = `${issue.inclusive ? 'at least' : 'greater than'} ${String(issue.minimum)}`;
+      if (isRetention(path))
+        return [
+          {
+            path: at,
+            message: `${key} must be ${bound} ${retentionUnit(key)} (a DCAM limit).`,
+            fixHint:
+              key === 'diskBudgetGb'
+                ? `Use ${String(issue.minimum)} or more.`
+                : `Use ${String(issue.minimum)} or more: DCAM needs that much history for its pages and alerts.`,
+          },
+        ];
       return [{ path: at, message: `${key} must be ${bound}.`, fixHint: `Use a number ${bound}.` }];
     }
     case 'invalid_format': {
@@ -269,7 +302,7 @@ export function unusedKeyWarnings(input: unknown): ConfigIssue[] {
       for (const [k, v] of Object.entries(value)) {
         const field = fieldOf(shape, k);
         if (field === undefined || v === null || v === undefined) continue;
-        if (field === NOT_USED_YET)
+        if (notUsed(field))
           warnings.push({
             path: dotted([...path, k]),
             message: `${k} is not used by this version of DCAM and is ignored (spec §17.2 documents it for a later version).`,

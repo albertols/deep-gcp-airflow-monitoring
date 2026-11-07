@@ -20,6 +20,12 @@ describe('FR-SETUP-02 published JSON Schema (§17.1)', () => {
     const backfill = schema.properties.environments.items.properties.backfill.properties;
     expect([backfill.taskInstancesDays.default, backfill.taskInstancesDays.maximum]).toEqual([7, 90]);
     expect([backfill.metricsDays.default, backfill.metricsDays.maximum]).toEqual([14, 42]);
+    expect(schema.properties.retention.properties.rawMetricPointsDays).toMatchObject({
+      minimum: 1,
+      maximum: 90,
+      default: 14,
+    });
+    expect(schema.properties.retention.properties.diskBudgetGb.default).toBe(5);
     expect(schema.properties.environments.items.oneOf).toEqual([
       { required: ['projectId', 'location', 'environment'] },
       { required: ['airflow'] },
