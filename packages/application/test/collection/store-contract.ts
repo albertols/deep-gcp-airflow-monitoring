@@ -335,6 +335,20 @@ export const STORE_CONTRACT: readonly StoreContractCase[] = [
     },
   },
   {
+    name: 'FR-COLL-03: a finished row read before the stored finished one never replaces it (a late backfill commit)',
+    async run(store, expect) {
+      // af.facts stored the try after someone marked it success; the backfill read it as failed earlier.
+      await store.upsertTaskTries([tryRow({ state: 'success', sourceUpdatedAt: T0 + 10 * MIN })]);
+      await store.commitBackfill(ENV, 'af.backfill', backfillProgress(), {
+        tries: [tryRow({ state: 'failed', sourceUpdatedAt: T0 + 6 * MIN })],
+      });
+      expect((await all(store)).get('load#1')?.state).toBe('success');
+      // The same or a newer version still replaces.
+      await store.upsertTaskTries([tryRow({ state: 'failed', sourceUpdatedAt: T0 + 10 * MIN })]);
+      expect((await all(store)).get('load#1')?.state).toBe('failed');
+    },
+  },
+  {
     name: 'FR-COLL-04: a metrics backfill commit stores worker samples, upserted by minute',
     async run(store, expect) {
       const sample = (at: number, workers: number) => ({

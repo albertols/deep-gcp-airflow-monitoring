@@ -341,6 +341,10 @@ export class DuckDbStore implements Store, CollectionStore, RetentionStore {
        LEFT JOIN fact.ready_time r ON ${sameTry('r', 's')}
        LEFT JOIN fact.task_instance f ON ${sameTry('f', 's')}
        WHERE NOT (s.end_s IS NULL AND ${trueEnd('f')})
+         -- A finished row read before the stored finished one (a backfill committing a cycle late) is stale.
+         -- Without both update times there is nothing to compare: the row replaces, as before.
+         AND NOT (s.end_s IS NOT NULL AND ${trueEnd('f')}
+                  AND coalesce(f.source_updated_at > to_timestamp(s.updated_s), false))
        QUALIFY row_number() OVER (
          PARTITION BY ${TRY_KEY.map((c) => `s.${c}`).join(', ')}
          ORDER BY (s.end_s IS NOT NULL AND NOT s.end_estimated) DESC, s.rowid DESC) = 1`,

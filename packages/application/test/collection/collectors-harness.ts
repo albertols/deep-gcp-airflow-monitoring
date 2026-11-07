@@ -83,6 +83,11 @@ export class MemoryStore implements CollectionStore {
     for (const [k, r] of batch) {
       const stored = this.tries.get(k);
       if (r.endAt === null && stored && trueEnd(stored)) continue;
+      const older =
+        stored?.sourceUpdatedAt != null &&
+        r.sourceUpdatedAt != null &&
+        stored.sourceUpdatedAt > r.sourceUpdatedAt;
+      if (r.endAt !== null && stored && trueEnd(stored) && older) continue;
       this.tries.set(k, {
         ...r,
         readyAt: r.readyAt ?? this.ready.get(k) ?? stored?.readyAt ?? null,

@@ -71,7 +71,8 @@ export interface TaskInstanceStore {
   /**
    * Upserts on the natural key; when a batch repeats a key, a row with a true end wins, else the last row.
    * A row without `endAt` never replaces a stored try whose end is true (not estimated): a running row read
-   * before the try finished must not undo its finished row. Afterwards, a stored try still open while a
+   * before the try finished must not undo its finished row. Nor does a finished row whose `sourceUpdatedAt` is
+   * older than the stored finished row's: a backfill that commits a cycle late must not undo a newer state. Afterwards, a stored try still open while a
    * later try of its task instance exists ends, estimated, when it was last seen running (`seenRunningAt`,
    * never before it started); a try never seen running ends at the later try's earliest known time (ready,
    * queued or start). A failed try rescheduled before its own row was read would otherwise run forever,

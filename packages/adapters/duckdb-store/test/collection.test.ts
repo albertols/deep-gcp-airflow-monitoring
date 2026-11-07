@@ -125,6 +125,23 @@ describe('CollectionStore round trips (migrations 0004 and 0005)', { timeout: 60
     store.close();
   });
 
+  it('FR-COLL-03: a finished row read before a newer one never replaces it (a late backfill commit)', async () => {
+    const store = await openStore({ path: ':memory:' });
+    // af.facts stores the try after someone marked it success; the backfill read it as failed earlier.
+    await store.upsertTaskTries([tryRow({ state: 'success', sourceUpdatedAt: T0 + 120_000 })]);
+    await store.upsertTaskTries([tryRow({ state: 'failed', sourceUpdatedAt: T0 + 60_000 })]);
+    expect((await store.taskTries(ENV, T0, T0 + 1)).map((t) => [t.state, t.sourceUpdatedAt])).toEqual([
+      ['success', T0 + 120_000],
+    ]);
+    // The same or a newer version still replaces, as before.
+    await store.upsertTaskTries([tryRow({ state: 'failed', sourceUpdatedAt: T0 + 120_000 })]);
+    await store.upsertTaskTries([tryRow({ state: 'success', sourceUpdatedAt: T0 + 180_000 })]);
+    expect((await store.taskTries(ENV, T0, T0 + 1)).map((t) => [t.state, t.sourceUpdatedAt])).toEqual([
+      ['success', T0 + 180_000],
+    ]);
+    store.close();
+  });
+
   it('HM-006: re-upserting a try without readyAt keeps the ready time it already has', async () => {
     const store = await openStore({ path: ':memory:' });
     await store.upsertTaskTries([tryRow({ readyAt: T0 - 7_000, state: 'running', endAt: null })]);
