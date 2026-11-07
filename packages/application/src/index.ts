@@ -2,6 +2,7 @@ export * from './overview';
 export * from './bottlenecks';
 export * from './schedule';
 export * from './capacity';
+export * from './forecast';
 export * from './range';
 export * from './fleet';
 export * from './dags';
