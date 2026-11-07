@@ -1322,7 +1322,25 @@ components:
           required: [runs, days, cells]
           properties:
             runs: { type: integer, minimum: 0, description: 'Runs whose first try started in the range.' }
-            days: { type: number, minimum: 0 }
+            days:
+              {
+                type: number,
+                minimum: 0,
+                description: 'Days of the range with task history (runs per day = runs ÷ days); 0 without history.',
+              }
+            history_from:
+              {
+                type: ['string', 'null'],
+                format: date-time,
+                description: "Where the environment's task history starts; before it the heatmap has no data (not zero). Null without history.",
+              }
+            coverage:
+              {
+                type: number,
+                minimum: 0,
+                maximum: 1,
+                description: 'Share of the range with task history, 0–1.',
+              }
             cells:
               type: array
               description: Non-empty cells only.

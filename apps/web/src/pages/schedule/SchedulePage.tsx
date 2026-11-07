@@ -23,6 +23,7 @@ import type { Range, Schedule } from '@dcam/contracts';
 import { formatInt, formatShare } from '../../components/format';
 import { PageHeader } from '../../components/PageHeader';
 import { Kpi, KpiRow, Panel, ProvenanceFooter, QueryState } from '../../components/Panel';
+import { formatUtc } from '../dags/time';
 import type { PageProps } from '../types';
 import { SCHEDULE_EXPLANATIONS as X } from './explanations';
 import { Heatmap, cellTime, type HeatCell } from './Heatmap';
@@ -56,6 +57,9 @@ function HeatmapPanel({ s }: { s: Schedule }) {
     view === 'planned'
       ? 'No DAG has a cron schedule yet, so there are no planned starts. Schedules appear after the first DAG inventory; check the collectors on the DCAM health page.'
       : 'No DAG run started in this range. Runs appear once task instances are collected.';
+  // NFR-DATA-03: hours before the task history starts are missing, not zero.
+  const historyFrom = s.actual.history_from;
+  const partial = view === 'actual' && historyFrom && (s.actual.coverage ?? 1) < 1;
 
   return (
     <Panel
@@ -107,6 +111,11 @@ function HeatmapPanel({ s }: { s: Schedule }) {
           label={label}
           describe={(c) => `${cellTime(c)} UTC: ${perDay.format(c.value)} ${unit}`}
         />
+      )}
+      {partial && (
+        <Typography variant="caption" color="text.secondary">
+          No history before {formatUtc(historyFrom)}: earlier hours are missing, not zero.
+        </Typography>
       )}
     </Panel>
   );

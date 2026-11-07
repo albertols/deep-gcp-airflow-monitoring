@@ -47,7 +47,16 @@ const store: TaskInstanceStore = {
   upsertTaskTries: async () => {},
   taskTries: async () => tries,
   countTaskTries: async () => tries.length,
+  historyStart: async () => NOW - 30 * 24 * 60 * MIN,
 };
+/** A store that reads as DuckDB does: tries whose running interval overlaps [from, to), or still running. */
+const overlapping = (all: readonly StoredTaskTry[], historyStart?: number | null): TaskInstanceStore => ({
+  upsertTaskTries: async () => {},
+  taskTries: async (_env, from, to) =>
+    all.filter((t) => t.startAt !== null && t.startAt < to && (t.endAt === null || t.endAt > from)),
+  countTaskTries: async () => all.length,
+  ...(historyStart === undefined ? {} : { historyStart: async () => historyStart }),
+});
 const model = (dags: DagMeta[]): EnvironmentModelSource => ({
   config: async () => null,
   dags: async () => dags,
@@ -82,10 +91,55 @@ describe('getScheduleIntelligence (S-17, FR-BOTL-03, HM-009)', () => {
     expect(s.actual).toEqual({
       runs: 2,
       days: 1,
+      history_from: new Date(NOW - 30 * 24 * 60 * MIN).toISOString(),
+      coverage: 1,
       cells: [
         { hour: 10, minute: 2, runs: 1 },
         { hour: 11, minute: 0, runs: 1 },
       ],
+    });
+  });
+
+  it('HM-009: a run whose first task ended before the range is no start in it, though only a later task overlaps', async () => {
+    const from = NOW - 24 * 60 * MIN;
+    const at = (runId: string, taskId: string, start: number, end: number) => ({
+      ...run(runId, start),
+      taskId,
+      endAt: end,
+    });
+    const all = [
+      // r1 started 5 min before the range; its second task ran inside it.
+      at('r1', 'first', from - 5 * MIN, from - 2 * MIN),
+      at('r1', 'second', from + 5 * MIN, from + 10 * MIN),
+      at('r2', 'first', from + 10 * MIN, from + 12 * MIN),
+    ];
+    const s = await getScheduleIntelligence(
+      { ...deps, store: overlapping(all, from - 3 * 24 * 60 * MIN) },
+      query,
+    );
+    expect(s.actual).toMatchObject({ runs: 1, cells: [{ hour: 12, minute: 10, runs: 1 }] });
+  });
+
+  it('HM-009: hours before the history starts are missing, not zero: the history start and coverage say so', async () => {
+    const historyStart = NOW - 6 * 60 * MIN;
+    const s = await getScheduleIntelligence(
+      { ...deps, store: overlapping([run('r1', NOW - 60 * MIN)], historyStart) },
+      query,
+    );
+    expect(s.actual).toMatchObject({
+      runs: 1,
+      days: 0.25,
+      coverage: 0.25,
+      history_from: new Date(historyStart).toISOString(),
+    });
+    // A store that cannot tell where its history starts: the earliest try read stands for it.
+    const fallback = await getScheduleIntelligence(
+      { ...deps, store: overlapping([run('r1', NOW - 60 * MIN)]) },
+      query,
+    );
+    expect(fallback.actual).toMatchObject({
+      coverage: 1 / 24,
+      history_from: new Date(NOW - 60 * MIN).toISOString(),
     });
   });
 
@@ -109,9 +163,14 @@ describe('getScheduleIntelligence (S-17, FR-BOTL-03, HM-009)', () => {
 
   it('FR-UI-07 / FR-UI-08: with nothing collected the page is empty, has no data time and no source', async () => {
     const empty = await getScheduleIntelligence(
-      { store: { ...store, taskTries: async () => [] }, model: model([]), clock: deps.clock },
+      {
+        store: { ...store, taskTries: async () => [], historyStart: async () => null },
+        model: model([]),
+        clock: deps.clock,
+      },
       query,
     );
+    expect(empty.actual).toMatchObject({ runs: 0, days: 0, coverage: 0, history_from: null });
     expect(empty.data_as_of).toBeNull();
     expect(empty.sources).toEqual([]);
     expect(empty.planned.cells).toEqual([]);

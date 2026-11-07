@@ -99,6 +99,30 @@ describe('FR-STORE-01 embedded store with migrations', { timeout: 60_000 }, () =
     store.close();
   });
 
+  it('NFR-DATA-03: the history starts at the environment’s earliest try, never before the retention horizon', async () => {
+    const store = await openStore({ path: ':memory:' });
+    expect(await store.historyStart('acme-prod')).toBeNull();
+    await store.upsertTaskTries([
+      row(),
+      row({
+        dagId: 'billing_hourly',
+        taskId: 'queued_only',
+        startAt: null,
+        endAt: null,
+        state: 'queued',
+        queuedAt: T0 - 9_000_000,
+      }),
+      row({ dagId: 'billing_hourly', taskId: 'long', startAt: T0 - 7_200_000, endAt: T0 + 60_000 }),
+      row({ envId: 'acme-test', startAt: T0 - 99_000_000, endAt: T0 - 98_000_000 }),
+    ]);
+    expect(await store.historyStart('acme-prod')).toBe(T0 - 9_000_000);
+    // Retention deletes tries that ended before its cut; the long try that ended after it is kept.
+    await store.deleteExpired('acme-prod', 'task-tries', T0 - 3_600_000, 1_000);
+    expect(await store.historyStart('acme-prod')).toBe(T0 - 3_600_000);
+    expect(await store.historyStart('acme-test')).toBe(T0 - 99_000_000);
+    store.close();
+  });
+
   it('FR-STORE-01: ingests a large batch quickly through the staging table', async () => {
     const store = await openStore({ path: ':memory:' });
     const rows = Array.from({ length: 100_000 }, (_, i) =>

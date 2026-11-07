@@ -182,6 +182,16 @@ describe('S-17 schedule intelligence (FR-BOTL-03, HM-009)', () => {
     expect(within(table).getAllByRole('row')[1]).toHaveTextContent('00:01');
   });
 
+  it('HM-009: actual starts say where the history starts, so earlier hours read as missing, not zero', async () => {
+    renderPage({
+      ...fixture,
+      actual: { ...fixture.actual, days: 0.25, history_from: T(18), coverage: 0.25 },
+    });
+    const p = await panel('Start heatmap');
+    await userEvent.click(within(p).getByRole('button', { name: 'Actual' }));
+    expect(within(p).getByText(/No history before 5 Nov, 18:00 UTC/)).toBeInTheDocument();
+  });
+
   it('FR-BOTL-03: the most colliding minutes and the schedules most DAGs share', async () => {
     renderPage();
     const minutes = await panel('Most colliding minutes');

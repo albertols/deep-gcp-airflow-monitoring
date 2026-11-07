@@ -413,6 +413,18 @@ export class DuckDbStore implements Store, CollectionStore, RetentionStore {
     return rows.map(toTry);
   }
 
+  async historyStart(envId: string): Promise<number | null> {
+    const [row] = await this.rows(
+      `SELECT epoch_ms(min(coalesce(start_at, queued_at)))::DOUBLE AS t FROM fact.task_instance WHERE env_id = $1`,
+      [envId],
+    );
+    const earliest = num(row?.['t']);
+    if (earliest === null) return null;
+    // A try that started before the retention horizon but ended after it is kept; history is complete from there.
+    const { deletedBefore } = await this.horizon(envId, 'task-tries');
+    return deletedBefore === null ? earliest : Math.max(earliest, deletedBefore);
+  }
+
   async countTaskTries(envId: string): Promise<number> {
     const [row] = await this.rows(`SELECT count(*)::INTEGER AS n FROM fact.task_instance WHERE env_id = $1`, [
       envId,

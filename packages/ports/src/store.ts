@@ -87,6 +87,13 @@ export interface TaskInstanceStore {
    */
   dagTaskTries?(envId: string, dagId: string, from: number, to: number): Promise<StoredTaskTry[]>;
   countTaskTries(envId: string): Promise<number>;
+  /**
+   * Where the environment's stored task history starts: its earliest try (start, else queued time), never
+   * before the horizon retention deleted older tries up to (FR-STORE-02); `null` without a try. Pages say
+   * "no history" before it instead of drawing zero (NFR-DATA-03). Optional: where a store does not offer it,
+   * callers take the earliest of the environment's tries they read.
+   */
+  historyStart?(envId: string): Promise<number | null>;
 }
 
 /**

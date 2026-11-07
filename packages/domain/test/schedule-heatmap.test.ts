@@ -158,5 +158,28 @@ describe('FR-BOTL-03 actual run starts', () => {
     expect(a.cells[at(0, 0)]).toBe(1);
     expect(a.cells[at(1, 30)]).toBe(1);
     expect(a.cells.reduce((s, n) => s + n, 0)).toBe(2);
+    expect(a).toMatchObject({ historyFrom: T0, coverage: 1 });
+  });
+
+  it('HM-009: before the history starts nothing is known: days and coverage count only the time with history', () => {
+    const historyFrom = T0 + 18 * 3_600 * SEC;
+    const a = actualRunStarts([tri('r1', 18 * 3_600 + 60), tri('r2', 20 * 3_600)], {
+      from: T0,
+      to: T0 + 86_400 * SEC,
+      historyFrom,
+    });
+    expect(a).toMatchObject({ runs: 2, days: 0.25, coverage: 0.25, historyFrom });
+    // History from before the range covers all of it; no history at all covers none.
+    expect(actualRunStarts([], { from: T0, to: T0 + 86_400 * SEC, historyFrom: T0 - SEC })).toMatchObject({
+      days: 1,
+      coverage: 1,
+      historyFrom: T0 - SEC,
+    });
+    expect(actualRunStarts([], { from: T0, to: T0 + 86_400 * SEC, historyFrom: null })).toMatchObject({
+      runs: 0,
+      days: 0,
+      coverage: 0,
+      historyFrom: null,
+    });
   });
 });

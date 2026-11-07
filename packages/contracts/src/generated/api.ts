@@ -794,7 +794,15 @@ export interface components {
             actual: {
                 /** @description Runs whose first try started in the range. */
                 runs: number;
+                /** @description Days of the range with task history (runs per day = runs ÷ days); 0 without history. */
                 days: number;
+                /**
+                 * Format: date-time
+                 * @description Where the environment's task history starts; before it the heatmap has no data (not zero). Null without history.
+                 */
+                history_from?: string | null;
+                /** @description Share of the range with task history, 0–1. */
+                coverage?: number;
                 /** @description Non-empty cells only. */
                 cells: {
                     hour: number;

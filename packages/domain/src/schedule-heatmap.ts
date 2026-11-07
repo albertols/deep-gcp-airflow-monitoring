@@ -6,7 +6,9 @@
  *   day per cell; day-of-week, day-of-month and month restrictions become fractions. DCAM does not collect
  *   DAG time zones, so cron times are UTC.
  * - **Actual** starts come from task instance tries: DCAM stores no DAG runs, so a run starts with its first
- *   try start. Runs whose first try started before the range are left out.
+ *   try start. Runs whose first try started before the range are left out, so the caller passes tries from
+ *   before the range too. Before DCAM's history starts nothing is known: those hours are no days of the
+ *   range (`days`, `coverage`), never zero starts.
  *
  * @implements FR-BOTL-03, HM-009
  */
@@ -31,8 +33,21 @@ export interface ActualStarts {
   /** Runs that started in each cell over the range, index `hour × 60 + minute` (UTC). */
   readonly cells: readonly number[];
   readonly runs: number;
-  /** Length of the range in days (cells ÷ days = runs per day). */
+  /** Days of the range with task history (cells ÷ days = runs per day); 0 without history. */
   readonly days: number;
+  /** Where the task history starts; `null` without history. */
+  readonly historyFrom: number | null;
+  /** Share of the range with task history, 0–1. */
+  readonly coverage: number;
+}
+
+export interface ActualStartsWindow {
+  readonly from: number;
+  readonly to: number;
+  /**
+   * Where the environment's task history starts (`null`: none yet). Absent means it covers the range.
+   */
+  readonly historyFrom?: number | null;
 }
 
 export interface CollidingMinute {
@@ -88,10 +103,7 @@ export function plannedStarts(dags: readonly DagMeta[]): PlannedStarts {
   };
 }
 
-export function actualRunStarts(
-  tries: readonly TaskTry[],
-  window: { readonly from: number; readonly to: number },
-): ActualStarts {
+export function actualRunStarts(tries: readonly TaskTry[], window: ActualStartsWindow): ActualStarts {
   const first = new Map<string, number>();
   for (const t of tries) {
     if (t.startAt === null) continue;
@@ -108,7 +120,16 @@ export function actualRunStarts(
     cells[i] = (cells[i] ?? 0) + 1;
     runs++;
   }
-  return { cells, runs, days: (window.to - window.from) / DAY_MS };
+  const historyFrom = window.historyFrom === undefined ? window.from : window.historyFrom;
+  const length = window.to - window.from;
+  const covered = historyFrom === null ? 0 : Math.max(0, window.to - Math.max(window.from, historyFrom));
+  return {
+    cells,
+    runs,
+    days: covered / DAY_MS,
+    historyFrom,
+    coverage: length > 0 ? Math.min(1, covered / length) : 0,
+  };
 }
 
 /** Starts per day of each minute-of-hour for one DAG. */
