@@ -11,7 +11,6 @@
  */
 import { readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import type { RetentionDays } from '@dcam/domain';
 import type { ConfigIssue, EnvironmentEntry, EnvironmentSource, Profile, WorkspaceConfig } from '@dcam/ports';
 import { schemaIssues, unusedKeyWarnings } from './issues';
 import { resolvePath } from './paths';
@@ -123,7 +122,7 @@ function retentionOverride(
 ): Pick<EnvironmentEntry, 'retention'> {
   if (retention === undefined) return {};
   const set = Object.entries(retention).filter(([, days]) => days !== undefined);
-  return set.length === 0 ? {} : { retention: Object.fromEntries(set) as Partial<RetentionDays> };
+  return set.length === 0 ? {} : { retention: Object.fromEntries(set) };
 }
 
 function toWorkspaceConfig(file: ConfigFile, path: string, input: LoadWorkspaceConfigInput): WorkspaceConfig {
