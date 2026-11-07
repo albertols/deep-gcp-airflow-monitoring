@@ -130,6 +130,23 @@ describe('FR-COLL-04 mon.backfill: fourteen days of worker samples', () => {
     expect(lastReport(ctx)).toMatchObject({ state: 'complete', coveredFrom: B - 14 * DAY });
   });
 
+  it('FR-COLL-04: an empty worker discovery is asked again next cycle, not kept until a restart', async () => {
+    let visible = false;
+    const answer = respond();
+    const monitoring = new FakeMonitoring((q) =>
+      q.groupBy?.includes('resource.labels.type') && !visible ? [] : answer(q),
+    );
+    const store = new MemoryStore();
+    const ctx = fakeContext({ store, monitoring });
+    const collector = monBackfillCollector();
+    await collector.collect(ctx);
+    expect(ctx.fidelity.at(-1)).toMatch(/No Celery worker workload metrics/);
+    visible = true;
+    ctx.advance(MIN);
+    expect(await backfill(ctx, collector)).toBeLessThan(100);
+    expect(store.samples.size).toBe(14 * 1_440);
+  });
+
   it('FR-COLL-03: a restart resumes at the covered start with the same boundary', async () => {
     const monitoring = new FakeMonitoring(respond());
     const store = new MemoryStore();

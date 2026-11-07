@@ -159,6 +159,8 @@ export function monBackfillCollector(): Collector {
       try {
         state.workerType ??= await discoverWorkerType(query, environment, chunkTo - MON_TRAILING_MS, chunkTo);
         if (state.workerType === null) {
+          // Not kept: the empty answer is cached with the day's series, so drop the day and ask again next cycle.
+          state.chunk = null;
           ctx.reducedFidelity(
             'No Celery worker workload metrics were found, so worker history cannot be read yet.',
           );
