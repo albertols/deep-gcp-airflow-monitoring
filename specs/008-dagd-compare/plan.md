@@ -40,7 +40,14 @@ tabs read one response, as for the baseline and reliability). Comparisons are ne
 | `packages/contracts`             | Additive: `DagDetail.concurrency`, `.impact`; schemas `DagConcurrency`, `DagImpact`, `DagNoisyNeighbour`, `NoisyNeighbour` (the item, extracted), `DagComparison`, `RunComparison`; two paths; `pnpm gen` |
 | `apps/server`                    | Routes (ranges through `parseRange`), demo conformance and stories                                                                                                                                        |
 
-No web changes. No collector or fakes changes: the demo already has the throttled fan-out DAG
+Web (T-830 to T-837): `apps/web` only, no contract change. New: `pages/compare/` (route `/compare/dags`,
+selection, panels), `pages/dags/{ConcurrencyPanel,ImpactPanel,DagFindingsPanel,RunComparisonPanel}.tsx`,
+`compare-explanations.ts`, `components/{line-chart.tsx,series.ts,view-toggle.tsx}`. Small additive edits:
+`DagDetailPage.tsx` (the panels and "Compare with other DAGs"), `LeagueTable.tsx`/`DagsPage.tsx` (row selection,
+`compare` in the URL), the advisor (`finding` opens one finding), `PageProps.linkTo` (optional page parameters),
+the API client (two calls).
+
+No collector or fakes changes: the demo already has the throttled fan-out DAG
 (`customer_360_rebuild`), the noisy neighbour (`search_index_rebuild`) and a regressed task (`search_ranking_refresh`).
 
 ## Constitution check

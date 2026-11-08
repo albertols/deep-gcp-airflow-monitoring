@@ -108,8 +108,14 @@ const RANGE_SCOPE: Readonly<Record<Page, RangeScope>> = {
  * (`vs`), is not in another one.
  */
 const SELECTION_PARAMS: readonly string[] = ['run', 'vs'];
-const withoutSelection = (params: PageParams): PageParams =>
-  Object.fromEntries(Object.entries(params).filter(([k]) => !SELECTION_PARAMS.includes(k)));
+/** Page state that names DAGs of one environment: the league's rows picked to compare. */
+const ENVIRONMENT_PARAMS: readonly string[] = [...SELECTION_PARAMS, 'compare'];
+const without =
+  (keys: readonly string[]) =>
+  (params: PageParams): PageParams =>
+    Object.fromEntries(Object.entries(params).filter(([k]) => !keys.includes(k)));
+const withoutSelection = without(SELECTION_PARAMS);
+const withoutEnvironmentState = without(ENVIRONMENT_PARAMS);
 
 /**
  * The oldest "data as of" among the queries the page shows: every panel on the page is at least this
@@ -218,7 +224,7 @@ export function App({ api, localTimeZone }: { api: DcamApi; localTimeZone?: stri
             <ContextBar
               environments={environments}
               envId={envId}
-              onEnvironment={(next) => go(linkTo(route, next, view, withoutSelection(params)))}
+              onEnvironment={(next) => go(linkTo(route, next, view, withoutEnvironmentState(params)))}
               view={view}
               onView={setView}
               rangeScope={RANGE_SCOPE[route.page]}

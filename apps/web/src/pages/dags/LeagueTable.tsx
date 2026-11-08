@@ -1,11 +1,13 @@
 /**
  * The virtualised, sortable league table: only the rows in view are in the DOM, so sorting, filtering
- * and scrolling stay responsive at 5,000 DAGs (NFR-PERF-03). Every column header has an (i).
+ * and scrolling stay responsive at 5,000 DAGs (NFR-PERF-03). Every column header has an (i). Rows can be
+ * picked to compare (FR-DAGD-08).
  *
- * @implements FR-DAGX-01, FR-DAGX-02, FR-UI-05
+ * @implements FR-DAGX-01, FR-DAGX-02, FR-DAGD-08, FR-UI-05
  */
 import { memo, useEffect, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import Checkbox from '@mui/material/Checkbox';
 import Link from '@mui/material/Link';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -97,21 +99,45 @@ const cellSx = {
   py: 0,
 };
 
+/** Rows picked for S-14 Compare DAGs (FR-DAGD-08): at most four; the others are disabled once four are. */
+export interface LeagueSelection {
+  readonly selected: ReadonlySet<string>;
+  readonly full: boolean;
+  readonly onToggle: (dagId: string) => void;
+}
+
 const LeagueRow = memo(function LeagueRow({
   row,
   index,
   linkTo,
   previousCoverage,
+  checked,
+  disabled,
+  onToggle,
 }: {
   row: DagLeagueRow;
   index: number;
   linkTo: (route: Route) => string;
   previousCoverage: number;
+  checked?: boolean;
+  disabled?: boolean;
+  onToggle?: ((dagId: string) => void) | undefined;
 }) {
   // HM-015: task instances inferred flaky from the try number make the flaky rate an upper bound.
   const inferred = row.flaky_inferred ?? 0;
   return (
-    <TableRow hover aria-rowindex={index + 2}>
+    <TableRow hover aria-rowindex={index + 2} selected={checked === true}>
+      {onToggle && (
+        <TableCell padding="checkbox" sx={{ height: ROW_HEIGHT, py: 0 }}>
+          <Checkbox
+            size="small"
+            checked={checked === true}
+            disabled={disabled === true}
+            onChange={() => onToggle(row.dag_id)}
+            slotProps={{ input: { 'aria-label': `Select ${row.dag_id} to compare` } }}
+          />
+        </TableCell>
+      )}
       <TableCell sx={cellSx} title={row.dag_id}>
         <Link href={linkTo({ page: 'dag', dagId: row.dag_id })} sx={{ fontFamily: MONO }}>
           {row.dag_id}
@@ -181,6 +207,7 @@ export function LeagueTable({
   linkTo,
   resetKey,
   previousCoverage,
+  selection,
 }: {
   rows: readonly DagLeagueRow[];
   sort: SortState;
@@ -190,7 +217,10 @@ export function LeagueTable({
   previousCoverage: number;
   /** Changes when the user sorts or filters; a background refresh keeps the scroll position. */
   resetKey: string;
+  /** Adds a first column of checkboxes that pick DAGs to compare (FR-DAGD-08). */
+  selection?: LeagueSelection;
 }) {
+  const columnCount = COLUMNS.length + (selection ? 1 : 0);
   const scrollRef = useRef<HTMLDivElement>(null);
   // TanStack Virtual returns fresh functions every render; this component does not memoise them.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -221,10 +251,17 @@ export function LeagueTable({
         size="small"
         aria-label="DAG league table"
         aria-rowcount={rows.length + 1}
-        sx={{ tableLayout: 'fixed', minWidth: 1320 }}
+        sx={{ tableLayout: 'fixed', minWidth: selection ? 1368 : 1320 }}
       >
         <TableHead>
           <TableRow aria-rowindex={1}>
+            {selection && (
+              <TableCell padding="checkbox" sx={{ width: 48, verticalAlign: 'bottom' }}>
+                <Typography variant="caption" color="text.secondary">
+                  Compare
+                </Typography>
+              </TableCell>
+            )}
             {COLUMNS.map((c) => {
               const e = DAG_EXPLANATIONS[c.explanation];
               const active = sort.key === c.key;
@@ -257,11 +294,12 @@ export function LeagueTable({
         <TableBody>
           {paddingTop > 0 && (
             <tr aria-hidden="true">
-              <td colSpan={COLUMNS.length} style={{ height: paddingTop, padding: 0, border: 0 }} />
+              <td colSpan={columnCount} style={{ height: paddingTop, padding: 0, border: 0 }} />
             </tr>
           )}
           {items.map((v) => {
             const row = rows[v.index];
+            const checked = selection?.selected.has(row?.dag_id ?? '') ?? false;
             return row ? (
               <LeagueRow
                 key={row.dag_id}
@@ -269,12 +307,15 @@ export function LeagueTable({
                 index={v.index}
                 linkTo={linkTo}
                 previousCoverage={previousCoverage}
+                checked={checked}
+                disabled={selection ? selection.full && !checked : false}
+                onToggle={selection?.onToggle}
               />
             ) : null;
           })}
           {paddingBottom > 0 && (
             <tr aria-hidden="true">
-              <td colSpan={COLUMNS.length} style={{ height: paddingBottom, padding: 0, border: 0 }} />
+              <td colSpan={columnCount} style={{ height: paddingBottom, padding: 0, border: 0 }} />
             </tr>
           )}
         </TableBody>

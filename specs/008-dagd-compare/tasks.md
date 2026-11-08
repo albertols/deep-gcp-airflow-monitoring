@@ -37,9 +37,9 @@ Test tasks come before the code they cover.
       (FR-DAGD-01 findings, FR-ADV-02)
 - [x] T-834 Test + code: compare runs on DAG detail: the selected run against another (default the previous
       successful one), per-task deltas ranked by contribution, method stated (FR-DAGD-09, HM-007)
-- [ ] T-835 Test + code: compare DAGs page: 2 to 4 DAGs from any environment, aligned KPIs, overlaid duration
+- [x] T-835 Test + code: compare DAGs page: 2 to 4 DAGs from any environment, aligned KPIs, overlaid duration
       distributions on shared bins, hourly profile in UTC, resource shares, capacity context (FR-DAGD-08)
-- [ ] T-836 Test + code: reach it from the league (select rows, then "Compare") and from DAG detail ("Compare with")
+- [x] T-836 Test + code: reach it from the league (select rows, then "Compare") and from DAG detail ("Compare with")
 - [ ] T-837 Test + code: series palette for both themes (contrast ≥ 3:1, distinct under colour-vision deficiencies);
       every new panel, KPI and column has an explanation; provenance on every panel (FR-UI-05, FR-UI-08, NFR-A11Y-01)
 

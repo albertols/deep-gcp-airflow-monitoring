@@ -3,10 +3,10 @@
 - **Epic / milestone:** DAGD · M3 (`FR-DAGD-05/06/09`, spec §22.2 L4627) and M2 (`FR-DAGD-08`)
 - **Requirements:** FR-DAGD-05, FR-DAGD-06, FR-DAGD-08, FR-DAGD-09, HM-003, HM-005, HM-007, HM-011, HM-017,
   REC-DAG-01, NFR-DATA-03, NFR-DATA-04, NFR-PERF
-- **Scope:** backend only (domain, application, contract, server, store read). The web panels for S-12
-  "concurrency", S-13 run comparison and S-14 compare DAGs come in a later task.
-- **Status:** implemented (backend), rebased on feature 003's sliced reads and range presets; web panels, browser
-  validation and code review pending
+- **Scope:** backend (domain, application, contract, server, store read), then the web: S-12 "concurrency",
+  impact and findings panels, S-13 run comparison on DAG detail, S-14 compare DAGs (`/compare/dags`).
+- **Status:** implemented (backend and web), rebased on feature 003's sliced reads and range presets; code review
+  pending
 
 ## Requirements extracted from docs/spec/dcam-spec.md
 
@@ -84,9 +84,24 @@
    collapse to the longest map index.
 5. **Performance.** DAG detail computations over 7 days < 1 s; a 4-DAG compare over 7 days < 2 s (application).
 
+## Web (T-830 to T-837)
+
+1. **DAG detail (S-12).** Concurrency profile: running (mean, peak), running + queued and ready against
+   `max_active_tasks` (the DAG's own or the default), time at the limit, pool lines, self-throttling against the
+   10 % threshold with the REC-DAG-01 link. Impact: share of the environment's slot-hours and slots over time; the
+   noisy-neighbour score with interval and confidence, or the reason and the minimums. Findings: the DAG's open
+   findings, each opening in the advisor (`finding` in the URL).
+2. **Run comparison (S-13).** On DAG detail: the Gantt run (B) against another (A, default the latest successful
+   run before B; `vs` in the URL); per-task deltas in the server's ranking, the method stated.
+3. **Compare DAGs (S-14).** `/compare/dags?dags=env:dag,…`: 2 to 4 DAGs, from the league (select rows, then
+   "Compare") or DAG detail ("Compare with other DAGs"); aligned KPIs, durations on the shared bins, hourly
+   profiles labelled UTC (the API's zone, whatever the context bar shows), resource shares, capacity context.
+4. Every panel: (i) entry, loading, empty, partial (backfill note), stale (task history chip), error states,
+   provenance footer, table view for each chart; the Okabe–Ito series palette, contrast and colour-vision tested.
+
 ## Out of scope
 
-- Web panels and explanations (later task); browser validation.
+- Browser validation in Chrome (no browser tool in the agent run); the demo API was checked with curl.
 - Per-run `max_active_tasks` scope (Airflow 3, `af.maxActiveTasksScope`); task-level limits.
 - Hour-of-week matching over 28 days for HM-017 (as feature 007: the selected range).
 - Run comparison across DAGs; graph-based critical path and slack (needs `downstream_task_ids`).

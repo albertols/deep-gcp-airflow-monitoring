@@ -40,8 +40,9 @@ import {
   sortRows,
   type PresetId,
 } from './league';
-import { LeagueTable, nextSort } from './LeagueTable';
+import { LeagueTable, nextSort, type LeagueSelection } from './LeagueTable';
 import { Treemap } from './Treemap';
+import { MAX_COMPARE, MIN_COMPARE, formatSelection } from '../compare/selection';
 
 const NO_ROWS: readonly DagLeagueRow[] = [];
 const gini = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -74,6 +75,46 @@ function Kpis({ data }: { data: DagLeague }) {
         unit="slot-hours"
       />
     </KpiRow>
+  );
+}
+
+/** FR-DAGD-08: the rows picked to compare, and the link that compares them (2 to 4). */
+function CompareBar({
+  envId,
+  ids,
+  linkTo,
+  onClear,
+}: {
+  envId: string;
+  ids: readonly string[];
+  linkTo: PageProps['linkTo'];
+  onClear: () => void;
+}) {
+  const can = ids.length >= MIN_COMPARE && ids.length <= MAX_COMPARE;
+  const dags = formatSelection(ids.map((dagId) => ({ envId, dagId })));
+  return (
+    <Stack direction="row" sx={{ gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+      <Button
+        size="small"
+        variant="outlined"
+        disabled={!can}
+        href={can ? linkTo({ page: 'compare-dags' }, { dags }) : undefined}
+      >
+        {can ? `Compare ${ids.length} DAGs` : 'Compare'}
+      </Button>
+      <Typography variant="caption" color="text.secondary">
+        {ids.length === 0
+          ? `Select ${MIN_COMPARE} to ${MAX_COMPARE} DAGs to compare them side by side; you can add DAGs of other environments there.`
+          : ids.length >= MAX_COMPARE
+            ? `You can compare up to ${MAX_COMPARE} DAGs: ${ids.join(', ')}.`
+            : `Selected: ${ids.join(', ')}.${ids.length < MIN_COMPARE ? ' Select one more.' : ''}`}
+      </Typography>
+      {ids.length > 0 && (
+        <Button size="small" onClick={onClear}>
+          Clear selection
+        </Button>
+      )}
+    </Stack>
   );
 }
 
@@ -114,6 +155,25 @@ export function DagsPage({ api, envId, linkTo }: PageProps) {
     [rows, deferredSearch, team, tag, preset],
   );
   const sorted = useMemo(() => sortRows(filtered, sort), [filtered, sort]);
+  // FR-DAGD-08: rows picked to compare, in the URL (`compare`, DAG IDs of this environment).
+  const compareParam = params['compare'] ?? '';
+  const compareIds = useMemo(
+    () => [...new Set(compareParam.split(',').filter(Boolean))].slice(0, MAX_COMPARE),
+    [compareParam],
+  );
+  const selection = useMemo<LeagueSelection>(
+    () => ({
+      selected: new Set(compareIds),
+      full: compareIds.length >= MAX_COMPARE,
+      onToggle: (dagId: string) => {
+        const next = compareIds.includes(dagId)
+          ? compareIds.filter((d) => d !== dagId)
+          : [...compareIds, dagId].slice(0, MAX_COMPARE);
+        set({ compare: next.length ? next.join(',') : null });
+      },
+    }),
+    [compareIds, set],
+  );
   const filtering = search !== '' || team !== null || tag !== null || preset !== 'all';
   const clear = () => set({ q: null, team: null, tag: null, preset: null });
   const rangeText = RANGE_PRESETS[range];
@@ -212,6 +272,12 @@ export function DagsPage({ api, envId, linkTo }: PageProps) {
                 <Typography variant="caption" color="text.secondary" role="status">
                   Showing {formatInt(filtered.length)} of {formatInt(rows.length)} DAGs
                 </Typography>
+                <CompareBar
+                  envId={envId}
+                  ids={compareIds}
+                  linkTo={linkTo}
+                  onClear={() => set({ compare: null })}
+                />
                 {filtered.length === 0 ? (
                   <Alert
                     severity="info"
@@ -231,6 +297,7 @@ export function DagsPage({ api, envId, linkTo }: PageProps) {
                     linkTo={linkTo}
                     resetKey={JSON.stringify([sort, deferredSearch, team, tag, preset])}
                     previousCoverage={data.previous_coverage}
+                    selection={selection}
                   />
                 )}
                 {filtering && filtered.length > 0 && (
