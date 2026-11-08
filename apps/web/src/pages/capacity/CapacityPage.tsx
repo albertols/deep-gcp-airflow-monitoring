@@ -17,6 +17,7 @@ import { RANGE_PRESETS } from '../../components/range';
 import { usePageParam, useRefresh, useView } from '../../components/view';
 import type { PageProps } from '../types';
 import { CapacityTab } from './CapacityTab';
+import { DagLoadPanel } from './DagLoadPanel';
 import { capacityRangeOf } from './range';
 
 const TABS = ['capacity', 'dags', 'forecast'] as const;
@@ -86,6 +87,7 @@ export function CapacityPage({ api, envId, linkTo }: PageProps) {
           onForecast={() => setTab('forecast')}
         />
       )}
+      {tab === 'dags' && capacity.data && <DagLoadPanel c={capacity.data} linkTo={linkTo} />}
     </Stack>
   );
 }

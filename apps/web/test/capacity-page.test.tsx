@@ -385,3 +385,75 @@ describe('S-04 saturation heatmap (FR-ENV-02, FR-UI-06, FR-UI-02)', () => {
     await waitFor(() => expect(window.location.hash).toContain('cell=2026-11-04T19'));
   });
 });
+
+describe('S-04 load by DAG and hour of day (FR-DAGX-06)', () => {
+  async function openDagLoad(api: DcamApi = capacityApi()) {
+    renderPage(api);
+    await userEvent.click(await screen.findByRole('tab', { name: 'Load by DAG' }));
+    return panel('Load by DAG and hour of day');
+  }
+
+  it('FR-DAGX-06: a DAG × hour-of-day heatmap of the top DAGs, the busiest named in its description', async () => {
+    const p = await openDagLoad();
+    const g = within(p).getByRole('group', {
+      name: /^Mean worker slots by DAG and UTC hour of day: the top 3 of 120 DAGs\. Busiest: acme_orders_nightly at 02:00 UTC with 48 slots\./,
+    });
+    expect(within(g).getAllByRole('button')).toHaveLength(3 * 24);
+    expect(
+      within(g).getByRole('button', { name: 'acme_orders_nightly, 02:00 UTC: 48 slots on average' }),
+    ).toBeInTheDocument();
+    expect(p).toHaveTextContent('Each cell averages 1 hour of task history in this range.');
+  });
+
+  it('NFR-DATA-03: hours of the day without task history are empty, not zero', async () => {
+    const c = capacityFixture;
+    const p = await openDagLoad(
+      capacityApi({
+        ...c,
+        dag_load: {
+          ...c.dag_load,
+          covered_hours: c.dag_load.covered_hours.map((h, i) => (i === 5 ? 0 : h)),
+          dags: c.dag_load.dags.map((d) => ({ ...d, hours: d.hours.map((v, i) => (i === 5 ? null : v)) })),
+        },
+      }),
+    );
+    const empty = within(p).getByRole('button', { name: 'acme_payments_hourly, 05:00 UTC: no task history' });
+    expect(empty).toHaveAttribute('data-empty', 'true');
+    expect(p).toHaveTextContent(
+      '1 hour of the day has no task history in this range: its cells are empty, not zero.',
+    );
+  });
+
+  it('FR-UI-02 / FR-DAGX-06: a selected cell shows the DAG’s figures and links to the DAG', async () => {
+    const p = await openDagLoad();
+    await userEvent.click(within(p).getByRole('button', { name: /^acme_orders_nightly, 02:00 UTC/ }));
+    expect(within(p).getByRole('button', { name: /^acme_orders_nightly, 02:00 UTC/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(p).toHaveTextContent(
+      'Selected: acme_orders_nightly, 02:00–03:00 UTC. 48 slots on average; the DAG holds 30% of the executor slot time in this range.',
+    );
+    expect(within(p).getByRole('link', { name: 'Open acme_orders_nightly' })).toHaveAttribute(
+      'href',
+      '#/dags/acme_orders_nightly?env=acme-prod',
+    );
+  });
+
+  it('NFR-A11Y-01: the heatmap has a table view with one row per DAG and a column per hour', async () => {
+    const p = await openDagLoad();
+    await userEvent.click(within(p).getByRole('button', { name: 'View as a table' }));
+    const table = within(p).getByRole('table', { name: 'Load by DAG and UTC hour' });
+    expect(within(table).getAllByRole('row')).toHaveLength(1 + 3);
+    expect(within(table).getByText('acme_orders_nightly').closest('tr')).toHaveTextContent(/30%.*150\.0.*48/);
+  });
+
+  it('FR-UI-07: says why the heatmap is empty and what to do', async () => {
+    const p = await openDagLoad(
+      capacityApi({ ...capacityFixture, dag_load: { ...capacityFixture.dag_load, dag_count: 0, dags: [] } }),
+    );
+    expect(p).toHaveTextContent(
+      'No DAG held a worker slot in this range. Widen the range, or check the task instance collector on DCAM health.',
+    );
+  });
+});
