@@ -76,7 +76,11 @@ marker can be removed, or refutes it, so the code changes:
 ## Known limits of this release
 
 - Only Airflow 2.10 or later 2.x. Airflow 3 environments are reported as supported from M4.
-- 7-day ranges take about a second at 2,000 DAGs. 30-day ranges take a few seconds and 90-day ranges much longer,
-  until the store keeps rollups.
+- 7-day ranges take about a second at 2,000 DAGs, on the league, the bottleneck page and one DAG's detail page alike
+  (measured on a 2-core laptop). 30-day ranges take a few seconds and 90-day ranges much longer, until the store
+  keeps rollups. The capacity page covers at most 7 days.
+- The 24-hour forecast wants 14 days of history per DAG. With the default 7-day backfill it says "low confidence"
+  for most DAGs in the first week. To read more history, set `environments[].backfill.taskInstancesDays` (up to
+  the 90-day retention); raising it later extends the backfill further back, within the request budget.
 - The critical path is estimated from timing, because DCAM does not read task dependencies. Inferred flakiness and
   hostname-based worker counts are labelled as upper or lower bounds.
