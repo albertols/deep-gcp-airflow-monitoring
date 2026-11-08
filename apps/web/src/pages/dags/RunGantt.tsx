@@ -64,13 +64,14 @@ interface GanttCsvRow {
   readonly runId: string | null;
   readonly row: GanttRow;
   readonly bars: readonly Bar[];
-  readonly onPath: boolean;
+  /** `null` while the critical path is not known (a running run, or an older server): no try is off it. */
+  readonly onPath: boolean | null;
 }
 
 const phase = (x: GanttCsvRow, kind: Segment) => seconds(x.bars.find((b) => b.kind === kind));
 
 /** The Gantt table as CSV: times in UTC, phases in seconds (open phases end at the range end). */
-const GANTT_CSV: readonly CsvColumn<GanttCsvRow>[] = [
+export const GANTT_CSV: readonly CsvColumn<GanttCsvRow>[] = [
   { name: 'run_id', value: (x) => x.runId },
   { name: 'task_id', value: (x) => x.row.task_id },
   { name: 'try_number', value: (x) => x.row.try_number },
@@ -84,6 +85,19 @@ const GANTT_CSV: readonly CsvColumn<GanttCsvRow>[] = [
   { name: 'running_seconds', value: (x) => phase(x, 'running') },
   { name: 'critical_path', value: (x) => x.onPath },
 ];
+
+/** The Gantt table's CSV rows; open phases end at `now` (ms). */
+export function ganttCsvRows(gantt: DagDetail['gantt'], now: number): GanttCsvRow[] {
+  // Absent (an older server) or null (the run is still running): not known.
+  const path = gantt.critical_path ?? null;
+  const critical = path === null ? null : new Set(path.row_indexes);
+  return gantt.rows.map((row, i) => ({
+    runId: gantt.run_id,
+    row,
+    bars: segments(row, now),
+    onPath: critical === null ? null : critical.has(i),
+  }));
+}
 
 function rowLabel(r: GanttRow): string {
   return r.try_number > 1 ? `${r.task_id} · try ${r.try_number}` : r.task_id;
@@ -147,12 +161,7 @@ export function RunGantt({ gantt, now: nowIso }: { gantt: DagDetail['gantt']; no
     critical.size > 0 ? ` Critical path, estimated from timing: ${formatInt(critical.size)} tries.` : ''
   }`;
   const ticks = Array.from({ length: 5 }, (_, i) => t0 + ((t1 - t0) * i) / 4);
-  const csvRows: GanttCsvRow[] = gantt.rows.map((row, i) => ({
-    runId: gantt.run_id,
-    row,
-    bars: segments(row, now),
-    onPath: critical.has(i),
-  }));
+  const csvRows = ganttCsvRows(gantt, now);
 
   return (
     <Stack spacing={2}>

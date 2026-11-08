@@ -64,11 +64,15 @@ export const STATE_LABEL: Record<Run['state'], string> = {
   running: 'Running',
 };
 
-/** The runs table as CSV: times in UTC, durations and start delays in seconds. */
-const RUN_CSV: readonly CsvColumn<Run>[] = [
+/**
+ * The runs table as CSV: times in UTC, durations and start delays in seconds. For a custom run ID the server
+ * sends the run's first start as its logical date (`dags.ts`); that stand-in is not the logical date, so its
+ * cell is empty (spec §8.1).
+ */
+export const RUN_CSV: readonly CsvColumn<Run>[] = [
   { name: 'run_id', value: (r) => r.run_id },
   { name: 'state', value: (r) => r.state },
-  { name: 'logical_date_utc', value: (r) => isoUtc(r.logical_date) },
+  { name: 'logical_date_utc', value: (r) => (r.logical_date === r.start ? null : isoUtc(r.logical_date)) },
   { name: 'start_utc', value: (r) => isoUtc(r.start) },
   { name: 'end_utc', value: (r) => isoUtc(r.end) },
   { name: 'duration_seconds', value: (r) => r.duration_seconds },
