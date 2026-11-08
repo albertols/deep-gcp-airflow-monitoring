@@ -12,7 +12,7 @@ import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { useTheme } from '@mui/material/styles';
-import { Axes, CHART_MARGIN as M, Tooltip, niceMax, useWidth } from './charts';
+import { Axes, CHART_MARGIN as M, ChartTooltip, niceMax, useWidth } from './charts';
 import type { Marker } from './series';
 
 export interface Line {
@@ -251,7 +251,7 @@ export function LineChart({
           ))}
         </svg>
         {hover !== null && (
-          <Tooltip x={x(hover)} width={width}>
+          <ChartTooltip x={x(hover)} width={width}>
             <Typography variant="caption" component="p" sx={{ fontWeight: 500 }}>
               {title(hover)}
             </Typography>
@@ -276,7 +276,7 @@ export function LineChart({
                 </Typography>
               ))}
             </Stack>
-          </Tooltip>
+          </ChartTooltip>
         )}
       </Box>
       <LineLegend lines={lines} references={references} label={`Legend: ${label.split(':')[0] ?? label}`} />

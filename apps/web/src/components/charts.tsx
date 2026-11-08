@@ -13,7 +13,10 @@ import { useTheme } from '@mui/material/styles';
 import type { TimeFormat } from './time';
 import { useTimeFormat } from './view';
 
-/** Plot margins shared by every chart here and in `line-chart.tsx`. */
+/**
+ * Plot margins in px, shared by every chart here and in `line-chart.tsx`: room for the y-axis labels on the
+ * left and the time ticks below.
+ */
 export const CHART_MARGIN = { top: 8, right: 8, bottom: 22, left: 68 } as const;
 const M = CHART_MARGIN;
 
@@ -75,7 +78,8 @@ export function Legend({ series, label }: { series: readonly Series[]; label: st
   );
 }
 
-export function Tooltip({ x, width, children }: { x: number; width: number; children: ReactNode }) {
+/** The hover card of a chart, kept inside its width. */
+export function ChartTooltip({ x, width, children }: { x: number; width: number; children: ReactNode }) {
   const left = Math.min(Math.max(0, x + 12), Math.max(0, width - 240));
   return (
     <Paper
@@ -88,6 +92,7 @@ export function Tooltip({ x, width, children }: { x: number; width: number; chil
   );
 }
 
+/** One y-axis with a recessive grid at 0, half and the maximum, and time ticks below. */
 export function Axes({
   width,
   height,
@@ -210,7 +215,7 @@ export function StackedBars({
         })}
       </svg>
       {hovered && hover !== null && (
-        <Tooltip x={M.left + band * hover} width={width}>
+        <ChartTooltip x={M.left + band * hover} width={width}>
           <Typography variant="caption" component="p" sx={{ fontWeight: 500 }}>
             {labels.range(hovered.start)} · {format(total(hovered))}
           </Typography>
@@ -230,7 +235,7 @@ export function StackedBars({
                 </Stack>
               ))}
           </Stack>
-        </Tooltip>
+        </ChartTooltip>
       )}
     </Box>
   );
@@ -300,7 +305,7 @@ export function ValueBars({
         })}
       </svg>
       {hovered && hover !== null && (
-        <Tooltip x={M.left + band * hover} width={width}>
+        <ChartTooltip x={M.left + band * hover} width={width}>
           <Typography variant="caption" component="p" sx={{ fontWeight: 500 }}>
             {labels.range(hovered.start)}
           </Typography>
@@ -308,7 +313,7 @@ export function ValueBars({
             {hovered.value === null ? 'No data' : format(hovered.value)}
             {detail ? ` · ${detail(hover)}` : ''}
           </Typography>
-        </Tooltip>
+        </ChartTooltip>
       )}
     </Box>
   );

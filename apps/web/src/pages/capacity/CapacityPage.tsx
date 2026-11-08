@@ -16,6 +16,7 @@ import { QueryState } from '../../components/Panel';
 import { RANGE_PRESETS } from '../../components/range';
 import { usePageParam, useRefresh, useView } from '../../components/view';
 import type { PageProps } from '../types';
+import { CapacityTab } from './CapacityTab';
 import { capacityRangeOf } from './range';
 
 const TABS = ['capacity', 'dags', 'forecast'] as const;
@@ -30,7 +31,7 @@ const SUBTITLE: Readonly<Record<CapacityTabId, (span: string) => string>> = {
     'The next 24 hours from now, built from the task history. It does not follow the time range.',
 };
 
-export function CapacityPage({ api, envId }: PageProps) {
+export function CapacityPage({ api, envId, linkTo }: PageProps) {
   const { range } = useView();
   const [tabParam, setTab] = usePageParam('tab', 'capacity');
   const tab: CapacityTabId = isTab(tabParam) ? tabParam : 'capacity';
@@ -75,6 +76,14 @@ export function CapacityPage({ api, envId }: PageProps) {
           error={capacity.error}
           what="the capacity analysis"
           range={choice.range}
+        />
+      )}
+      {tab === 'capacity' && capacity.data && (
+        <CapacityTab
+          c={capacity.data}
+          span={RANGE_PRESETS[choice.range].span}
+          linkTo={linkTo}
+          onForecast={() => setTab('forecast')}
         />
       )}
     </Stack>
