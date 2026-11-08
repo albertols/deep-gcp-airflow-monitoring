@@ -56,6 +56,7 @@ import { DEFAULT_SNAPSHOT_CADENCE_MS } from './bottlenecks';
 import { concurrencyOf, impactOf } from './dag-concurrency';
 import { dataAsOf, readHistoryStart } from './history';
 import { paretoCount } from './overview';
+import { usedSources } from './sources';
 import { CHART_BUCKET_MS, RANGE_MS } from './range';
 import { earliestOf, historyCoverage, sliceSnapshots, sliceTries, slicesOf } from './slices';
 
@@ -205,6 +206,8 @@ export interface DagDetailQuery {
   readonly sources: readonly SourceId[];
   /** Findings for this DAG, from the advisor. */
   readonly findings?: readonly FindingRef[];
+  /** Reads the findings for this DAG alongside the DAG's own data, when `findings` is not given. */
+  readonly loadFindings?: () => Promise<readonly FindingRef[]>;
 }
 
 export type DagDetailResult =
@@ -340,6 +343,10 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
   // Tries from the previous range too, so runs that began before the range are seen whole. The store is
   // read a day at a time: only this DAG's tries, the environment's slot-seconds and where the history
   // starts are kept. Older tries of this DAG for its baseline come through the per-DAG read.
+  // The advisor's findings about the DAG are read while the DAG's own data is (REC-DAG-01, FR-DAGD-05).
+  const findingsRead = q.findings ? Promise.resolve(q.findings) : (q.loadFindings?.() ?? Promise.resolve([]));
+  // Awaited after the store reads; a failure surfaces there, not as an unhandled rejection in between.
+  findingsRead.catch(() => undefined);
   const [storedHistory, asOf] = await Promise.all([
     readHistoryStart(deps.store, q.envId),
     dataAsOf(deps.store, q.envId, now),
@@ -448,7 +455,7 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
     window: current,
     bucketMs,
     historyFrom,
-    findings: q.findings ?? [],
+    findings: await findingsRead,
   };
   const { concurrency, selfThrottledRatio } = concurrencyOf(depth);
 
@@ -459,7 +466,8 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
       dag_id: q.dagId,
       range: { from: iso(current.from), to: iso(current.to) },
       data_as_of: asOf === null ? null : iso(asOf),
-      sources: [...q.sources],
+      // Worker samples (Cloud Monitoring) feed the impact's executor slots when they arrived (FR-UI-08).
+      sources: usedSources(q.sources, { airflow: true, monitoring: samples.length > 0, composer: false }),
       meta: {
         fileloc: meta.fileloc,
         owners: [...meta.owners],
@@ -550,7 +558,7 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
           critical_path_share: frequency.runs > 0 ? onPath / frequency.runs : null,
         };
       }),
-      findings: [...(q.findings ?? [])],
+      findings: [...depth.findings],
       concurrency,
       impact: impactOf(depth),
     },

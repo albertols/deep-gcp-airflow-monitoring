@@ -29,6 +29,15 @@ export function topFindingsFor(ws: Workspace, memo: Memo) {
     }));
 }
 
+/** Open findings that name one DAG among their affected DAGs, for DAG detail (FR-DAGD-01, FR-DAGD-05). */
+export function dagFindingsFor(ws: Workspace, memo: Memo) {
+  const findings = findingsFor(ws, memo);
+  return async (envId: string, dagId: string): Promise<FindingRef[]> =>
+    (await findings(envId)).findings
+      .filter((f) => f.affected_dags.includes(dagId))
+      .map(({ id, rule_id, title, severity }) => ({ id, rule_id, title, severity }));
+}
+
 /** Open findings per DAG of one environment, for the league table (FR-DAGX-02). */
 export function findingCountsFor(ws: Workspace, memo: Memo) {
   const findings = findingsFor(ws, memo);
