@@ -8,7 +8,8 @@
  * are not documented are not generated (specs/011-ui-deep-links/spec.md, ⚠️ VERIFY):
  *
  * - Cloud console pages take the project as `?project=PROJECT_ID`, as in Google's Logs Explorer example
- *   (https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/logging).
+ *   (https://docs.cloud.google.com/gemini-enterprise-agent-platform/scale/runtime/logging). ⚠️ VERIFY: on the
+ *   Composer environments and Metrics Explorer pages this console-wide parameter is not documented itself.
  * - The Composer environment: Google documents only the environments list
  *   (`https://console.cloud.google.com/composer/environments`, "Go to Environments" on the Composer 3 pages),
  *   then "click the name of your environment" and its Monitoring tab. ⚠️ VERIFY: a URL of one environment's
@@ -55,6 +56,11 @@ export interface RunRef {
   readonly runId: string;
   /** The run's logical date (Airflow 2 `execution_date`), ISO 8601. */
   readonly logicalDate: string;
+  /**
+   * DCAM does not know the logical date (a custom run ID) and the run's first task start stands in for it,
+   * so the run may sit more runs back in the grid than it shows by default.
+   */
+  readonly logicalDateEstimated?: boolean;
 }
 
 /** Log names in Composer's Cloud Logging: `log_id("airflow-worker")` (Composer 3 troubleshooting DAGs page). */

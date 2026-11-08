@@ -34,7 +34,8 @@ export interface EnvironmentPlaceValue {
 /** Where the selected environment lives; `null` until the shell has read `/api/v1/meta`. */
 export const EnvironmentPlaceContext = createContext<EnvironmentPlaceValue | null>(null);
 
-const DEMO_NOTE = 'Demo data: these links lead to fictitious acme resources, so they open nothing real.';
+const DEMO_NOTE =
+  'Demo data: the acme projects are made up. The Cloud console will say it cannot find them, and the Airflow links go to .example addresses that do not exist.';
 const ITEM_SX = { whiteSpace: 'normal', maxWidth: 440, alignItems: 'flex-start' } as const;
 
 function Item({ link, onClose }: { link: MenuLink; onClose: () => void }) {
@@ -57,7 +58,12 @@ function Item({ link, onClose }: { link: MenuLink; onClose: () => void }) {
         primary={
           <>
             {link.label}
-            <OpenInNew fontSize="inherit" aria-hidden sx={{ ml: 1, verticalAlign: 'middle' }} />
+            {/* The icon's title tells screen readers what the icon shows sighted users. */}
+            <OpenInNew
+              fontSize="inherit"
+              titleAccess="(opens in a new tab)"
+              sx={{ ml: 1, verticalAlign: 'middle' }}
+            />
           </>
         }
         secondary={link.hint}
@@ -75,7 +81,7 @@ export function OpenInMenu({
   target: LinkTarget;
   /** The range the page shows (`range.from`/`range.to` of its data). */
   timeWindow: TimeWindow;
-  /** Accessible name; rows name their task, for example "Open load_orders in". */
+  /** Accessible name; rows add their task, for example "Open in: load_orders" (the visible text stays in the name). */
   label?: string;
   /** The (i) entry; a table shows it once in its column header instead. */
   info?: boolean;

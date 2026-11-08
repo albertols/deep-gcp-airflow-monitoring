@@ -229,15 +229,31 @@ const TASK_COLUMNS: ReadonlyArray<{ id: DagExplanationId; numeric: boolean }> = 
   { id: 'dagd-col-contribution', numeric: true },
 ];
 
-/** The run shown in the Gantt chart, as the "Open in" links select it; `null` without one. */
+/**
+ * The run shown in the Gantt chart, as the "Open in" links select it; `null` without one. For a custom run
+ * ID the server sends the run's first start as its logical date (`dags.ts`), so a logical date equal to the
+ * start, to the millisecond, is that stand-in.
+ */
 function selectedRun(d: DagDetail): RunRef | null {
   const run = d.runs.find((r) => r.run_id === d.gantt.run_id);
-  return run ? { runId: run.run_id, logicalDate: run.logical_date } : null;
+  if (!run) return null;
+  return {
+    runId: run.run_id,
+    logicalDate: run.logical_date,
+    ...(run.logical_date === run.start ? { logicalDateEstimated: true } : {}),
+  };
 }
 
 function Tasks({ detail }: { detail: DagDetail }) {
   const tasks = detail.tasks;
   const run = selectedRun(detail);
+  // The Gantt rows per task, grouped once (a run can have hundreds of tries).
+  const rowsByTask = new Map<string, DagDetail['gantt']['rows'][number][]>();
+  for (const r of detail.gantt.rows) {
+    const rows = rowsByTask.get(r.task_id);
+    if (rows) rows.push(r);
+    else rowsByTask.set(r.task_id, [r]);
+  }
   if (tasks.length === 0)
     return (
       <Typography variant="body2" color="text.secondary">
@@ -286,13 +302,10 @@ function Tasks({ detail }: { detail: DagDetail }) {
                     dagId: detail.dag_id,
                     taskId: task.task_id,
                     run,
-                    tries: triesWindow(
-                      detail.gantt.rows.filter((r) => r.task_id === task.task_id),
-                      detail.range.to,
-                    ),
+                    tries: triesWindow(rowsByTask.get(task.task_id) ?? [], detail.range.to),
                   }}
                   timeWindow={detail.range}
-                  label={`Open ${task.task_id} in`}
+                  label={`Open in: ${task.task_id}`}
                   info={false}
                 />
               </TableCell>

@@ -97,13 +97,13 @@ describe('"Open in" on the pages (FR-UI-04)', () => {
     ).toBeInTheDocument();
   });
 
-  function renderDetail() {
+  function renderDetail(pageApi: DcamApi = api) {
     render(
       <ThemeProvider theme={createDcamTheme('dark')}>
         <QueryClientProvider client={client()}>
           <EnvironmentPlaceContext.Provider value={{ mode: 'live', place: PLACE }}>
             <DagDetailPage
-              api={api}
+              api={pageApi}
               envId="acme-prod"
               route={{ page: 'dag', dagId: 'orders_daily' }}
               linkTo={(r) => linkTo(r, 'acme-prod')}
@@ -134,7 +134,7 @@ describe('"Open in" on the pages (FR-UI-04)', () => {
     renderDetail();
     const table = await screen.findByRole('table', { name: 'Tasks' });
     expect(within(table).getByRole('button', { name: /^About Open in/ })).toBeInTheDocument();
-    await userEvent.click(within(table).getByRole('button', { name: 'Open load in' }));
+    await userEvent.click(within(table).getByRole('button', { name: 'Open in: load' }));
     const menu = await screen.findByRole('menu');
     const log = new URL(hrefOf(menu, /^Task log/) ?? '');
     expect(Object.fromEntries(log.searchParams)).toEqual({
@@ -147,5 +147,28 @@ describe('"Open in" on the pages (FR-UI-04)', () => {
     const logs = decodeURIComponent(hrefOf(menu, /Logs Explorer: task worker logs/) ?? '');
     expect(logs).toContain('timestamp>="2026-11-05T11:12:00.000Z"');
     expect(logs).toContain('timestamp<"2026-11-05T11:21:00.000Z"');
+  });
+
+  it('FR-UI-04: a run with a custom run ID, whose first start stands in for its logical date, says so', async () => {
+    // The server sends the first start as the logical date when the run ID carries none (dags.ts).
+    const custom = {
+      ...DETAIL.runs[1]!,
+      run_id: 'acme_rerun_2026_11_05',
+      logical_date: DETAIL.runs[1]!.start,
+    };
+    renderDetail({
+      ...api,
+      getDagDetail: async () => ({
+        ...DETAIL,
+        runs: [DETAIL.runs[0]!, custom],
+        gantt: { ...DETAIL.gantt, run_id: custom.run_id },
+      }),
+    });
+    await screen.findByRole('table', { name: 'Tasks' });
+    await userEvent.click(screen.getByRole('button', { name: 'Open in' }));
+    const menu = await screen.findByRole('menu');
+    expect(within(menu).getByRole('menuitem', { name: /^Selected run/ })).toHaveTextContent(
+      /does not know the logical date of this run/,
+    );
   });
 });

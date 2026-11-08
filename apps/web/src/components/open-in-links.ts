@@ -57,21 +57,35 @@ export type LinkTarget =
     };
 
 const NO_PLACE = 'DCAM could not read where this environment lives. Reload the page.';
+const NO_WINDOW = 'DCAM could not read the time range of this page. Reload the page.';
 const NOT_COMPOSER = 'This environment is a self-managed Airflow, so it has no Cloud console pages.';
 const AIRFLOW_NOT_KNOWN_COMPOSER =
-  'DCAM learns the Airflow UI address from the Composer API on its first collection cycle. Wait a minute, or check the DCAM health page if it stays missing.';
-const AIRFLOW_NOT_KNOWN = 'DCAM has no Airflow UI address for this environment yet.';
+  'DCAM learns the Airflow UI address from the Composer API on its first collection cycle. Wait a minute and reload the page, or check the DCAM health page if it stays missing.';
+const AIRFLOW_NOT_KNOWN =
+  'DCAM has no Airflow UI address for this environment. Check baseUrl in dcam.config.yaml.';
 const AIRFLOW_UNSAFE =
-  'The Airflow UI address DCAM has is not a plain http or https address, so DCAM gives no link.';
+  "The Airflow UI address DCAM has is not a plain http or https address, so DCAM gives no link. Open the Airflow UI from the environment's page in the Cloud console.";
 const NO_RUN = 'No run of this DAG in the range. Pick a longer range.';
 const NO_TRY = 'This task has no try in the selected run. Pick another run in the Gantt chart.';
+const NO_LOGICAL_DATE = 'DCAM could not read the logical date of this run. Reload the page.';
+/** `.` and `..` are valid DAG IDs (Airflow's `KEY_REGEX`), but a URL parser reads them as folder steps. */
+const COLLAPSING_IDS: ReadonlySet<string> = new Set(['.', '..']);
+const COLLAPSING_DAG =
+  'The Airflow UI cannot open a DAG whose ID is "." or "..": browsers read them as folder steps. Find the DAG in the DAGs list of the Airflow UI.';
 
 const link = (label: string, href: string, hint: string): MenuLink => ({ kind: 'link', label, href, hint });
 const missing = (label: string, reason: string): MenuLink => ({ kind: 'missing', label, reason });
+const readable = (at: string) => Number.isFinite(Date.parse(at));
+
+/** Said where DCAM stands in the first task start for an unknown logical date. */
+const estimatedNote = (run: RunRef) =>
+  run.logicalDateEstimated
+    ? ' DCAM does not know the logical date of this run (custom run ID), so the grid lists the runs up to its first task start; if the run is not there, raise the number of runs in the grid.'
+    : '';
 
 function consoleLinks(ctx: LinkContext, target: LinkTarget): readonly MenuLink[] {
-  if (target.page === 'task' && target.tries === null)
-    return [missing('Logs Explorer: task worker logs', NO_TRY)];
+  if (target.page === 'task' && (target.run === null || target.tries === null))
+    return [missing('Logs Explorer: task worker logs', target.run === null ? NO_RUN : NO_TRY)];
   if (ctx.place === null) return [missing('Cloud console pages', NO_PLACE)];
   const c = ctx.place.composer;
   if (!c) return [missing('Cloud console pages', NOT_COMPOSER)];
@@ -124,6 +138,19 @@ function airflowLinks(ctx: LinkContext, target: LinkTarget): readonly MenuLink[]
     return [missing('Airflow UI pages', reason)];
   }
   const home = link('DAGs', airflowHomeUrl(base), 'Every DAG of the environment.');
+  if ((target.page === 'dag' || target.page === 'task') && COLLAPSING_IDS.has(target.dagId))
+    return [missing(target.page === 'dag' ? 'DAG grid' : 'Task log', COLLAPSING_DAG), home];
+  if ((target.page === 'dag' || target.page === 'task') && target.run && !readable(target.run.logicalDate))
+    return target.page === 'dag'
+      ? [
+          link(
+            'DAG grid',
+            airflowDagUrl(base, target.dagId, ctx.window.to),
+            'The latest runs up to the end of the range.',
+          ),
+          missing('Selected run', NO_LOGICAL_DATE),
+        ]
+      : [missing('Task log', NO_LOGICAL_DATE)];
   switch (target.page) {
     case 'environment':
       return [home];
@@ -144,7 +171,11 @@ function airflowLinks(ctx: LinkContext, target: LinkTarget): readonly MenuLink[]
           'The latest runs up to the end of the range.',
         ),
         target.run
-          ? link('Selected run', airflowRunUrl(base, target.dagId, target.run), `Run ${target.run.runId}.`)
+          ? link(
+              'Selected run',
+              airflowRunUrl(base, target.dagId, target.run),
+              `Run ${target.run.runId}.${estimatedNote(target.run)}`,
+            )
           : missing('Selected run', NO_RUN),
       ];
     case 'task':
@@ -153,7 +184,7 @@ function airflowLinks(ctx: LinkContext, target: LinkTarget): readonly MenuLink[]
             link(
               'Task log',
               airflowTaskLogUrl(base, target.dagId, target.run, target.taskId),
-              `The log of ${target.taskId} in run ${target.run.runId}.`,
+              `The log of ${target.taskId} in run ${target.run.runId}.${estimatedNote(target.run)}`,
             ),
           ]
         : [missing('Task log', NO_RUN)];
@@ -162,6 +193,12 @@ function airflowLinks(ctx: LinkContext, target: LinkTarget): readonly MenuLink[]
 
 /** The menu: Cloud console pages, then Airflow UI pages. */
 export function openInLinks(ctx: LinkContext, target: LinkTarget): readonly LinkGroup[] {
+  // A time the browser cannot read gives no link, never an error that takes the page down.
+  if (!readable(ctx.window.from) || !readable(ctx.window.to))
+    return [
+      { title: 'Cloud console', links: [missing('Cloud console pages', NO_WINDOW)] },
+      { title: 'Airflow UI', links: [missing('Airflow UI pages', NO_WINDOW)] },
+    ];
   return [
     { title: 'Cloud console', links: consoleLinks(ctx, target) },
     { title: 'Airflow UI', links: airflowLinks(ctx, target) },

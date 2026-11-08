@@ -141,6 +141,70 @@ describe('"Open in" menu items (FR-UI-04)', () => {
         '!DCAM could not read where this environment lives. Reload the page.',
       ]);
   });
+
+  it('FR-UI-04: every reason for a missing Airflow address says what to do next', () => {
+    const reasons = [
+      { ...COMPOSER, airflow_uri: null },
+      { airflow_uri: null },
+      { ...COMPOSER, airflow_uri: 'ftp://acme.airflow.example' },
+    ].map(
+      (place) => shape(openInLinks(ctx(place), { page: 'environment' }))['Airflow UI']?.['Airflow UI pages'],
+    );
+    expect(reasons[0]).toMatch(/reload the page/);
+    expect(reasons[1]).toMatch(/Check baseUrl in dcam\.config\.yaml/);
+    expect(reasons[2]).toMatch(/Open the Airflow UI from the environment's page in the Cloud console/);
+  });
+
+  it('FR-UI-04: a task without a run in the range says to pick a longer range in both groups', () => {
+    const s = shape(
+      openInLinks(ctx(COMPOSER), {
+        page: 'task',
+        dagId: 'acme_orders_daily',
+        taskId: 'x',
+        run: null,
+        tries: null,
+      }),
+    );
+    const reason = '!No run of this DAG in the range. Pick a longer range.';
+    expect(s['Cloud console']).toEqual({ 'Logs Explorer: task worker logs': reason });
+    expect(s['Airflow UI']).toEqual({ 'Task log': reason });
+  });
+
+  it('FR-UI-04: a run whose logical date DCAM estimates says how to find it in the grid', () => {
+    const groups = openInLinks(ctx(COMPOSER), {
+      page: 'dag',
+      dagId: 'acme_orders_daily',
+      run: { runId: 'acme_custom_run', logicalDate: '2026-11-05T00:00:00.000Z', logicalDateEstimated: true },
+    });
+    const run = groups[1]?.links.find((l) => l.label === 'Selected run');
+    expect(run?.kind === 'link' && run.hint).toMatch(
+      /does not know the logical date.*raise the number of runs/,
+    );
+  });
+
+  it('FR-UI-04: a DAG ID the URL parser would collapse (. or ..) gives no Airflow link', () => {
+    for (const dagId of ['.', '..']) {
+      const s = shape(openInLinks(ctx(COMPOSER), { page: 'dag', dagId, run: null }));
+      expect(s['Airflow UI']?.['DAG grid']).toMatch(/^!The Airflow UI cannot open a DAG whose ID is/);
+    }
+  });
+
+  it('FR-UI-04: a time DCAM cannot read gives no link instead of an error', () => {
+    const bad = { ...ctx(COMPOSER), window: { from: 'not a time', to: WINDOW.to } };
+    const s = shape(openInLinks(bad, { page: 'dag', dagId: 'acme_orders_daily', run: null }));
+    for (const group of Object.values(s))
+      expect(Object.values(group)).toEqual([
+        '!DCAM could not read the time range of this page. Reload the page.',
+      ]);
+    const badRun = shape(
+      openInLinks(ctx(COMPOSER), {
+        page: 'dag',
+        dagId: 'acme_orders_daily',
+        run: { runId: 'acme_custom_run', logicalDate: 'nope' },
+      }),
+    );
+    expect(badRun['Airflow UI']?.['Selected run']).toMatch(/^!DCAM could not read the logical date/);
+  });
 });
 
 describe('the time window of a task in a run (FR-UI-04)', () => {

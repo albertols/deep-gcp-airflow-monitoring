@@ -51,6 +51,8 @@ describe('"Open in" menu (FR-UI-04)', () => {
       expect(link).toHaveAttribute('target', '_blank');
       expect(link).toHaveAttribute('rel', 'noopener noreferrer');
       expect(link.getAttribute('href')).toMatch(/^https:\/\//);
+      // Screen readers hear that the link opens a new tab.
+      expect(link).toHaveAccessibleName(/opens in a new tab/);
     }
     expect(within(menu).getByText('Cloud console')).toBeInTheDocument();
     expect(within(menu).getByText('Airflow UI')).toBeInTheDocument();
@@ -93,9 +95,11 @@ describe('"Open in" menu (FR-UI-04)', () => {
   it('FR-UI-04: in demo mode the menu says the links lead to fictitious resources', async () => {
     renderMenu({ mode: 'demo', place: PLACE });
     const menu = await openMenu();
-    expect(within(menu).getByRole('menuitem', { name: /Demo data/ })).toHaveTextContent(
-      /fictitious acme resources/,
-    );
+    const note = within(menu).getByRole('menuitem', { name: /Demo data/ });
+    // The console links are real pages: say what the user will see there, not "nothing".
+    expect(note).toHaveTextContent(/acme projects are made up/);
+    expect(note).toHaveTextContent(/Cloud console will say it cannot find them/);
+    expect(note).toHaveTextContent(/\.example addresses that do not exist/);
   });
 
   it('FR-UI-04: without the environment place every group says DCAM could not read it', async () => {
@@ -118,8 +122,8 @@ describe('"Open in" menu (FR-UI-04)', () => {
   });
 
   it('FR-UI-04: a row menu has its own accessible name', async () => {
-    renderMenu({ mode: 'live', place: PLACE }, DAG, 'Open load_orders in');
-    expect(screen.getByRole('button', { name: 'Open load_orders in' })).toHaveTextContent('Open in');
+    renderMenu({ mode: 'live', place: PLACE }, DAG, 'Open in: load_orders');
+    expect(screen.getByRole('button', { name: 'Open in: load_orders' })).toHaveTextContent('Open in');
   });
 
   it('FR-UI-05: the menu has an (i) explanation entry', async () => {

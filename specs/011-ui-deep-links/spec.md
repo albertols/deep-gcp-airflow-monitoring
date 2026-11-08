@@ -86,6 +86,10 @@ wherever the target accepts one in a documented form, and says what to set by ha
 - Composer task-log labels `task-id`, `try-number`, `map-index` are not documented; the `execution-date`
   value format is ambiguous (the quickstart's text says run ID, its example is a logical date). DCAM's task
   log query filters by `labels.workflow` and the try's time window only, and says so.
+- For a custom run ID DCAM has no logical date and the run's first task start stands in (`dags.ts`). The
+  grid's `base_date` then follows that start: a run triggered with an older logical date can sit more than
+  the grid's default number of runs back. The run and task hints say so and tell the user to raise the number
+  of runs in the grid.
 - No time zone parameter is documented for Logs Explorer (a preference in its time-range selector) or the
   Airflow 2.11.1 grid; each tool shows its own zone.
 
