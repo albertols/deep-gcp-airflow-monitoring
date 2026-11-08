@@ -17,7 +17,12 @@ export interface NavItem {
 export const NAV: readonly NavItem[] = [
   { label: 'Fleet', route: { page: 'fleet' }, hint: 'Every environment', matches: ['fleet'] },
   { label: 'Capacity overview', route: { page: 'overview' }, hint: 'One environment', matches: ['overview'] },
-  { label: 'DAG league table', route: { page: 'dags' }, hint: 'Who uses capacity', matches: ['dags', 'dag'] },
+  {
+    label: 'DAG league table',
+    route: { page: 'dags' },
+    hint: 'Who uses capacity',
+    matches: ['dags', 'dag', 'compare-dags'],
+  },
   { label: 'Bottlenecks', route: { page: 'bottlenecks' }, hint: 'Why work waits', matches: ['bottlenecks'] },
   {
     label: 'Schedule intelligence',

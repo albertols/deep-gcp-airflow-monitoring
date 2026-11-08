@@ -194,6 +194,8 @@ function fakeApi(getCollection: DcamApi['getCollection']): DcamApi {
     getDagDetail: reject,
     getBottlenecks: reject,
     getSchedule: reject,
+    getDagComparison: reject,
+    getRunComparison: reject,
     getFindings: reject,
     getAlerts: reject,
     getFleet: reject,

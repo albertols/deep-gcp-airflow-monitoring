@@ -73,6 +73,7 @@ const PAGES: Record<Exclude<Page, 'overview'>, ComponentType<PageProps>> = {
   wiki: named(() => import('./pages/wiki/WikiPage'), 'WikiPage'),
   alerts: named(() => import('./pages/alerts/AlertsPage'), 'AlertsPage'),
   health: named(() => import('./pages/health/HealthPage'), 'HealthPage'),
+  'compare-dags': named(() => import('./pages/compare/CompareDagsPage'), 'CompareDagsPage'),
 };
 
 /** Loaded on first open (FR-UI-03), with the wiki and rule registries it searches. */
@@ -99,10 +100,14 @@ const RANGE_SCOPE: Readonly<Record<Page, RangeScope>> = {
   alerts: 'fixed-24h',
   health: 'none',
   wiki: 'none',
+  'compare-dags': 'range',
 };
 
-/** Page state that belongs to one range or environment: a selected run is not in another one. */
-const SELECTION_PARAMS: readonly string[] = ['run'];
+/**
+ * Page state that belongs to one range or environment: a selected run, or the run it is compared with
+ * (`vs`), is not in another one.
+ */
+const SELECTION_PARAMS: readonly string[] = ['run', 'vs'];
 const withoutSelection = (params: PageParams): PageParams =>
   Object.fromEntries(Object.entries(params).filter(([k]) => !SELECTION_PARAMS.includes(k)));
 
@@ -143,7 +148,7 @@ export function App({ api, localTimeZone }: { api: DcamApi; localTimeZone?: stri
   const time = timeFormat(view.tz, local);
   const pageView = useMemo<View>(() => ({ ...view, time }), [view, time]);
   // Links to other pages keep the context bar's state, not this page's filters.
-  const link = useCallback((r: Route) => linkTo(r, envId, view), [envId, view]);
+  const link = useCallback((r: Route, p?: PageParams) => linkTo(r, envId, view, p), [envId, view]);
   const navigate = useCallback((r: Route) => go(linkTo(r, envId, view)), [go, envId, view]);
 
   const setView = (patch: Partial<ViewState>) => {

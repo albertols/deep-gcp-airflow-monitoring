@@ -112,6 +112,8 @@ const apiFor = (data: Schedule, found: Finding[] = [recSched]): DcamApi => ({
   getOverview: reject,
   getDagLeague: reject,
   getDagDetail: reject,
+  getDagComparison: reject,
+  getRunComparison: reject,
   getBottlenecks: reject,
   getSchedule: async () => data,
   getFindings: async () => findings(found),

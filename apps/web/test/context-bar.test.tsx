@@ -81,6 +81,8 @@ function fakeApi() {
     getFleet: vi.fn(reject),
     getCollection: vi.fn(reject),
     getSchedule: vi.fn(reject),
+    getDagComparison: vi.fn(reject),
+    getRunComparison: vi.fn(reject),
   } satisfies DcamApi;
   return api;
 }

@@ -48,6 +48,8 @@ const api: DcamApi = {
   getOverview: async () => overview,
   getDagLeague: notYet,
   getDagDetail: notYet,
+  getDagComparison: notYet,
+  getRunComparison: notYet,
   getDagIndex: vi.fn(async () => dagIndex),
   getBottlenecks: notYet,
   getSchedule: notYet,

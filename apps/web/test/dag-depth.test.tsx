@@ -38,6 +38,8 @@ function fakeApi(overrides: Partial<DcamApi> = {}): DcamApi {
     getFleet: notYet,
     getCollection: notYet,
     getSchedule: notYet,
+    getDagComparison: notYet,
+    getRunComparison: notYet,
     ...overrides,
   };
 }

@@ -186,6 +186,8 @@ const apiFor = (data: Bottlenecks): DcamApi => ({
   getDagDetail: reject,
   getBottlenecks: async () => data,
   getSchedule: reject,
+  getDagComparison: reject,
+  getRunComparison: reject,
   getFindings: reject,
   getAlerts: reject,
   getFleet: reject,

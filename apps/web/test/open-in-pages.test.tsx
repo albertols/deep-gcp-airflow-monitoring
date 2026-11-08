@@ -45,6 +45,8 @@ const api: DcamApi = {
   getOverview: async () => overview,
   getDagLeague: notYet,
   getDagDetail: async () => DETAIL,
+  getDagComparison: notYet,
+  getRunComparison: notYet,
   getBottlenecks: notYet,
   getSchedule: notYet,
   getFindings: notYet,

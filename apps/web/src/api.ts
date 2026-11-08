@@ -2,7 +2,7 @@
  * The UI's API client: typed calls, errors that carry the HTTP status, and the retry rule of the query
  * client (FR-UI-07).
  *
- * @implements FR-UI-07
+ * @implements FR-UI-07, FR-DAGD-08, FR-DAGD-09
  */
 import { QueryClient } from '@tanstack/react-query';
 import {
@@ -10,6 +10,7 @@ import {
   type Alerts,
   type Bottlenecks,
   type Collection,
+  type DagComparison,
   type DagDetail,
   type DagIndex,
   type DagLeague,
@@ -18,6 +19,7 @@ import {
   type Fleet,
   type Meta,
   type Range,
+  type RunComparison,
   type Schedule,
 } from '@dcam/contracts';
 
@@ -34,6 +36,10 @@ export interface DcamApi {
    * out, and the palette then lists no DAGs.
    */
   getDagIndex?(envId: string): Promise<DagIndex>;
+  /** S-14, FR-DAGD-08: `dags` lists 2 to 4 items `env_id:dag_id`, comma-separated. */
+  getDagComparison(dags: string, range: Range): Promise<DagComparison>;
+  /** S-13, FR-DAGD-09: run `b` of one DAG against run `a`. */
+  getRunComparison(envId: string, dagId: string, a: string, b: string, range: Range): Promise<RunComparison>;
   getBottlenecks(envId: string, range: Range): Promise<Bottlenecks>;
   /** Schedule intelligence (S-17, FR-BOTL-03). */
   getSchedule(envId: string, range: Range): Promise<Schedule>;
@@ -119,6 +125,20 @@ export function createDcamApi(baseUrl = ''): DcamApi {
       return unwrap(
         await client.GET('/api/v1/environments/{env_id}/dag-index', { params: { path: env(envId) } }),
         'the DAG list',
+      );
+    },
+    async getDagComparison(dags, range) {
+      return unwrap(
+        await client.GET('/api/v1/compare/dags', { params: { query: { dags, range } } }),
+        'the comparison',
+      );
+    },
+    async getRunComparison(envId, dagId, a, b, range) {
+      return unwrap(
+        await client.GET('/api/v1/environments/{env_id}/dags/{dag_id}/runs/compare', {
+          params: { path: { env_id: envId, dag_id: dagId }, query: { a, b, range } },
+        }),
+        'the run comparison',
       );
     },
     async getBottlenecks(envId, range) {

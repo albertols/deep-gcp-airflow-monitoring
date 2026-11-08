@@ -23,7 +23,9 @@ export type Route =
   | { readonly page: 'advisor' }
   | { readonly page: 'wiki'; readonly slug?: string }
   | { readonly page: 'alerts' }
-  | { readonly page: 'health' };
+  | { readonly page: 'health' }
+  /** S-14: 2 to 4 DAGs from any environment, listed in the `dags` page parameter (FR-DAGD-08). */
+  | { readonly page: 'compare-dags' };
 
 export type Page = Route['page'];
 
@@ -72,6 +74,8 @@ export function parseLocation(pathname: string, search: string): Location {
     route = { page: 'dag', dagId: decodeURIComponent(second) };
   } else if (first === 'wiki' && second !== undefined && rest.length === 0) {
     route = { page: 'wiki', slug: decodeURIComponent(second) };
+  } else if (first === 'compare' && second === 'dags' && rest.length === 0) {
+    route = { page: 'compare-dags' };
   } else if (first !== undefined && second === undefined && isSimple(first)) {
     route = { page: first };
   }
@@ -94,6 +98,8 @@ function pathOf(route: Route): string {
       return `/dags/${encodeURIComponent(route.dagId)}`;
     case 'wiki':
       return route.slug ? `/wiki/${encodeURIComponent(route.slug)}` : '/wiki';
+    case 'compare-dags':
+      return '/compare/dags';
     default:
       return `/${route.page}`;
   }

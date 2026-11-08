@@ -24,9 +24,28 @@ Test tasks come before the code they cover.
 
 - [x] T-820 Test + code: routes, conformance on demo data, demo stories, problems (FR-DAGD-05/06/08/09)
 
+## Web
+
+- [x] T-830 Test + code: API client for both comparisons; route `/compare/dags`; links that carry page parameters;
+      the compare selection (2 to 4, `env:dag`) parsed and written back to the URL (FR-DAGD-08, FR-UI-02)
+- [ ] T-831 Test + code: concurrency panel: running, in flight and ready against `max_active_tasks` (default or
+      set), pool lines, time at the limit, self-throttling against the 10 % threshold, REC-DAG-01 link; gaps as gaps;
+      table view (FR-DAGD-05, HM-005, HM-011, REC-DAG-01)
+- [ ] T-832 Test + code: impact panel: share of the environment's load and of its slots over time; the noisy-neighbour
+      score with its interval and confidence, or the reason and minimums, never a zero (FR-DAGD-06, HM-003, HM-017)
+- [ ] T-833 Test + code: the DAG's findings on DAG detail, linked to the advisor, which opens the linked finding
+      (FR-DAGD-01 findings, FR-ADV-02)
+- [ ] T-834 Test + code: compare runs on DAG detail: the selected run against another (default the previous
+      successful one), per-task deltas ranked by contribution, method stated (FR-DAGD-09, HM-007)
+- [ ] T-835 Test + code: compare DAGs page: 2 to 4 DAGs from any environment, aligned KPIs, overlaid duration
+      distributions on shared bins, hourly profile in UTC, resource shares, capacity context (FR-DAGD-08)
+- [ ] T-836 Test + code: reach it from the league (select rows, then "Compare") and from DAG detail ("Compare with")
+- [ ] T-837 Test + code: series palette for both themes (contrast ≥ 3:1, distinct under colour-vision deficiencies);
+      every new panel, KPI and column has an explanation; provenance on every panel (FR-UI-05, FR-UI-08, NFR-A11Y-01)
+
 ## Done
 
 - [x] T-890 Package tests and typecheck, lint, depcruise, hygiene, prettier
 - [x] T-892 Rebased on feature 003 (range presets, sliced reads): the concurrency profile and environment load take
       batches, HM-017 reads the compact tries of the range, the comparisons use the global `Range`
-- [ ] T-891 Web panels (later task); browser validation; code review
+- [ ] T-891 Browser validation; code review

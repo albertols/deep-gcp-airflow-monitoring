@@ -16,6 +16,7 @@ describe('FR-UI-06 deep-linkable routes', () => {
     ['/wiki/slot-seconds', { page: 'wiki', slug: 'slot-seconds' }],
     ['/alerts', { page: 'alerts' }],
     ['/health', { page: 'health' }],
+    ['/compare/dags', { page: 'compare-dags' }],
   ];
 
   it.each(cases)('parses %s', (path, route) => {
@@ -74,6 +75,19 @@ describe('FR-UI-02 URL as state', () => {
       envId: 'acme-prod',
       view: { ...DEFAULT_VIEW, range: '90d' },
       params: { q: 'orders & co', team: 'finance-data', sort: 'runs.asc' },
+    });
+  });
+
+  it('FR-DAGD-08 / FR-UI-02: the DAGs compared are in the URL and round-trip', () => {
+    const dags = 'acme-prod:orders_daily,acme-test:orders.daily-v2';
+    const href = toHref({ page: 'compare-dags' }, 'acme-prod', { ...DEFAULT_VIEW, range: '7d' }, { dags });
+    const [path, search] = href.split('?') as [string, string];
+    expect(path).toBe('/compare/dags');
+    expect(parseLocation(path, `?${search}`)).toEqual({
+      route: { page: 'compare-dags' },
+      envId: 'acme-prod',
+      view: { ...DEFAULT_VIEW, range: '7d' },
+      params: { dags },
     });
   });
 

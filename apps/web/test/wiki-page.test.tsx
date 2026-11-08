@@ -25,6 +25,8 @@ const api: DcamApi = {
   getDagDetail: notYet,
   getBottlenecks: notYet,
   getSchedule: notYet,
+  getDagComparison: notYet,
+  getRunComparison: notYet,
   getFindings: notYet,
   getAlerts: notYet,
   getFleet: notYet,
