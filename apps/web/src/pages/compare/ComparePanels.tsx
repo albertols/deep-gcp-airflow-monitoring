@@ -2,9 +2,12 @@
  * The evidence panels of S-14 Compare DAGs (FR-DAGD-08): aligned KPIs, duration distributions on the
  * shared bins, hourly load profiles in UTC, resource shares and each environment's capacity context. Each
  * DAG keeps its letter, colour, dash and marker in every chart and table; every chart has a table view;
- * missing values are gaps, never zero.
+ * missing values are gaps, never zero. Every table exports as CSV (FR-STORE-04): a table with a column per
+ * DAG or environment exports a record per DAG or environment, in the order shown, so each column name can
+ * carry its unit; a table with a row per bin or hour exports those rows with a column per DAG, named
+ * `<env>:<dag>`.
  *
- * @implements FR-DAGD-08, HM-003, HM-011, NFR-DATA-03, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements FR-DAGD-08, HM-003, HM-011, NFR-DATA-03, FR-UI-05, FR-UI-07, FR-UI-08, FR-STORE-04
  */
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -20,6 +23,8 @@ import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
 import type { CompareDag, CompareEnvironment, DagComparison } from '@dcam/contracts';
+import { csvList, isoUtc, quantileColumns, type CsvColumn } from '../../components/csv';
+import { ExportCsvButton } from '../../components/ExportCsv';
 import {
   describeQuantile,
   formatDuration,
@@ -81,6 +86,68 @@ function RowHeader({ children }: { children: ReactNode }) {
   );
 }
 
+/** A DAG's key in column names and the URL: `env:dag`. */
+const keyOf = (s: Styled) => `${s.dag.env_id}:${s.dag.dag_id}`;
+
+const KPI_CSV: readonly CsvColumn<Styled>[] = [
+  { name: 'letter', value: (s) => s.style.letter },
+  { name: 'env_id', value: (s) => s.dag.env_id },
+  { name: 'dag_id', value: (s) => s.dag.dag_id },
+  { name: 'team', value: (s) => s.dag.team },
+  { name: 'schedule', value: (s) => s.dag.schedule },
+  { name: 'paused', value: (s) => s.dag.paused },
+  { name: 'max_active_tasks', value: (s) => s.dag.max_active_tasks },
+  { name: 'runs', value: (s) => s.dag.kpis.runs },
+  { name: 'success_rate_ratio', value: (s) => s.dag.kpis.success_rate },
+  ...quantileColumns<Styled>('run_duration_p50', (s) => s.dag.kpis.run_duration_p50),
+  ...quantileColumns<Styled>('run_duration_p95', (s) => s.dag.kpis.run_duration_p95),
+  ...quantileColumns<Styled>('queue_wait_p95', (s) => s.dag.kpis.queue_wait_p95),
+  { name: 'tries', value: (s) => s.dag.kpis.tries },
+  { name: 'retries', value: (s) => s.dag.kpis.retries },
+  { name: 'flaky_rate_ratio', value: (s) => s.dag.kpis.flaky_rate },
+  { name: 'flaky_inferred', value: (s) => s.dag.kpis.flaky_inferred },
+  { name: 'peak_concurrency', value: (s) => s.dag.kpis.peak_concurrency },
+];
+
+const RESOURCE_CSV: readonly CsvColumn<Styled>[] = [
+  { name: 'letter', value: (s) => s.style.letter },
+  { name: 'env_id', value: (s) => s.dag.env_id },
+  { name: 'dag_id', value: (s) => s.dag.dag_id },
+  { name: 'executor_slot_seconds', value: (s) => s.dag.resources.executor_slot_seconds },
+  { name: 'share_ratio', value: (s) => s.dag.resources.share },
+  { name: 'pools', value: (s) => csvList(s.dag.resources.pools.map((p) => p.pool)) },
+  {
+    name: 'pool_slot_seconds',
+    value: (s) => csvList(s.dag.resources.pools.map((p) => String(p.pool_slot_seconds))),
+  },
+  {
+    name: 'pool_share_ratio',
+    value: (s) => csvList(s.dag.resources.pools.map((p) => (p.share === null ? '' : String(p.share)))),
+  },
+];
+
+const capacityCsv = (dags: readonly Styled[]): readonly CsvColumn<CompareEnvironment>[] => [
+  { name: 'env_id', value: (e) => e.env_id },
+  {
+    name: 'dags_compared',
+    value: (e) => csvList(dags.filter((s) => s.dag.env_id === e.env_id).map((s) => s.style.letter)),
+  },
+  { name: 'tier', value: (e) => e.tier },
+  { name: 'airflow_version', value: (e) => e.airflow_version },
+  { name: 'min_workers', value: (e) => e.min_workers },
+  { name: 'max_workers', value: (e) => e.max_workers },
+  { name: 'worker_concurrency', value: (e) => e.worker_concurrency },
+  { name: 'worker_slots_max', value: (e) => e.worker_slots },
+  { name: 'parallelism_total', value: (e) => e.parallelism },
+  { name: 'max_active_tasks_per_dag', value: (e) => e.max_active_tasks_per_dag },
+  { name: 'pools', value: (e) => csvList(e.pools.map((p) => p.name)) },
+  { name: 'pool_slots', value: (e) => csvList(e.pools.map((p) => String(p.slots))) },
+  { name: 'executor_slot_seconds', value: (e) => e.executor_slot_seconds },
+  { name: 'utilisation_ratio', value: (e) => e.utilisation },
+  { name: 'history_from_utc', value: (e) => isoUtc(e.history_from) },
+  { name: 'history_coverage_ratio', value: (e) => e.coverage },
+];
+
 const footer = (data: DagComparison, note: string) => (
   <ProvenanceFooter as="p" dataAsOf={data.data_as_of} sources={data.sources} note={note} />
 );
@@ -114,7 +181,10 @@ export function KpiPanel({ data, dags }: { data: DagComparison; dags: readonly S
     'Flaky rate': (d) => (d.kpis.flaky_rate === null ? 'Fewer than 20 task instances' : undefined),
   };
   return (
-    <Panel explanation={E['cmp-kpis']}>
+    <Panel
+      explanation={E['cmp-kpis']}
+      actions={<ExportCsvButton view="compare-kpis" what="Aligned KPIs" rows={dags} columns={KPI_CSV} />}
+    >
       <Stack spacing={2}>
         <TableContainer>
           <Table size="small" aria-label="Aligned KPIs">
@@ -176,8 +246,31 @@ export function DurationPanel({ data, dags }: { data: DagComparison; dags: reado
     )
     .join('; ');
   const description = `Duration distributions of ${dags.length} DAGs over ${bins} shared bins from ${formatDuration(edges[0] ?? 0)} to ${formatDuration(edges.at(-1) ?? 0)}: ${medians}.`;
+  const binCsv: readonly CsvColumn<number>[] = [
+    { name: 'duration_from_seconds', value: (i) => edges[i] ?? null },
+    { name: 'duration_to_seconds', value: (i) => edges[i + 1] ?? null },
+    ...dags.flatMap((s, k) => [
+      { name: `${keyOf(s)}_runs`, value: (i: number) => s.dag.duration_histogram[i] ?? 0 },
+      { name: `${keyOf(s)}_share_ratio`, value: (i: number) => shareOf(k, i) },
+    ]),
+  ];
   return (
-    <Panel explanation={E['cmp-durations']} actions={bins > 0 && toggle}>
+    <Panel
+      explanation={E['cmp-durations']}
+      actions={
+        bins > 0 && (
+          <Stack direction="row" sx={{ gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            {toggle}
+            <ExportCsvButton
+              view="compare-durations"
+              what="Successful runs per duration bin"
+              rows={Array.from({ length: bins }, (_, i) => i)}
+              columns={binCsv}
+            />
+          </Stack>
+        )
+      }
+    >
       <Stack spacing={2}>
         {bins === 0 ? (
           <Typography variant="body2" color="text.secondary">
@@ -262,6 +355,22 @@ export function HourlyPanel({ data, dags }: { data: DagComparison; dags: readonl
     .join(', ');
   const format = share ? formatShare : (v: number) => `${oneDecimal.format(v)} tasks`;
   const zone = data.time_zone;
+  // The table shows both measures in each cell, so the file has both, whatever the toggle.
+  const covered = (d: CompareDag, h: number) => {
+    const entry = d.hourly_profile.find((x) => x.hour === h);
+    return entry !== undefined && entry.covered_hours > 0 ? entry : null;
+  };
+  const tableName = share
+    ? `Share of the environment per ${zone} hour`
+    : `Mean running tasks per ${zone} hour`;
+  const hourCsv: readonly CsvColumn<number>[] = [
+    { name: 'hour_of_day_utc', value: (h) => h },
+    ...dags.flatMap((s) => [
+      { name: `${keyOf(s)}_running_mean`, value: (h: number) => covered(s.dag, h)?.running_avg ?? null },
+      { name: `${keyOf(s)}_share_ratio`, value: (h: number) => covered(s.dag, h)?.share ?? null },
+      { name: `${keyOf(s)}_covered_hours`, value: (h: number) => covered(s.dag, h)?.covered_hours ?? null },
+    ]),
+  ];
   return (
     <Panel
       explanation={E['cmp-hourly']}
@@ -278,6 +387,12 @@ export function HourlyPanel({ data, dags }: { data: DagComparison; dags: readonl
             <ToggleButton value="share">Share of its environment</ToggleButton>
           </ToggleButtonGroup>
           {toggle}
+          <ExportCsvButton
+            view="compare-hourly"
+            what={tableName}
+            rows={Array.from({ length: 24 }, (_, h) => h)}
+            columns={hourCsv}
+          />
         </Stack>
       }
     >
@@ -289,13 +404,7 @@ export function HourlyPanel({ data, dags }: { data: DagComparison; dags: readonl
         </Typography>
         {asTable ? (
           <TableContainer sx={{ maxHeight: 480 }}>
-            <Table
-              size="small"
-              stickyHeader
-              aria-label={
-                share ? `Share of the environment per ${zone} hour` : `Mean running tasks per ${zone} hour`
-              }
-            >
+            <Table size="small" stickyHeader aria-label={tableName}>
               <TableHead>
                 <TableRow>
                   <TableCell>Hour ({zone})</TableCell>
@@ -370,7 +479,12 @@ function ShareBar({ share, style }: { share: number | null; style: SeriesStyle }
 
 export function ResourcePanel({ data, dags }: { data: DagComparison; dags: readonly Styled[] }) {
   return (
-    <Panel explanation={E['cmp-resources']}>
+    <Panel
+      explanation={E['cmp-resources']}
+      actions={
+        <ExportCsvButton view="compare-resources" what="Resource shares" rows={dags} columns={RESOURCE_CSV} />
+      }
+    >
       <Stack spacing={2}>
         <TableContainer>
           <Table size="small" aria-label="Resource shares">
@@ -459,7 +573,17 @@ export function CapacityPanel({ data, dags }: { data: DagComparison; dags: reado
     ],
   ];
   return (
-    <Panel explanation={E['cmp-capacity']}>
+    <Panel
+      explanation={E['cmp-capacity']}
+      actions={
+        <ExportCsvButton
+          view="compare-capacity"
+          what="Capacity context"
+          rows={data.environments}
+          columns={capacityCsv(dags)}
+        />
+      }
+    >
       <Stack spacing={2}>
         <TableContainer>
           <Table size="small" aria-label="Capacity context">

@@ -3,9 +3,10 @@
  * context bar's range. It states its confidence first (low confidence prominently: with DCAM's default 7-day
  * backfill most DAGs have less than the 14 days HM-010 needs), then the predicted saturation and risk windows,
  * the demand band against the worker slots at max_count, the DAGs and the pools. Every number is an estimate and
- * says so; unknown demand is unknown, never zero.
+ * says so; unknown demand is unknown, never zero. Each table exports the rows it shows (FR-STORE-04), the
+ * demand per step with the forecast's method.
  *
- * @implements HM-010, FR-BOTL-05, NFR-DATA-03, NFR-DATA-04, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements HM-010, FR-BOTL-05, NFR-DATA-03, NFR-DATA-04, FR-UI-05, FR-UI-07, FR-UI-08, FR-STORE-04
  */
 import { useMemo } from 'react';
 import Alert from '@mui/material/Alert';
@@ -24,6 +25,8 @@ import { useTheme } from '@mui/material/styles';
 import type { Forecast, ForecastCheck } from '@dcam/contracts';
 import { InfoPopover } from '@dcam/ui-kit';
 import { bucketLabels } from '../../components/charts';
+import { csvList, isoUtc, type CsvColumn } from '../../components/csv';
+import { ExportCsvButton } from '../../components/ExportCsv';
 import { formatInt, formatSchedule, formatShare } from '../../components/format';
 import { Kpi, KpiRow, Panel, ProvenanceFooter } from '../../components/Panel';
 import { usePageParam, useTimeFormat } from '../../components/view';
@@ -34,6 +37,9 @@ import { NO_DATA, UNKNOWN, formatCount, periodText } from './format';
 import { ChartKey, LineKey, SwatchKey, TimeChart, type ChartHighlight, type ChartLimit } from './TimeChart';
 
 type Window = ForecastCheck['windows'][number];
+type Step = Forecast['series'][number];
+type ForecastDag = Forecast['dags'][number];
+type ForecastPool = Forecast['pools'][number];
 
 const MONO = { fontFamily: '"Roboto Mono", ui-monospace, monospace' } as const;
 const upToOne = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
@@ -49,6 +55,55 @@ function stepsIn(f: Forecast, windows: readonly Window[]): Set<number> {
   });
   return out;
 }
+
+/** The demand table as CSV: slots per step, an estimate by the forecast's method; a step outside history is empty. */
+const demandCsv = (
+  f: Forecast,
+  saturated: ReadonlySet<number>,
+  risky: ReadonlySet<number>,
+): readonly CsvColumn<{ step: Step; index: number }>[] => [
+  { name: 'step_start_utc', value: (x) => isoUtc(x.step.start) },
+  { name: 'step_seconds', value: () => f.step_seconds },
+  { name: 'demand_p10_slots', value: (x) => x.step.p10 },
+  { name: 'demand_p50_slots', value: (x) => x.step.p50 },
+  { name: 'demand_p90_slots', value: (x) => x.step.p90 },
+  { name: 'baseline_slots', value: (x) => x.step.baseline },
+  {
+    name: 'window',
+    value: (x) => (saturated.has(x.index) ? 'saturation' : risky.has(x.index) ? 'risk' : null),
+  },
+  { name: 'method', value: () => f.method },
+];
+
+const WINDOW_CSV: readonly CsvColumn<Window>[] = [
+  { name: 'start_utc', value: (w) => isoUtc(w.start) },
+  { name: 'end_utc', value: (w) => isoUtc(w.end) },
+  { name: 'length_minutes', value: (w) => w.minutes },
+  { name: 'peak_demand_slots', value: (w) => w.peak_slots },
+  { name: 'worker_slots_at_max', value: (w) => w.capacity_slots },
+  { name: 'low_confidence', value: (w) => w.low_confidence },
+  { name: 'top_dags', value: (w) => csvList(w.top_dags.map((d) => d.dag_id)) },
+  { name: 'top_dags_share_ratio', value: (w) => csvList(w.top_dags.map((d) => String(d.share))) },
+];
+
+const DAG_CSV: readonly CsvColumn<ForecastDag>[] = [
+  { name: 'dag_id', value: (d) => d.dag_id },
+  { name: 'schedule', value: (d) => d.schedule },
+  { name: 'planned_runs', value: (d) => d.planned_runs },
+  { name: 'runs_profiled', value: (d) => d.runs_profiled },
+  { name: 'history_days', value: (d) => d.history_days },
+  { name: 'low_confidence', value: (d) => d.low_confidence },
+  { name: 'slot_minutes', value: (d) => d.slot_minutes },
+  { name: 'peak_slots_one_run', value: (d) => d.peak_slots },
+];
+
+const POOL_CSV: readonly CsvColumn<ForecastPool>[] = [
+  { name: 'pool', value: (p) => p.name },
+  { name: 'slots', value: (p) => p.slots },
+  { name: 'peak_demand_p50_slots', value: (p) => p.peak_slots },
+  { name: 'peak_at_utc', value: (p) => isoUtc(p.peak_at) },
+  { name: 'over_size_minutes', value: (p) => p.minutes_over },
+];
 
 function HorizonText({ f }: { f: Forecast }) {
   const time = useTimeFormat();
@@ -205,6 +260,12 @@ function DemandPanel({ f }: { f: Forecast }) {
           <Button size="small" onClick={() => setView(asTable ? 'chart' : 'table')}>
             {asTable ? 'View as a chart' : 'View as a table'}
           </Button>
+          <ExportCsvButton
+            view="forecast-demand"
+            what={`Forecast per ${f.step_seconds / 60}-minute step`}
+            rows={f.series.map((step, index) => ({ step, index }))}
+            columns={demandCsv(f, saturated, risky)}
+          />
         </Stack>
       }
     >
@@ -305,10 +366,12 @@ function DemandPanel({ f }: { f: Forecast }) {
 }
 
 function WindowTable({
+  view,
   label,
   windows,
   linkTo,
 }: {
+  view: string;
   label: string;
   windows: readonly Window[];
   linkTo: PageProps['linkTo'];
@@ -316,6 +379,9 @@ function WindowTable({
   const time = useTimeFormat();
   return (
     <Box sx={{ overflowX: 'auto' }}>
+      <Stack direction="row" sx={{ justifyContent: 'flex-end', mb: 1 }}>
+        <ExportCsvButton view={view} what={label} rows={windows} columns={WINDOW_CSV} />
+      </Stack>
       <Table size="small" aria-label={label}>
         <TableHead>
           <TableRow>
@@ -385,7 +451,12 @@ function WindowsPanel({ f, linkTo }: { f: Forecast; linkTo: PageProps['linkTo'] 
               {formatCount(atMax)} worker slots at max_count.
             </Typography>
           ) : (
-            <WindowTable label="Predicted saturation windows (p50)" windows={sat.windows} linkTo={linkTo} />
+            <WindowTable
+              view="forecast-saturation-windows"
+              label="Predicted saturation windows (p50)"
+              windows={sat.windows}
+              linkTo={linkTo}
+            />
           )}
         </Box>
         <Box>
@@ -403,7 +474,12 @@ function WindowsPanel({ f, linkTo }: { f: Forecast; linkTo: PageProps['linkTo'] 
               No risk window: even the p90 forecast stays within capacity.
             </Typography>
           ) : (
-            <WindowTable label="Risk windows (p90)" windows={risk.windows} linkTo={linkTo} />
+            <WindowTable
+              view="forecast-risk-windows"
+              label="Risk windows (p90)"
+              windows={risk.windows}
+              linkTo={linkTo}
+            />
           )}
         </Box>
       </Stack>
@@ -413,7 +489,12 @@ function WindowsPanel({ f, linkTo }: { f: Forecast; linkTo: PageProps['linkTo'] 
 
 function DagsPanel({ f, linkTo }: { f: Forecast; linkTo: PageProps['linkTo'] }) {
   return (
-    <Panel explanation={X['fc-dags']}>
+    <Panel
+      explanation={X['fc-dags']}
+      actions={
+        <ExportCsvButton view="forecast-dags" what="DAGs in the forecast" rows={f.dags} columns={DAG_CSV} />
+      }
+    >
       {f.dags.length === 0 ? (
         <Typography variant="body2" color="text.secondary">
           No DAG has a planned run in the next 24 hours. Unscheduled work is in the baseline.
@@ -482,7 +563,17 @@ function PoolsPanel({ f }: { f: Forecast }) {
   const time = useTimeFormat();
   const zone = time.zoneName(f.pools.find((p) => p.peak_at !== null)?.peak_at ?? f.horizon.from);
   return (
-    <Panel explanation={X['fc-pools']}>
+    <Panel
+      explanation={X['fc-pools']}
+      actions={
+        <ExportCsvButton
+          view="forecast-pools"
+          what="Pool demand forecast"
+          rows={f.pools}
+          columns={POOL_CSV}
+        />
+      }
+    >
       {f.pools.length === 0 ? (
         <Typography variant="body2" color="text.secondary">
           No pool demand to forecast: no planned run uses a pool in the next 24 hours.

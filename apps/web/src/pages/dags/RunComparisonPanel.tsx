@@ -4,8 +4,9 @@
  * change in duration and queue wait, ranked by its contribution to the change in run duration, as the
  * server ranks them: the change in its time on the critical path (HM-007/timing, an estimate). With a run
  * still in progress there is no path, and the panel says that tasks rank by their duration change instead.
+ * The task table exports the rows it shows, the first 25 or all of them (FR-STORE-04).
  *
- * @implements FR-DAGD-09, HM-007, HM-001, FR-UI-02, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements FR-DAGD-09, HM-007, HM-001, FR-UI-02, FR-UI-05, FR-UI-07, FR-UI-08, FR-STORE-04
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -27,6 +28,8 @@ import { useTheme } from '@mui/material/styles';
 import type { DagDetail, RunComparison, TaskInRun } from '@dcam/contracts';
 import { InfoPopover, tokens } from '@dcam/ui-kit';
 import type { DcamApi } from '../../api';
+import type { CsvColumn, CsvValue } from '../../components/csv';
+import { ExportCsvButton } from '../../components/ExportCsv';
 import { clause, formatDuration, formatInt } from '../../components/format';
 import { Panel, ProvenanceFooter } from '../../components/Panel';
 import { loadingText } from '../../components/range';
@@ -40,6 +43,7 @@ type TaskRow = RunComparison['tasks'][number];
 const MONO = '"Roboto Mono", ui-monospace, monospace';
 /** Rows shown before "Show all tasks". */
 const FIRST_ROWS = 25;
+const TASK_TABLE = 'Tasks by contribution to the duration difference';
 
 /** `+10m`, `−1m`, `0s`. */
 export const signed = (seconds: number | null) =>
@@ -135,6 +139,43 @@ function ContributionBar({ t, max }: { t: TaskRow; max: number }) {
 
 const yesNo = (t: TaskInRun | null) => (t ? (t.on_critical_path ? 'Yes' : 'No') : '—');
 
+interface RankedTask {
+  readonly rank: number;
+  readonly task: TaskRow;
+}
+
+/** A value of the task in run A and in run B; a task not in that run has an empty cell, never 0. */
+const bothRuns = (name: string, get: (t: TaskInRun) => CsvValue): CsvColumn<RankedTask>[] =>
+  (['a', 'b'] as const).map((side) => ({
+    name: name.replace('{run}', side),
+    value: (x: RankedTask) => {
+      const t = x.task[side];
+      return t ? get(t) : null;
+    },
+  }));
+
+/**
+ * The task table as CSV, in its row and column order, unrounded: the durations and waits in both runs, the
+ * changes and the contribution with its split, then what the captions say (map indexes, tries) and the runs.
+ */
+const taskCsv = (c: RunComparison): readonly CsvColumn<RankedTask>[] => [
+  { name: 'rank', value: (x) => x.rank },
+  { name: 'task_id', value: (x) => x.task.task_id },
+  ...bothRuns('duration_{run}_seconds', (t) => t.duration_seconds),
+  { name: 'duration_delta_seconds', value: (x) => x.task.duration_delta_seconds },
+  ...bothRuns('queue_wait_{run}_seconds', (t) => t.queue_wait_seconds),
+  { name: 'queue_wait_delta_seconds', value: (x) => x.task.queue_wait_delta_seconds },
+  { name: 'contribution_seconds', value: (x) => x.task.contribution_seconds },
+  { name: 'contribution_wait_seconds', value: (x) => x.task.contribution_wait_seconds },
+  { name: 'contribution_running_seconds', value: (x) => x.task.contribution_running_seconds },
+  ...bothRuns('on_critical_path_{run}', (t) => t.on_critical_path),
+  ...bothRuns('map_indexes_{run}', (t) => t.map_indexes),
+  ...bothRuns('tries_{run}', (t) => t.tries),
+  { name: 'run_id_a', value: () => c.a.run_id },
+  { name: 'run_id_b', value: () => c.b.run_id },
+  { name: 'method', value: () => c.method },
+];
+
 const COLUMNS: ReadonlyArray<{ id: CompareExplanationId | null; label: string; numeric: boolean }> = [
   { id: null, label: '#', numeric: true },
   { id: 'dagd-rc-col-task', label: 'Task', numeric: false },
@@ -152,8 +193,16 @@ function TaskTable({ c }: { c: RunComparison }) {
   const max = c.tasks.reduce((m, t) => Math.max(m, Math.abs(t.contribution_seconds ?? 0)), 0);
   return (
     <Stack spacing={1}>
+      <Stack direction="row" sx={{ justifyContent: 'flex-end' }}>
+        <ExportCsvButton
+          view="run-comparison"
+          what={TASK_TABLE}
+          rows={rows.map((task, i) => ({ rank: i + 1, task }))}
+          columns={taskCsv(c)}
+        />
+      </Stack>
       <TableContainer sx={{ maxHeight: 560 }}>
-        <Table size="small" stickyHeader aria-label="Tasks by contribution to the duration difference">
+        <Table size="small" stickyHeader aria-label={TASK_TABLE}>
           <TableHead>
             <TableRow>
               {COLUMNS.map((col, i) => (

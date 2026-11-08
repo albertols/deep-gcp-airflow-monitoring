@@ -2,8 +2,9 @@
  * Load by DAG and hour of day (FR-DAGX-06): the mean worker slots each of the top DAGs held in each UTC hour of
  * the day, over the hours of task history in the range. Hours without history are empty, not zero
  * (NFR-DATA-03). The table view and the selected cell are in the URL (FR-UI-02); a selection links to the DAG.
+ * Its table view exports as CSV in either view, a DAG per row (FR-STORE-04).
  *
- * @implements FR-DAGX-06, FR-UI-02, FR-UI-06, FR-UI-07, NFR-DATA-03
+ * @implements FR-DAGX-06, FR-UI-02, FR-UI-06, FR-UI-07, NFR-DATA-03, FR-STORE-04
  */
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -16,6 +17,8 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import type { Capacity } from '@dcam/contracts';
+import type { CsvColumn } from '../../components/csv';
+import { ExportCsvButton } from '../../components/ExportCsv';
 import { formatInt, formatShare, formatSlotHours } from '../../components/format';
 import { Panel } from '../../components/Panel';
 import { usePageParam } from '../../components/view';
@@ -32,6 +35,17 @@ const pad = (n: number) => String(n).padStart(2, '0');
 const upToOne = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
 const hoursOf = (n: number) => `${upToOne.format(n)} hour${n === 1 ? '' : 's'}`;
 const keyOf = (dagId: string, hour: number) => `${pad(hour)}:${dagId}`;
+
+/** The load table as CSV: a DAG per row, its mean slots per UTC hour of day; an hour without history is empty. */
+const DAG_LOAD_CSV: readonly CsvColumn<DagLoad['dags'][number]>[] = [
+  { name: 'dag_id', value: (d) => d.dag_id },
+  { name: 'share_ratio', value: (d) => d.share },
+  { name: 'executor_slot_seconds', value: (d) => d.executor_slot_seconds },
+  ...HOURS.map((h) => ({
+    name: `slots_mean_hour_${pad(h)}_utc`,
+    value: (d: DagLoad['dags'][number]) => d.hours[h] ?? null,
+  })),
+];
 
 function cellName(dagId: string, hour: number, v: number | null): string {
   return `${dagId}, ${pad(hour)}:00 UTC: ${v === null ? 'no task history' : `${formatCount(v)} slots on average`}`;
@@ -97,9 +111,17 @@ export function DagLoadPanel({ c, linkTo }: { c: Capacity; linkTo: PageProps['li
       explanation={X['cap-dag-load']}
       actions={
         load.dags.length > 0 ? (
-          <Button size="small" onClick={() => setView(asTable ? 'chart' : 'table')}>
-            {asTable ? 'View as a heatmap' : 'View as a table'}
-          </Button>
+          <Stack direction="row" sx={{ alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+            <Button size="small" onClick={() => setView(asTable ? 'chart' : 'table')}>
+              {asTable ? 'View as a heatmap' : 'View as a table'}
+            </Button>
+            <ExportCsvButton
+              view="capacity-dag-load"
+              what="Load by DAG and UTC hour"
+              rows={load.dags}
+              columns={DAG_LOAD_CSV}
+            />
+          </Stack>
         ) : undefined
       }
     >

@@ -8,6 +8,10 @@ Test tasks come before the code they cover.
 - [x] T-1001 Test + code: shared export button and scope; the league exports its filtered, sorted rows
 - [x] T-1002 Test + code: every other table view exports its rows; alert rules, alert history and DAG tasks
       equal the rendered rows
+- [x] T-1003 Test + code: the tables of features 008 and 009 export their rows too (capacity, forecast,
+      compare DAGs, concurrency, impact, run comparison); capacity files name the range the page covers
+      (a 30-day context bar gives `-7d-`), the forecast's none; the run comparison exports the first 25
+      tasks or all, as shown
 
 ## Command palette (FR-UI-03)
 

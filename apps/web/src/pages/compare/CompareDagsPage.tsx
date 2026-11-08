@@ -4,8 +4,9 @@
  * resource shares and each environment's capacity context. The selection is in the URL (`dags`,
  * `env:dag` items), so a shared link opens the same comparison (FR-UI-02). The API compares every
  * environment in UTC; times on this page follow the context bar's zone, and the hourly profile says UTC.
+ * Its exports name the range and the comparison's data as of; no environment, as it spans several.
  *
- * @implements FR-DAGD-08, FR-UI-01, FR-UI-02, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements FR-DAGD-08, FR-UI-01, FR-UI-02, FR-UI-05, FR-UI-07, FR-UI-08, FR-STORE-04
  */
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import Alert from '@mui/material/Alert';
@@ -13,6 +14,7 @@ import Skeleton from '@mui/material/Skeleton';
 import Stack from '@mui/material/Stack';
 import { useTheme } from '@mui/material/styles';
 import { ApiError } from '../../api';
+import { ExportScope } from '../../components/ExportCsv';
 import { clause } from '../../components/format';
 import { PageHeader } from '../../components/PageHeader';
 import { ProvenanceFooter } from '../../components/Panel';
@@ -97,7 +99,7 @@ export function CompareDagsPage({ api, envId }: PageProps) {
         <Skeleton variant="rounded" height={320} aria-label={loadingText('the comparison', range)} />
       )}
       {data && (
-        <>
+        <ExportScope envId={null} range={range} asOf={data.data_as_of} rangeEnd={data.range.to}>
           <KpiPanel data={data} dags={styled} />
           <DurationPanel data={data} dags={styled} />
           <HourlyPanel data={data} dags={styled} />
@@ -108,7 +110,7 @@ export function CompareDagsPage({ api, envId }: PageProps) {
             sources={data.sources}
             note={`Range ${time.dateTime(data.range.from)} to ${time.dateTime(data.range.to)}; hours of the day in ${data.time_zone}`}
           />
-        </>
+        </ExportScope>
       )}
     </Stack>
   );

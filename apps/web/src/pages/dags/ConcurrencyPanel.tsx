@@ -3,9 +3,10 @@
  * bucket (from tries) and its running + queued and ready ones (from live snapshots) against
  * `max_active_tasks`, the time it spent at that limit, the slots it held in each pool against every DAG,
  * and its self-throttling share against REC-DAG-01's 10 % threshold, with a link to the advisor's finding.
- * Buckets without data are gaps, never zero; every chart has a table view.
+ * Buckets without data are gaps, never zero; every chart has a table view, which exports as CSV in either
+ * view (FR-STORE-04).
  *
- * @implements FR-DAGD-05, HM-005, HM-011, REC-DAG-01, NFR-DATA-03, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements FR-DAGD-05, HM-005, HM-011, REC-DAG-01, NFR-DATA-03, FR-UI-05, FR-UI-07, FR-UI-08, FR-STORE-04
  */
 import type { ReactNode } from 'react';
 import Alert from '@mui/material/Alert';
@@ -25,6 +26,8 @@ import { tokens } from '@dcam/ui-kit';
 import type { DcamApi } from '../../api';
 import { HistoryNote } from '../../components/backfill';
 import { ValueBars, bucketLabels } from '../../components/charts';
+import { isoUtc, type CsvColumn } from '../../components/csv';
+import { ExportCsvButton } from '../../components/ExportCsv';
 import { formatCadence, formatDuration, formatInt, formatShare } from '../../components/format';
 import { LineChart, type Line } from '../../components/line-chart';
 import { Panel, PanelTitle, ProvenanceFooter } from '../../components/Panel';
@@ -291,6 +294,26 @@ function PoolChart({ c, pool }: { c: DagConcurrency; pool: DagConcurrency['pools
 
 const slot = (v: number | null) => (v === null ? '—' : oneDecimal.format(v));
 
+interface ProfileRow {
+  readonly bucket: Bucket;
+  readonly index: number;
+}
+
+/** The concurrency table as CSV: a bucket per row, a pool's two peaks per pool; a gap is an empty cell. */
+const profileCsv = (c: DagConcurrency): readonly CsvColumn<ProfileRow>[] => [
+  { name: 'bucket_start_utc', value: (x) => isoUtc(x.bucket.start) },
+  { name: 'bucket_seconds', value: () => c.bucket_seconds },
+  { name: 'running_mean', value: (x) => x.bucket.running_avg },
+  { name: 'running_peak', value: (x) => x.bucket.running_max },
+  { name: 'running_queued_peak', value: (x) => x.bucket.in_flight_max },
+  { name: 'ready_peak', value: (x) => x.bucket.ready_max },
+  { name: 'at_limit_seconds', value: (x) => x.bucket.at_limit_seconds },
+  ...c.pools.flatMap((p) => [
+    { name: `${p.name}_dag_slots_peak`, value: (x: ProfileRow) => p.dag_slots_max[x.index] ?? null },
+    { name: `${p.name}_occupied_slots_peak`, value: (x: ProfileRow) => p.occupied_max[x.index] ?? null },
+  ]),
+];
+
 function ProfileTable({ c }: { c: DagConcurrency }) {
   const time = useTimeFormat();
   const labels = bucketLabels(time, c.series.length, c.bucket_seconds * 1000);
@@ -360,6 +383,14 @@ export function ConcurrencyPanel({
         <Stack direction="row" sx={{ gap: 2, alignItems: 'center' }}>
           <TaskHistoryFreshness api={api} envId={envId} />
           {data && toggle}
+          {c !== undefined && data && (
+            <ExportCsvButton
+              view="concurrency"
+              what="Concurrency per bucket"
+              rows={c.series.map((bucket, index) => ({ bucket, index }))}
+              columns={profileCsv(c)}
+            />
+          )}
         </Stack>
       }
     >

@@ -2,9 +2,9 @@
  * S-04 capacity tab: the answer (capacity-bound or not, and the longest stretch), KPIs, worker slots against
  * running and queued task instances with the capacity-bound buckets highlighted, the capacity-bound periods
  * listed, then workers and scale events, limits, worker CPU and memory, and pools. Times follow the context
- * bar's zone; chart or table views are in the URL.
+ * bar's zone; chart or table views are in the URL. Each table exports the rows it shows (FR-STORE-04).
  *
- * @implements FR-ENV-02, HM-011, HM-012, NFR-DATA-03, FR-UI-05, FR-UI-07
+ * @implements FR-ENV-02, HM-011, HM-012, NFR-DATA-03, FR-UI-05, FR-UI-07, FR-STORE-04
  */
 import { useMemo } from 'react';
 import Alert from '@mui/material/Alert';
@@ -23,6 +23,8 @@ import { useTheme } from '@mui/material/styles';
 import type { Capacity } from '@dcam/contracts';
 import { InfoPopover } from '@dcam/ui-kit';
 import { bucketLabels } from '../../components/charts';
+import { isoUtc, type CsvColumn } from '../../components/csv';
+import { ExportCsvButton } from '../../components/ExportCsv';
 import { clause, formatInt, formatShare } from '../../components/format';
 import { Kpi, KpiRow, Panel } from '../../components/Panel';
 import { usePageParam, useTimeFormat } from '../../components/view';
@@ -35,6 +37,29 @@ import { SaturationPanel } from './SaturationPanel';
 import { ChartKey, LineKey, SwatchKey, TimeChart, type ChartLimit } from './TimeChart';
 
 type Bucket = Capacity['series'][number];
+type Period = Capacity['capacity_bound']['periods'][number];
+
+/** The worker slots table as CSV: means of the bucket's minutes, unrounded; a gap is an empty cell. */
+const slotsCsv = (bucketSeconds: number): readonly CsvColumn<Bucket>[] => [
+  { name: 'bucket_start_utc', value: (b) => isoUtc(b.start) },
+  { name: 'bucket_seconds', value: () => bucketSeconds },
+  { name: 'workers_mean', value: (b) => b.workers_mean },
+  { name: 'worker_slots_mean', value: (b) => b.worker_slots_mean },
+  { name: 'running_mean', value: (b) => b.running_mean },
+  { name: 'queued_mean', value: (b) => b.queued_mean },
+  { name: 'running_tries_mean', value: (b) => b.running_tries_mean },
+  { name: 'utilisation_mean_ratio', value: (b) => b.utilisation_mean },
+  { name: 'capacity_bound_minutes', value: (b) => b.capacity_bound_minutes },
+];
+
+const periodsCsv = (maxWorkers: number): readonly CsvColumn<Period>[] => [
+  { name: 'start_utc', value: (p) => isoUtc(p.start) },
+  { name: 'end_utc', value: (p) => isoUtc(p.end) },
+  { name: 'length_minutes', value: (p) => p.minutes },
+  { name: 'queued_peak', value: (p) => p.queued_peak },
+  { name: 'workers', value: (p) => p.workers },
+  { name: 'max_workers', value: () => maxWorkers },
+];
 
 /** Queued task instances that make a minute at max_count capacity-bound (HM-011), with the slots at max. */
 export function boundThreshold(c: Capacity): number {
@@ -206,9 +231,17 @@ function SlotsPanel({ c }: { c: Capacity }) {
     <Panel
       explanation={X['cap-slots']}
       actions={
-        <Button size="small" onClick={() => setView(asTable ? 'chart' : 'table')}>
-          {asTable ? 'View as a chart' : 'View as a table'}
-        </Button>
+        <Stack direction="row" sx={{ alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+          <Button size="small" onClick={() => setView(asTable ? 'chart' : 'table')}>
+            {asTable ? 'View as a chart' : 'View as a table'}
+          </Button>
+          <ExportCsvButton
+            view="capacity-slots"
+            what="Worker slots per bucket"
+            rows={c.series}
+            columns={slotsCsv(c.bucket_seconds)}
+          />
+        </Stack>
       }
     >
       <Stack spacing={2}>
@@ -317,9 +350,19 @@ function SlotsPanel({ c }: { c: Capacity }) {
 function PeriodsPanel({ c }: { c: Capacity }) {
   const time = useTimeFormat();
   const cb = c.capacity_bound;
-  const rows = [...cb.periods].sort((a, b) => Date.parse(b.start) - Date.parse(a.start));
+  const rows = cb.evaluated ? [...cb.periods].sort((a, b) => Date.parse(b.start) - Date.parse(a.start)) : [];
   return (
-    <Panel explanation={X['cap-periods']}>
+    <Panel
+      explanation={X['cap-periods']}
+      actions={
+        <ExportCsvButton
+          view="capacity-bound-periods"
+          what="Capacity-bound periods"
+          rows={rows}
+          columns={periodsCsv(c.limits.max_workers)}
+        />
+      }
+    >
       {!cb.evaluated ? (
         <Typography variant="body2" color="text.secondary">
           Not evaluated: {cb.not_evaluated_reason}

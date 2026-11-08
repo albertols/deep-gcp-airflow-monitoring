@@ -3,9 +3,10 @@
  * them, the DAGs that load each hour of the day, and the next 24 hours' forecast, in three tabs whose choice is
  * in the URL. Capacity follows the context bar's range, mapped to the nearest range it analyses (1 hour to 7
  * days) with a note that says so; the forecast has no range. Each tab has its loading, empty, partial, stale
- * and error states and a provenance footer.
+ * and error states and a provenance footer. Exports name the range the page covers, not the context bar's
+ * (a 30-day context bar gives 7-day files); the forecast's name none, as it does not follow the range.
  *
- * @implements FR-ENV-02, FR-DAGX-06, HM-010, FR-UI-01, FR-UI-02, FR-UI-07, FR-UI-08
+ * @implements FR-ENV-02, FR-DAGX-06, HM-010, FR-UI-01, FR-UI-02, FR-UI-07, FR-UI-08, FR-STORE-04
  */
 import { useQuery } from '@tanstack/react-query';
 import Alert from '@mui/material/Alert';
@@ -13,6 +14,7 @@ import Stack from '@mui/material/Stack';
 import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
 import { HistoryNote } from '../../components/backfill';
+import { ExportScope } from '../../components/ExportCsv';
 import { PageHeader } from '../../components/PageHeader';
 import { ProvenanceFooter, QueryState } from '../../components/Panel';
 import { RANGE_PRESETS } from '../../components/range';
@@ -56,72 +58,84 @@ export function CapacityPage({ api, envId, linkTo }: PageProps) {
     ...refresh,
   });
 
+  const scope =
+    tab === 'forecast'
+      ? { envId: forecast.data?.env_id ?? envId, range: null, asOf: forecast.data?.data_as_of ?? null }
+      : {
+          envId: capacity.data?.env_id ?? envId,
+          range: choice.range,
+          asOf: capacity.data?.data_as_of ?? null,
+          rangeEnd: capacity.data?.range.to ?? null,
+        };
+
   return (
-    <Stack spacing={4}>
-      <PageHeader title="Capacity" subtitle={SUBTITLE[tab](RANGE_PRESETS[choice.range].label)}>
-        <CapacityFreshness api={api} envId={envId} />
-      </PageHeader>
-      {choice.note && tab !== 'forecast' && (
-        <Alert severity="info" variant="outlined">
-          {choice.note}
-        </Alert>
-      )}
-      <Tabs
-        value={tab}
-        onChange={(_e, next: CapacityTabId) => setTab(next)}
-        aria-label="Capacity views"
-        sx={{ borderBottom: 1, borderColor: 'divider' }}
-      >
-        <Tab value="capacity" label="Capacity" />
-        <Tab value="dags" label="Load by DAG" />
-        <Tab value="forecast" label="Forecast" />
-      </Tabs>
-      {tab === 'forecast' ? (
-        <QueryState isPending={forecast.isPending} error={forecast.error} what="the forecast" />
-      ) : (
-        <QueryState
-          isPending={capacity.isPending}
-          error={capacity.error}
-          what="the capacity analysis"
-          range={choice.range}
-        />
-      )}
-      {tab !== 'forecast' && capacity.data && (
-        <HistoryNote
-          api={api}
-          envId={envId}
-          rangeFrom={capacity.data.range.from}
-          kinds={tab === 'dags' ? ['task_instances'] : ['task_instances', 'metrics']}
-          healthHref={linkTo({ page: 'health' })}
-        />
-      )}
-      {tab === 'capacity' && capacity.data && (
-        <>
-          <CapacityNotes c={capacity.data} span={RANGE_PRESETS[choice.range].span} linkTo={linkTo} />
-          <CapacityTab
-            c={capacity.data}
-            span={RANGE_PRESETS[choice.range].span}
-            linkTo={linkTo}
-            onForecast={() => setTab('forecast')}
+    <ExportScope {...scope}>
+      <Stack spacing={4}>
+        <PageHeader title="Capacity" subtitle={SUBTITLE[tab](RANGE_PRESETS[choice.range].label)}>
+          <CapacityFreshness api={api} envId={envId} />
+        </PageHeader>
+        {choice.note && tab !== 'forecast' && (
+          <Alert severity="info" variant="outlined">
+            {choice.note}
+          </Alert>
+        )}
+        <Tabs
+          value={tab}
+          onChange={(_e, next: CapacityTabId) => setTab(next)}
+          aria-label="Capacity views"
+          sx={{ borderBottom: 1, borderColor: 'divider' }}
+        >
+          <Tab value="capacity" label="Capacity" />
+          <Tab value="dags" label="Load by DAG" />
+          <Tab value="forecast" label="Forecast" />
+        </Tabs>
+        {tab === 'forecast' ? (
+          <QueryState isPending={forecast.isPending} error={forecast.error} what="the forecast" />
+        ) : (
+          <QueryState
+            isPending={capacity.isPending}
+            error={capacity.error}
+            what="the capacity analysis"
+            range={choice.range}
           />
-          <ProvenanceFooter
-            dataAsOf={capacity.data.data_as_of}
-            sources={capacity.data.sources}
-            note={`${bucketName(capacity.data.bucket_seconds)} buckets; worker figures from Cloud Monitoring samples, else live snapshots; heatmaps in UTC`}
+        )}
+        {tab !== 'forecast' && capacity.data && (
+          <HistoryNote
+            api={api}
+            envId={envId}
+            rangeFrom={capacity.data.range.from}
+            kinds={tab === 'dags' ? ['task_instances'] : ['task_instances', 'metrics']}
+            healthHref={linkTo({ page: 'health' })}
           />
-        </>
-      )}
-      {tab === 'dags' && capacity.data && (
-        <>
-          <DagLoadPanel c={capacity.data} linkTo={linkTo} />
-          <ProvenanceFooter
-            dataAsOf={capacity.data.data_as_of}
-            sources={capacity.data.sources}
-            note={`computed from task tries (${capacity.data.dag_load.method}); hours in UTC`}
-          />
-        </>
-      )}
-      {tab === 'forecast' && forecast.data && <ForecastTab f={forecast.data} linkTo={linkTo} />}
-    </Stack>
+        )}
+        {tab === 'capacity' && capacity.data && (
+          <>
+            <CapacityNotes c={capacity.data} span={RANGE_PRESETS[choice.range].span} linkTo={linkTo} />
+            <CapacityTab
+              c={capacity.data}
+              span={RANGE_PRESETS[choice.range].span}
+              linkTo={linkTo}
+              onForecast={() => setTab('forecast')}
+            />
+            <ProvenanceFooter
+              dataAsOf={capacity.data.data_as_of}
+              sources={capacity.data.sources}
+              note={`${bucketName(capacity.data.bucket_seconds)} buckets; worker figures from Cloud Monitoring samples, else live snapshots; heatmaps in UTC`}
+            />
+          </>
+        )}
+        {tab === 'dags' && capacity.data && (
+          <>
+            <DagLoadPanel c={capacity.data} linkTo={linkTo} />
+            <ProvenanceFooter
+              dataAsOf={capacity.data.data_as_of}
+              sources={capacity.data.sources}
+              note={`computed from task tries (${capacity.data.dag_load.method}); hours in UTC`}
+            />
+          </>
+        )}
+        {tab === 'forecast' && forecast.data && <ForecastTab f={forecast.data} linkTo={linkTo} />}
+      </Stack>
+    </ExportScope>
   );
 }

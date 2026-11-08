@@ -2,9 +2,11 @@
  * The DAG's impact on its environment (FR-DAGD-06): its share of the environment's executor load per time
  * bucket (HM-003) and of the executor slots there were (HM-011), and its noisy-neighbour score (HM-017)
  * with the 95 % interval and the confidence level, or, without a score, the reason and the minimums it
- * missed: never a zero it did not measure. The wording stays with association, not cause.
+ * missed: never a zero it did not measure. The wording stays with association, not cause. The share's table
+ * view exports as CSV in either view (FR-STORE-04).
  *
- * @implements FR-DAGD-06, HM-003, HM-011, HM-017, NFR-DATA-03, NFR-DATA-04, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements FR-DAGD-06, HM-003, HM-011, HM-017, NFR-DATA-03, NFR-DATA-04, FR-UI-05, FR-UI-07, FR-UI-08,
+ *   FR-STORE-04
  */
 import Alert from '@mui/material/Alert';
 import Chip from '@mui/material/Chip';
@@ -21,6 +23,8 @@ import type { DagDetail, DagImpact, DagNoisyNeighbour, NoisyNeighbour } from '@d
 import type { DcamApi } from '../../api';
 import { HistoryNote } from '../../components/backfill';
 import { bucketLabels } from '../../components/charts';
+import { isoUtc, type CsvColumn } from '../../components/csv';
+import { ExportCsvButton } from '../../components/ExportCsv';
 import { formatDuration, formatInt, formatShare, formatSlotHours } from '../../components/format';
 import { LineChart } from '../../components/line-chart';
 import { Panel, PanelTitle, ProvenanceFooter } from '../../components/Panel';
@@ -51,6 +55,16 @@ function windowText(w: { from: string; to: string }, time: TimeFormat): string {
   const end = time.day(w.from) === time.day(w.to) ? time.clock(w.to) : time.dayClock(w.to);
   return `${time.dayClock(w.from)}–${end} ${time.zoneName(w.from)}`;
 }
+
+/** The share table as CSV: slot-seconds (the table shows slot-hours) and ratios; a gap is an empty cell. */
+const shareCsv = (bucketSeconds: number): readonly CsvColumn<DagImpact['series'][number]>[] => [
+  { name: 'bucket_start_utc', value: (b) => isoUtc(b.start) },
+  { name: 'bucket_seconds', value: () => bucketSeconds },
+  { name: 'dag_slot_seconds', value: (b) => b.dag_slot_seconds },
+  { name: 'environment_slot_seconds', value: (b) => b.environment_slot_seconds },
+  { name: 'share_ratio', value: (b) => b.share },
+  { name: 'executor_slots_share_ratio', value: (b) => b.capacity_share },
+];
 
 /** The share over the buckets with history: DAG ÷ environment slot-seconds, both summed. */
 function overallShare(series: DagImpact['series']): number | null {
@@ -274,6 +288,14 @@ export function ImpactPanel({
           )}
           <TaskHistoryFreshness api={api} envId={envId} />
           {hasLoad && toggle}
+          {impact !== undefined && hasLoad && (
+            <ExportCsvButton
+              view="impact"
+              what="Share of the environment per bucket"
+              rows={impact.series}
+              columns={shareCsv(impact.bucket_seconds)}
+            />
+          )}
         </Stack>
       }
     >

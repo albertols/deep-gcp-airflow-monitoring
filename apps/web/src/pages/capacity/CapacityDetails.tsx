@@ -1,9 +1,10 @@
 /**
  * S-04 detail panels: workers against min_count and max_count with the scale events and scale-up lag (HM-012),
  * the limits with where DCAM read each one (HM-032: unknown reads as unknown, never as zero), worker CPU and
- * memory against their limits with the workload types not collected, and pool slots (FR-ENV-08).
+ * memory against their limits with the workload types not collected, and pool slots (FR-ENV-08). Each table
+ * exports the rows it shows (FR-STORE-04): an unknown value is an empty cell, never 0.
  *
- * @implements FR-ENV-02, FR-ENV-08, HM-012, HM-032, NFR-DATA-03
+ * @implements FR-ENV-02, FR-ENV-08, HM-012, HM-032, NFR-DATA-03, FR-STORE-04
  */
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -17,6 +18,8 @@ import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import { useTheme } from '@mui/material/styles';
 import type { Capacity, LimitSource, Spread } from '@dcam/contracts';
+import { isoUtc, type CsvColumn } from '../../components/csv';
+import { ExportCsvButton } from '../../components/ExportCsv';
 import { formatDuration, formatInt, formatShare } from '../../components/format';
 import { Panel } from '../../components/Panel';
 import { usePageParam, useTimeFormat } from '../../components/view';
@@ -36,6 +39,27 @@ import { ChartKey, LineKey, SwatchKey, TimeChart } from './TimeChart';
 const MONO = { fontFamily: '"Roboto Mono", ui-monospace, monospace' } as const;
 /** Scale events listed; the contract keeps the newest 200. */
 const EVENTS_SHOWN = 20;
+
+type Bucket = Capacity['series'][number];
+type ScaleEvent = Capacity['scale_events']['items'][number];
+type Workload = Capacity['workloads'][number];
+type PoolSlots = Capacity['pools'][number];
+
+const workersCsv = (bucketSeconds: number): readonly CsvColumn<Bucket>[] => [
+  { name: 'bucket_start_utc', value: (b) => isoUtc(b.start) },
+  { name: 'bucket_seconds', value: () => bucketSeconds },
+  { name: 'workers_mean', value: (b) => b.workers_mean },
+  { name: 'workers_max', value: (b) => b.workers_max },
+  { name: 'autoscaler_target_max', value: (b) => b.target_max },
+  { name: 'minutes_at_max_count', value: (b) => b.minutes_at_max },
+];
+
+const SCALE_EVENT_CSV: readonly CsvColumn<ScaleEvent>[] = [
+  { name: 'at_utc', value: (e) => isoUtc(e.at) },
+  { name: 'workers_from', value: (e) => e.from },
+  { name: 'workers_to', value: (e) => e.to },
+  { name: 'change', value: (e) => (e.to > e.from ? 'up' : 'down') },
+];
 
 function lagText(s: Spread): string {
   if (s.samples === 0) return 'Scale-up lag: no scale-up in this range.';
@@ -61,9 +85,17 @@ export function WorkersPanel({ c }: { c: Capacity }) {
     <Panel
       explanation={X['cap-workers']}
       actions={
-        <Button size="small" onClick={() => setView(asTable ? 'chart' : 'table')}>
-          {asTable ? 'View workers as a chart' : 'View workers as a table'}
-        </Button>
+        <Stack direction="row" sx={{ alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+          <Button size="small" onClick={() => setView(asTable ? 'chart' : 'table')}>
+            {asTable ? 'View workers as a chart' : 'View workers as a table'}
+          </Button>
+          <ExportCsvButton
+            view="capacity-workers"
+            what="Workers per bucket"
+            rows={c.series}
+            columns={workersCsv(c.bucket_seconds)}
+          />
+        </Stack>
       }
     >
       <Stack spacing={2}>
@@ -152,11 +184,21 @@ export function WorkersPanel({ c }: { c: Capacity }) {
             </Typography>
             {events.length > 0 && (
               <>
-                {ev.items.length > events.length && (
-                  <Typography variant="caption" color="text.secondary">
-                    The newest {formatInt(events.length)} of {formatInt(ev.items.length)} changes.
-                  </Typography>
-                )}
+                <Stack direction="row" sx={{ alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                  {ev.items.length > events.length && (
+                    <Typography variant="caption" color="text.secondary">
+                      The newest {formatInt(events.length)} of {formatInt(ev.items.length)} changes.
+                    </Typography>
+                  )}
+                  <Box sx={{ ml: 'auto' }}>
+                    <ExportCsvButton
+                      view="capacity-scale-events"
+                      what="Scale events"
+                      rows={events}
+                      columns={SCALE_EVENT_CSV}
+                    />
+                  </Box>
+                </Stack>
                 <Box sx={{ maxHeight: 280, overflow: 'auto' }}>
                   <Table size="small" stickyHeader aria-label="Scale events">
                     <TableHead>
@@ -204,9 +246,22 @@ interface LimitRow {
   readonly code: boolean;
   readonly what: string;
   readonly value: string;
+  /** The value as a number for the export; `null` when unknown. */
+  readonly amount: number | null;
+  /** The upper end where the limit is a range (min_count to max_count). */
+  readonly amountTo?: number;
   readonly source: string;
   readonly unknown: boolean;
 }
+
+/** The limits table as CSV: the value as a number (the upper end of a range apart), empty when unknown. */
+const LIMIT_CSV: readonly CsvColumn<LimitRow>[] = [
+  { name: 'limit', value: (r) => r.name },
+  { name: 'meaning', value: (r) => r.what },
+  { name: 'value', value: (r) => r.amount },
+  { name: 'value_to', value: (r) => r.amountTo },
+  { name: 'source', value: (r) => r.source },
+];
 
 const known = (v: number | null, unit = '') => (v === null ? UNKNOWN : `${formatInt(v)}${unit}`);
 const sourceOf = (s: LimitSource) => LIMIT_SOURCE[s];
@@ -219,6 +274,7 @@ export function LimitsPanel({ c }: { c: Capacity }) {
       code: true,
       what: '[celery]: task instances one worker runs at once',
       value: known(l.worker_concurrency),
+      amount: l.worker_concurrency,
       source: sourceOf(l.worker_concurrency_source),
       unknown: l.worker_concurrency === null,
     },
@@ -227,6 +283,8 @@ export function LimitsPanel({ c }: { c: Capacity }) {
       code: false,
       what: 'min_count to max_count of the autoscaler',
       value: `${formatInt(l.min_workers)} to ${formatInt(l.max_workers)}`,
+      amount: l.min_workers,
+      amountTo: l.max_workers,
       source: 'Environment configuration',
       unknown: false,
     },
@@ -235,6 +293,7 @@ export function LimitsPanel({ c }: { c: Capacity }) {
       code: false,
       what: 'max_count × worker_concurrency',
       value: known(l.worker_slots_at_max),
+      amount: l.worker_slots_at_max,
       source: l.worker_slots_at_max === null ? 'Needs worker_concurrency' : 'Computed',
       unknown: l.worker_slots_at_max === null,
     },
@@ -243,6 +302,7 @@ export function LimitsPanel({ c }: { c: Capacity }) {
       code: true,
       what: '[core]: running and queued task instances one scheduler allows',
       value: l.parallelism === null ? UNKNOWN : `${formatInt(l.parallelism)} per scheduler`,
+      amount: l.parallelism,
       source: sourceOf(l.parallelism_source),
       unknown: l.parallelism === null,
     },
@@ -251,6 +311,7 @@ export function LimitsPanel({ c }: { c: Capacity }) {
       code: false,
       what: 'scheduler count',
       value: formatInt(l.schedulers),
+      amount: l.schedulers,
       source: 'Environment configuration',
       unknown: false,
     },
@@ -259,13 +320,17 @@ export function LimitsPanel({ c }: { c: Capacity }) {
       code: false,
       what: 'running and queued task instances the schedulers allow together',
       value: known(l.parallelism_total),
+      amount: l.parallelism_total,
       source: l.parallelism_total === null ? 'Needs parallelism' : 'Computed',
       unknown: l.parallelism_total === null,
     },
   ];
   const anyUnknown = rows.some((r) => r.unknown);
   return (
-    <Panel explanation={X['cap-limits']}>
+    <Panel
+      explanation={X['cap-limits']}
+      actions={<ExportCsvButton view="capacity-limits" what="Limits" rows={rows} columns={LIMIT_CSV} />}
+    >
       <Table size="small" aria-label="Limits">
         <TableHead>
           <TableRow>
@@ -313,6 +378,33 @@ const WORKLOAD_NAMES: Readonly<Record<Capacity['workloads_not_collected'][number
 const listText = (items: readonly string[]) =>
   items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
 
+/** A spread's p50, p95 and max as ratio columns; p95 is empty with a low sample, which a column says. */
+function spreadCsv(name: string, get: (w: Workload) => Spread): CsvColumn<Workload>[] {
+  const known = (w: Workload) => w.samples > 0 && get(w).samples > 0;
+  return [
+    { name: `${name}_p50_ratio`, value: (w) => (known(w) ? get(w).p50 : null) },
+    { name: `${name}_p95_ratio`, value: (w) => (known(w) ? get(w).p95 : null) },
+    { name: `${name}_max_ratio`, value: (w) => (known(w) ? get(w).max : null) },
+    { name: `${name}_low_sample`, value: (w) => (known(w) ? get(w).low_sample : null) },
+  ];
+}
+
+const WORKLOAD_CSV: readonly CsvColumn<Workload>[] = [
+  { name: 'workload', value: (w) => w.workload },
+  ...spreadCsv('cpu', (w) => w.cpu),
+  ...spreadCsv('memory', (w) => w.memory),
+  { name: 'samples', value: (w) => w.samples },
+];
+
+const POOL_CSV: readonly CsvColumn<PoolSlots>[] = [
+  { name: 'pool', value: (p) => p.name },
+  { name: 'slots', value: (p) => p.slots },
+  { name: 'running_slots_mean', value: (p) => p.running_slots_avg },
+  { name: 'running_slots_peak', value: (p) => p.running_slots_peak },
+  { name: 'queued_slots_mean', value: (p) => p.queued_slots_avg },
+  { name: 'starved_minutes', value: (p) => p.starved_minutes },
+];
+
 function spreadCells(s: Spread, samples: number) {
   if (samples === 0 || s.samples === 0) return [NO_DATA, NO_DATA, NO_DATA];
   const p95 = spreadP95(s, (v) => formatShare(v));
@@ -325,7 +417,17 @@ function spreadCells(s: Spread, samples: number) {
 
 export function WorkloadsPanel({ c }: { c: Capacity }) {
   return (
-    <Panel explanation={X['cap-workloads']}>
+    <Panel
+      explanation={X['cap-workloads']}
+      actions={
+        <ExportCsvButton
+          view="capacity-workloads"
+          what="CPU and memory against limits"
+          rows={c.workloads}
+          columns={WORKLOAD_CSV}
+        />
+      }
+    >
       <Box sx={{ overflowX: 'auto' }}>
         <Table size="small" aria-label="CPU and memory against limits">
           <TableHead>
@@ -366,7 +468,10 @@ export function WorkloadsPanel({ c }: { c: Capacity }) {
 
 export function PoolSlotsPanel({ c }: { c: Capacity }) {
   return (
-    <Panel explanation={X['cap-pools']}>
+    <Panel
+      explanation={X['cap-pools']}
+      actions={<ExportCsvButton view="capacity-pools" what="Pool slots" rows={c.pools} columns={POOL_CSV} />}
+    >
       {c.pools.length === 0 ? (
         <Typography variant="body2" color="text.secondary">
           No pools are known for this environment yet. They appear after the first live snapshot.

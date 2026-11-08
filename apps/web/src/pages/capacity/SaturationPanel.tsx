@@ -2,9 +2,10 @@
  * Saturation heatmap (FR-ENV-02): each UTC day × hour coloured by utilisation, minutes at max workers or
  * capacity-bound minutes, with capacity-bound hours marked. The metric, the table view and the selected cell are
  * in the URL (FR-UI-02). Hours are UTC, as the contract's heatmap is; hours never observed are empty (NFR-DATA-03),
- * and utilisation without worker_concurrency is unknown (HM-032).
+ * and utilisation without worker_concurrency is unknown (HM-032). Its table view exports as CSV in either
+ * view, an hour per row (FR-STORE-04).
  *
- * @implements FR-ENV-02, HM-011, FR-UI-02, FR-UI-06, NFR-DATA-03
+ * @implements FR-ENV-02, HM-011, FR-UI-02, FR-UI-06, NFR-DATA-03, FR-STORE-04
  */
 import { useMemo } from 'react';
 import Box from '@mui/material/Box';
@@ -20,6 +21,8 @@ import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
 import type { Capacity } from '@dcam/contracts';
+import { isoUtc, type CsvColumn } from '../../components/csv';
+import { ExportCsvButton } from '../../components/ExportCsv';
 import { formatInt, formatShare } from '../../components/format';
 import { Panel } from '../../components/Panel';
 import { UTC_TIME } from '../../components/time';
@@ -81,6 +84,15 @@ const dayOf = (date: string) => UTC_TIME.day(`${date}T00:00:00Z`);
 /** "5 Nov, 02:00 UTC". */
 const hourText = (c: Pick<Cell, 'date' | 'hour'>) => `${dayOf(c.date)}, ${pad(c.hour)}:00 UTC`;
 const orUnknown = (v: number | null, f: (v: number) => string) => (v === null ? 'unknown' : f(v));
+
+/** The saturation table as CSV: one UTC hour per row, as the table lists them. */
+const CELL_CSV: readonly CsvColumn<Cell>[] = [
+  { name: 'hour_start_utc', value: (c) => isoUtc(`${c.date}T${pad(c.hour)}:00:00Z`) },
+  { name: 'observed_minutes', value: (c) => c.observed_minutes },
+  { name: 'utilisation_mean_ratio', value: (c) => c.utilisation_mean },
+  { name: 'minutes_at_max_workers', value: (c) => c.minutes_at_max },
+  { name: 'capacity_bound_minutes', value: (c) => c.capacity_bound_minutes },
+];
 
 /** The cell's figures in words: its accessible name. */
 function cellName(c: Cell): string {
@@ -166,6 +178,12 @@ export function SaturationPanel({ c }: { c: Capacity }) {
           <Button size="small" onClick={() => setView(asTable ? 'chart' : 'table')}>
             {asTable ? 'View as a heatmap' : 'View as a table'}
           </Button>
+          <ExportCsvButton
+            view="capacity-saturation"
+            what="Saturation by UTC day and hour"
+            rows={cells}
+            columns={CELL_CSV}
+          />
         </Stack>
       }
     >
