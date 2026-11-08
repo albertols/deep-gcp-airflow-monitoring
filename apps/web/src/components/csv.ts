@@ -43,8 +43,27 @@ export function isoUtc(time: string | number | null | undefined): string | null 
   return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
 
-/** A list in one cell, `; `-separated (the separator never appears in DAG IDs, tags or pool names). */
+/** A list in one cell, `; `-separated. */
 export const csvList = (items: readonly string[]): string => items.join('; ');
+
+/** A duration percentile with its sample count (spec §8.9). */
+interface QuantileLike {
+  readonly value_seconds: number | null;
+  readonly samples: number;
+  readonly low_sample: boolean;
+}
+
+/**
+ * Three columns for a percentile: `<name>_seconds`, `<name>_samples` and `<name>_low_sample` (true when
+ * fewer than 20 samples made the value the maximum, §8.9).
+ */
+export function quantileColumns<R>(name: string, get: (row: R) => QuantileLike): CsvColumn<R>[] {
+  return [
+    { name: `${name}_seconds`, value: (r) => get(r).value_seconds },
+    { name: `${name}_samples`, value: (r) => get(r).samples },
+    { name: `${name}_low_sample`, value: (r) => get(r).low_sample },
+  ];
+}
 
 /** What an export belongs to: shown in its file name. */
 export interface ExportContext {

@@ -2,9 +2,10 @@
  * Client-side filtering, sorting, presets and CSV export for the DAG league table. The server sends
  * every row for the range; these run over all rows on each interaction (FR-DAGX-01, NFR-PERF-03).
  *
- * @implements FR-DAGX-01, FR-DAGX-02, FR-DAGX-07
+ * @implements FR-DAGX-01, FR-DAGX-02, FR-DAGX-07, FR-STORE-04
  */
 import type { DagLeagueRow } from '@dcam/contracts';
+import { csvList, quantileColumns, toCsv, type CsvColumn } from '../../components/csv';
 
 /** HM-015 / §8.9: rates and tail percentiles need at least this many samples. */
 const MIN_SAMPLES = 20;
@@ -141,45 +142,32 @@ export function shareChangePoints(r: DagLeagueRow): number | null {
   return r.previous_share === null ? null : (r.share - r.previous_share) * 100;
 }
 
-const CSV_COLUMNS: ReadonlyArray<readonly [string, (r: DagLeagueRow) => string | number | boolean | null]> = [
-  ['dag_id', (r) => r.dag_id],
-  ['team', (r) => r.team],
-  ['owners', (r) => r.owners.join('; ')],
-  ['tags', (r) => r.tags.join('; ')],
-  ['schedule', (r) => r.schedule],
-  ['paused', (r) => r.paused],
-  ['runs', (r) => r.runs],
-  ['failed_runs', (r) => r.failed_runs],
-  ['success_rate', (r) => r.success_rate],
-  ['tries', (r) => r.tries],
-  ['retries', (r) => r.retries],
-  ['flaky_rate', (r) => r.flaky_rate],
-  ['run_duration_p50_seconds', (r) => r.run_duration_p50.value_seconds],
-  ['run_duration_p95_seconds', (r) => r.run_duration_p95.value_seconds],
-  ['run_duration_p95_low_sample', (r) => r.run_duration_p95.low_sample],
-  ['executor_slot_seconds', (r) => r.executor_slot_seconds],
-  ['share', (r) => r.share],
-  ['cumulative_share', (r) => r.cumulative_share],
-  ['previous_share', (r) => r.previous_share],
-  ['peak_concurrency', (r) => r.peak_concurrency],
-  ['queue_wait_p95_seconds', (r) => r.queue_wait_p95.value_seconds],
-  ['queue_wait_p95_low_sample', (r) => r.queue_wait_p95.low_sample],
-  ['ready_wait_p95_seconds', (r) => r.ready_wait_p95.value_seconds],
-  ['ready_wait_p95_low_sample', (r) => r.ready_wait_p95.low_sample],
-  ['open_findings', (r) => r.open_findings],
+/** The league's CSV columns (FR-STORE-04): every field of a row, each with its unit in the header. */
+export const LEAGUE_CSV_COLUMNS: readonly CsvColumn<DagLeagueRow>[] = [
+  { name: 'dag_id', value: (r) => r.dag_id },
+  { name: 'team', value: (r) => r.team },
+  { name: 'owners', value: (r) => csvList(r.owners) },
+  { name: 'tags', value: (r) => csvList(r.tags) },
+  { name: 'schedule', value: (r) => r.schedule },
+  { name: 'paused', value: (r) => r.paused },
+  { name: 'runs', value: (r) => r.runs },
+  { name: 'failed_runs', value: (r) => r.failed_runs },
+  { name: 'success_rate_ratio', value: (r) => r.success_rate },
+  { name: 'tries', value: (r) => r.tries },
+  { name: 'retries', value: (r) => r.retries },
+  { name: 'flaky_rate_ratio', value: (r) => r.flaky_rate },
+  { name: 'flaky_inferred', value: (r) => r.flaky_inferred },
+  ...quantileColumns<DagLeagueRow>('run_duration_p50', (r) => r.run_duration_p50),
+  ...quantileColumns<DagLeagueRow>('run_duration_p95', (r) => r.run_duration_p95),
+  { name: 'executor_slot_seconds', value: (r) => r.executor_slot_seconds },
+  { name: 'share_ratio', value: (r) => r.share },
+  { name: 'cumulative_share_ratio', value: (r) => r.cumulative_share },
+  { name: 'previous_share_ratio', value: (r) => r.previous_share },
+  { name: 'peak_concurrency', value: (r) => r.peak_concurrency },
+  ...quantileColumns<DagLeagueRow>('queue_wait_p95', (r) => r.queue_wait_p95),
+  ...quantileColumns<DagLeagueRow>('ready_wait_p95', (r) => r.ready_wait_p95),
+  { name: 'open_findings', value: (r) => r.open_findings },
 ];
 
-/** One CSV cell: quoted when needed; text that a spreadsheet would run as a formula is defused. */
-function cell(v: string | number | boolean | null): string {
-  if (v === null) return '';
-  if (typeof v !== 'string') return String(v);
-  const text = /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
-  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
 /** The rows as RFC 4180 CSV (CRLF line ends), every field with its unit in the header. */
-export function leagueCsv(rows: readonly DagLeagueRow[]): string {
-  const header = CSV_COLUMNS.map(([name]) => name).join(',');
-  const lines = rows.map((r) => CSV_COLUMNS.map(([, get]) => cell(get(r))).join(','));
-  return [header, ...lines].join('\r\n') + '\r\n';
-}
+export const leagueCsv = (rows: readonly DagLeagueRow[]): string => toCsv(LEAGUE_CSV_COLUMNS, rows);

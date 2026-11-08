@@ -1,11 +1,11 @@
 /**
  * DAG league table (spec §12.4 S-11): every DAG ranked by its share of executor slot-seconds, with
  * concentration KPIs, filters, presets, a virtualised sortable table, a team → DAG treemap and CSV
- * export of the filtered rows. The range comes from the context bar; search, team, tag, preset and sort
+ * export of the filtered, sorted rows (FR-STORE-04). The range comes from the context bar; search, team, tag, preset and sort
  * are in the URL, so a shared link opens the same table.
  *
  * @implements FR-DAGX-01, FR-DAGX-02, FR-DAGX-03, FR-DAGX-04, FR-DAGX-07, FR-UI-01, FR-UI-02, FR-UI-05,
- *   FR-UI-07, FR-UI-08
+ *   FR-UI-07, FR-UI-08, FR-STORE-04
  */
 import { useDeferredValue, useMemo } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
@@ -20,6 +20,7 @@ import Typography from '@mui/material/Typography';
 import type { DagLeague, DagLeagueRow } from '@dcam/contracts';
 import { InfoPopover } from '@dcam/ui-kit';
 import { HistoryNote } from '../../components/backfill';
+import { ExportCsvButton, ExportScope } from '../../components/ExportCsv';
 import { CoverageNote, PageHeader } from '../../components/PageHeader';
 import { Kpi, KpiRow, Panel, ProvenanceFooter, QueryState } from '../../components/Panel';
 import { formatInt, formatSlotHours } from '../../components/format';
@@ -32,7 +33,7 @@ import {
   PRESETS,
   facetValues,
   filterRows,
-  leagueCsv,
+  LEAGUE_CSV_COLUMNS,
   parsePreset,
   parseSort,
   sortParam,
@@ -44,16 +45,6 @@ import { Treemap } from './Treemap';
 
 const NO_ROWS: readonly DagLeagueRow[] = [];
 const gini = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-/** Saves text as a file in the browser; nothing leaves the machine. */
-function download(text: string, fileName: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1_000);
-}
 
 function giniHint(g: number): string {
   if (g >= 0.7) return 'Highly concentrated: a few DAGs dominate';
@@ -142,25 +133,18 @@ export function DagsPage({ api, envId, linkTo }: PageProps) {
       {data && <CoverageNote coverage={data.coverage} range={range} />}
 
       {data && (
-        <>
+        <ExportScope envId={data.env_id} range={range} asOf={data.data_as_of} rangeEnd={data.range.to}>
           <Kpis data={data} />
 
           <Panel
             explanation={E['dagx-league']}
             actions={
-              <Button
-                size="small"
-                variant="outlined"
-                disabled={filtered.length === 0}
-                onClick={() =>
-                  download(
-                    leagueCsv(sorted),
-                    `dcam-dags-${data.env_id}-${range}-${(data.data_as_of ?? data.range.to).slice(0, 16).replace(/:/g, '')}.csv`,
-                  )
-                }
-              >
-                Export CSV
-              </Button>
+              <ExportCsvButton
+                view="dags"
+                what="DAG league table"
+                rows={sorted}
+                columns={LEAGUE_CSV_COLUMNS}
+              />
             }
           >
             {rows.length === 0 ? (
@@ -274,7 +258,7 @@ export function DagsPage({ api, envId, linkTo }: PageProps) {
             sources={data.sources}
             note={`Range ${time.dateTime(data.range.from)} to ${time.dateTime(data.range.to)}, compared with ${time.dateTime(data.previous_range.from)} to ${time.dateTime(data.previous_range.to)}`}
           />
-        </>
+        </ExportScope>
       )}
     </Stack>
   );

@@ -202,7 +202,7 @@ describe('S-11 DAG league table page', { timeout: UI_TIMEOUT_MS }, () => {
     renderPage(DagsPage, fakeApi(), { page: 'dags' });
     await screen.findByRole('table', { name: 'DAG league table' });
     await userEvent.click(screen.getByRole('button', { name: 'Flaky' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Export CSV' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Export CSV, DAG league table' }));
     expect(click).toHaveBeenCalled();
     const text = await created[0]?.text();
     expect(text?.split('\r\n').filter(Boolean)).toHaveLength(2);
