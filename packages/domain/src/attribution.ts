@@ -9,6 +9,7 @@
  * @implements FR-BOTL-01, HM-006, HM-011, HM-012, FR-STORE-07
  */
 import {
+  WAIT_REASONS,
   limitKnown,
   type EnvironmentConfig,
   type LiveSnapshot,
@@ -65,16 +66,43 @@ export interface Attribution {
 
 const add = <K>(m: Map<K, number>, k: K, d: number) => m.set(k, (m.get(k) ?? 0) + d);
 
+/** The ordinal of each reason: the sums per waiting task instance index arrays instead of hashing the reason. */
+const REASON_INDEX: ReadonlyMap<WaitReasonId, number> = new Map(WAIT_REASONS.map((r, i) => [r, i]));
+
+/**
+ * Sums per reason in an array, added in the same order as a `Map` would be, so each sum is the same number
+ * to the last bit. {@link toMap} keeps the order the reasons were first added in: some consumers iterate
+ * the result and sum it.
+ */
+class ReasonSums {
+  private readonly ms = new Float64Array(WAIT_REASONS.length);
+  private readonly seen = new Uint8Array(WAIT_REASONS.length);
+  readonly order: number[] = [];
+
+  add(reason: number, d: number): void {
+    if (this.seen[reason] === 0) {
+      this.seen[reason] = 1;
+      this.order.push(reason);
+    }
+    this.ms[reason] = (this.ms[reason] as number) + d;
+  }
+
+  toMap(): Map<WaitReasonId, number> {
+    return new Map(this.order.map((r) => [WAIT_REASONS[r] as WaitReasonId, this.ms[r] as number]));
+  }
+}
+
 export function attributeWaiting(
   snapshots: readonly LiveSnapshot[],
   ctx: ClassifierContext,
   opts: AttributionOptions,
 ): Attribution {
   const { config } = ctx;
-  const totals = new Map<WaitReasonId, number>();
-  const byReasonDag = new Map<WaitReasonId, Map<string, number>>();
-  const byReasonPool = new Map<WaitReasonId, Map<string, number>>();
-  const atMax = new Map<WaitReasonId, number>();
+  const totals = new ReasonSums();
+  // Per reason ordinal; a reason gets its maps when `totals` first adds it, so `totals.order` is their order.
+  const byReasonDag: Array<Map<string, number> | undefined> = [];
+  const byReasonPool: Array<Map<string, number> | undefined> = [];
+  const atMax = new ReasonSums();
   const pools = new Map<string, { waitingMs: number; starvedMs: number; utilisation: number[] }>(
     config.pools.map((p) => [p.name, { waitingMs: 0, starvedMs: 0, utilisation: [] }]),
   );
@@ -83,7 +111,7 @@ export function attributeWaiting(
   const bucketCount = Math.max(0, Math.ceil((opts.to - opts.from) / opts.bucketMs));
   const buckets = Array.from({ length: bucketCount }, (_, i) => ({
     start: opts.from + i * opts.bucketMs,
-    byReason: new Map<WaitReasonId, number>(),
+    byReason: new ReasonSums(),
     workers: 0,
     slotsUsed: 0,
     n: 0,
@@ -102,15 +130,16 @@ export function attributeWaiting(
     const bucket = buckets[Math.floor((s.at - opts.from) / opts.bucketMs)];
     const workersAtMax = s.workers.current >= config.maxWorkers;
     for (const c of classified) {
-      add(totals, c.reason, span);
-      if (bucket) add(bucket.byReason, c.reason, span);
-      let dags = byReasonDag.get(c.reason);
-      if (!dags) byReasonDag.set(c.reason, (dags = new Map<string, number>()));
+      const r = REASON_INDEX.get(c.reason) as number;
+      totals.add(r, span);
+      if (bucket) bucket.byReason.add(r, span);
+      let dags = byReasonDag[r];
+      if (!dags) byReasonDag[r] = dags = new Map<string, number>();
       add(dags, c.ti.dagId, span);
-      let byPool = byReasonPool.get(c.reason);
-      if (!byPool) byReasonPool.set(c.reason, (byPool = new Map<string, number>()));
+      let byPool = byReasonPool[r];
+      if (!byPool) byReasonPool[r] = byPool = new Map<string, number>();
       add(byPool, c.ti.pool, span);
-      if (workersAtMax) add(atMax, c.reason, span);
+      if (workersAtMax) atMax.add(r, span);
       if (c.reason === 'pool-exhausted') {
         const p = pools.get(c.ti.pool);
         if (p) p.waitingMs += span;
@@ -135,18 +164,25 @@ export function attributeWaiting(
 
   const sortDesc = (m: Map<string, number>) =>
     new Map([...m].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)));
+  const byReason = (maps: Array<Map<string, number> | undefined>) =>
+    new Map(
+      totals.order.map((r) => [
+        WAIT_REASONS[r] as WaitReasonId,
+        sortDesc(maps[r] ?? new Map<string, number>()),
+      ]),
+    );
   return {
-    totals,
+    totals: totals.toMap(),
     buckets: buckets.map((b) => ({
       start: b.start,
-      byReason: b.byReason,
+      byReason: b.byReason.toMap(),
       workers: b.n ? b.workers / b.n : null,
       slotsUsed: b.n && slotsKnown ? b.slotsUsed / b.n : null,
     })),
-    byReasonDag: new Map([...byReasonDag].map(([r, m]) => [r, sortDesc(m)])),
-    byReasonPool: new Map([...byReasonPool].map(([r, m]) => [r, sortDesc(m)])),
+    byReasonDag: byReason(byReasonDag),
+    byReasonPool: byReason(byReasonPool),
     pools,
-    atMaxWorkersMs: atMax,
+    atMaxWorkersMs: atMax.toMap(),
     latest,
     cadenceMs,
     coveredMs,
