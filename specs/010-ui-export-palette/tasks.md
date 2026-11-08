@@ -4,7 +4,7 @@ Test tasks come before the code they cover.
 
 ## CSV export (FR-STORE-04)
 
-- [ ] T-1000 Test + code: CSV writer (RFC 4180, units in headers, ISO 8601 UTC, formula defusing) and file name
+- [x] T-1000 Test + code: CSV writer (RFC 4180, units in headers, ISO 8601 UTC, formula defusing) and file name
 - [ ] T-1001 Test + code: shared export button and scope; the league exports its filtered, sorted rows
 - [ ] T-1002 Test + code: every other table view exports its rows; alert rules, alert history and DAG tasks
       equal the rendered rows
