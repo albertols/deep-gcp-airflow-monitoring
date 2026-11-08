@@ -1,6 +1,7 @@
 import type {
   DagMeta,
   EnvironmentConfig,
+  EnvironmentLoad,
   LiveSnapshot,
   PlatformHealth,
   TaskTry,
@@ -88,6 +89,21 @@ export interface TaskInstanceStore {
    * that offers it should offer {@link historyStart} too: one DAG's tries do not date the environment's history.
    */
   dagTaskTries?(envId: string, dagId: string, from: number, to: number): Promise<StoredTaskTry[]>;
+  /**
+   * HM-003 load of the whole environment (domain `environmentLoad`): executor slot-seconds per bucket of `bucketMs`
+   * on a grid aligned to multiples of `bucketMs` since the epoch (whole UTC hours for 1 h), from the bucket holding
+   * `from`, with tries clipped to `[from, min(to, now))` and running tries ending at `now`; and pool slot-seconds per
+   * pool. Optional: comparisons (FR-DAGD-08) need only these totals of each environment, and a store can sum them
+   * without returning every try; where it does not, callers read `taskTries` and compute the same. A store that
+   * offers it should offer {@link historyStart} too.
+   */
+  environmentLoad?(
+    envId: string,
+    from: number,
+    to: number,
+    now: number,
+    bucketMs: number,
+  ): Promise<EnvironmentLoad>;
   countTaskTries(envId: string): Promise<number>;
   /**
    * Where the environment's stored task history starts: its earliest try (start, else queued time), never

@@ -92,7 +92,7 @@ function windowsFor(now: number, range: Range): { current: SweepWindow; previous
  * The latest live snapshot while it can still tell whether a run has work waiting: within two observed
  * `af.live` cadences (10 s live, 30 s standard, 120 s eco by default); older means collection stopped.
  */
-function freshLatest(snapshots: readonly LiveSnapshot[], now: number): LiveSnapshot | null {
+export function freshLatest(snapshots: readonly LiveSnapshot[], now: number): LiveSnapshot | null {
   const latest = snapshots.at(-1);
   if (!latest) return null;
   const cadenceMs = observedCadenceMs(snapshots.slice(-RECENT_SNAPSHOT_COUNT)) ?? DEFAULT_SNAPSHOT_CADENCE_MS;
@@ -100,7 +100,7 @@ function freshLatest(snapshots: readonly LiveSnapshot[], now: number): LiveSnaps
 }
 
 /** Runs with task instances still waiting in the latest live snapshot. */
-function waitingIn(snapshot: LiveSnapshot | null): (dagId: string, runId: string) => boolean {
+export function waitingIn(snapshot: LiveSnapshot | null): (dagId: string, runId: string) => boolean {
   const keys = new Set(
     [...(snapshot?.scheduled ?? []), ...(snapshot?.queued ?? [])].map((ti) => runKey(ti.dagId, ti.runId)),
   );
