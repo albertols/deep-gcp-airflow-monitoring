@@ -18,7 +18,7 @@ Test tasks come before the code they cover.
 
 ## UI
 
-- [ ] T-1104 Test + code: `OpenInMenu`: anchors in a new tab, keyboard, disabled items with their reason, demo
+- [x] T-1104 Test + code: `OpenInMenu`: anchors in a new tab, keyboard, disabled items with their reason, demo
       note, (i) entry (FR-UI-04, FR-UI-05)
 - [ ] T-1105 Test + code: menus on the overview, DAG detail (header and task rows) and bottlenecks pages
       (FR-UI-04)

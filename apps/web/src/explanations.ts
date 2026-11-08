@@ -65,6 +65,35 @@ export const EXPLANATIONS = {
     sources: ['SRC-AF-API'],
     docs: [POOLS_DOC],
   },
+  'open-in': {
+    id: 'open-in',
+    title: 'Open in',
+    summary:
+      'Opens the same environment, DAG, run or task in the Google Cloud console or the Airflow UI, in a new tab, for the range on this page.',
+    howToRead:
+      'Logs Explorer opens with the range in its query. The Airflow grid shows the runs up to the end of the range, or the selected run. The Composer environments page and Metrics Explorer take no range in a link, so set the range the item names there.',
+    sources: ['SRC-COMPOSER'],
+    caveats: [
+      'DCAM never requests these addresses: your browser opens them, signed in with your own account and permissions.',
+      'The Cloud console and the Airflow UI show times in their own time zone setting.',
+      'Task worker logs are filtered by DAG and by when the task ran: Composer documents no task label, so other tasks of the DAG that ran then show too.',
+      'The Airflow UI address comes from the Composer API (airflowUri) after the first collection cycle, or from baseUrl for a self-managed Airflow.',
+    ],
+    docs: [
+      {
+        title: 'Cloud Logging: build queries in Logs Explorer',
+        url: 'https://docs.cloud.google.com/logging/docs/view/building-queries',
+      },
+      {
+        title: 'Managed Airflow: Composer API environments (airflowUri)',
+        url: 'https://docs.cloud.google.com/composer/docs/reference/rest/v1/projects.locations.environments',
+      },
+      {
+        title: 'Airflow documentation: UI overview',
+        url: 'https://airflow.apache.org/docs/apache-airflow/2.11.1/ui.html',
+      },
+    ],
+  },
 } as const satisfies Record<string, Explanation>;
 
 export type ExplanationId = keyof typeof EXPLANATIONS;
