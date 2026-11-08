@@ -271,7 +271,11 @@ export const FORECAST_EXPLANATIONS = {
 
 export type CapacityExplanationId = keyof typeof CAPACITY_EXPLANATIONS;
 export type ForecastExplanationId = keyof typeof FORECAST_EXPLANATIONS;
-/** Every panel and KPI of the capacity and load-by-DAG tabs. */
-export const CAPACITY_PANELS = Object.keys(CAPACITY_EXPLANATIONS) as CapacityExplanationId[];
+/** Every panel and KPI of the load-by-DAG tab. */
+export const DAG_LOAD_PANELS: readonly CapacityExplanationId[] = ['cap-dag-load'];
+/** Every panel and KPI of the capacity tab. */
+export const CAPACITY_TAB_PANELS = (Object.keys(CAPACITY_EXPLANATIONS) as CapacityExplanationId[]).filter(
+  (id) => !DAG_LOAD_PANELS.includes(id),
+);
 /** Every panel and KPI of the forecast tab. */
 export const FORECAST_PANELS = Object.keys(FORECAST_EXPLANATIONS) as ForecastExplanationId[];

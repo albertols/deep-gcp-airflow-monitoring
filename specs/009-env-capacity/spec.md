@@ -3,9 +3,9 @@
 - **Epic / milestone:** ENV, DAGX, BOTL · M3 "Capacity and pools" (spec §22.6 L4745)
 - **Requirements:** FR-ENV-02, FR-DAGX-06, FR-BOTL-05, HM-010, HM-011, HM-012, HM-032 (reuse), NFR-OBS-06,
   NFR-DATA-03, NFR-PERF
-- **Scope:** backend only (domain, application, contract, server). The S-04 panels and the forecast panel are a
-  later web task.
-- **Status:** implemented; web panels pending
+- **Scope:** backend (domain, application, contract, server) and the web panels: S-04 with its capacity, load by
+  DAG and forecast tabs (T-990a–g, "Web panels" below).
+- **Status:** implemented, backend and web
 
 ## Requirements extracted from docs/spec/dcam-spec.md
 
@@ -125,5 +125,6 @@ Three tabs in the URL (`tab`): capacity (FR-ENV-02), load by DAG (FR-DAGX-06) an
 
 ## Out of scope
 
-Web panels (later task); FR-BOTL-09 failure correlation after scale-down (HM-018); HM-027 packing quadrants;
-HM-032 inference of `parallelism` from executor metrics (not collected); DAG time zones.
+FR-BOTL-09 failure correlation after scale-down (HM-018); HM-027 packing quadrants; HM-032 inference of
+`parallelism` from executor metrics (not collected); DAG time zones; the forecast on S-17 (it is a tab of S-04);
+a colour-blind palette setting (the capacity charts use Okabe–Ito and viridis in every theme).

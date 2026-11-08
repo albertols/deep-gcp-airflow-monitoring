@@ -33,10 +33,10 @@ Test tasks come before the code they cover.
       saturation heatmap with the selected cell in the URL and a table view (FR-ENV-02, FR-UI-06)
 - [x] T-990e Test + code: DAG × hour-of-day load heatmap of the top DAGs, the selected cell in the URL and a
       table view (FR-DAGX-06)
-- [ ] T-990f Test + code: forecast tab: the next 24 hours from now, the confidence statement (low confidence
+- [x] T-990f Test + code: forecast tab: the next 24 hours from now, the confidence statement (low confidence
       prominent), the history used, the demand band against capacity with saturation and risk windows, DAGs and
       pools (HM-010, FR-BOTL-05)
-- [ ] T-990g Test: loading, empty, partial, stale and error states, an (i) explanation for every panel and the
+- [x] T-990g Test: loading, empty, partial, stale and error states, an (i) explanation for every panel and the
       provenance footers (FR-UI-05, FR-UI-07, FR-UI-08)
 
 ## Not in this feature
