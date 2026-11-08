@@ -56,6 +56,8 @@ const api = (c: Collection): DcamApi => ({
   getSchedule: reject,
   getDagComparison: reject,
   getRunComparison: reject,
+  getCapacity: reject,
+  getForecast: reject,
   getFindings: reject,
   getAlerts: reject,
   getFleet: reject,

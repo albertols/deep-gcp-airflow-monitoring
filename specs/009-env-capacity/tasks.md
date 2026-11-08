@@ -21,7 +21,7 @@ Test tasks come before the code they cover.
 
 ## Web (T-990, split; spec.md "Web panels")
 
-- [ ] T-990a Test + code: `/capacity` route and "Capacity" navigation entry, the tab in the URL, the API client
+- [x] T-990a Test + code: `/capacity` route and "Capacity" navigation entry, the tab in the URL, the API client
       for both endpoints, the global range mapped to 1h, 6h, 24h or 7d with a plain note for 15m, 30d and 90d
       (FR-ENV-02, FR-UI-01, FR-UI-02)
 - [ ] T-990b Test + code: capacity tab: the answer, KPIs, worker slots against running and queued task

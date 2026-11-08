@@ -49,6 +49,8 @@ const api: DcamApi = {
   getDagLeague: notYet,
   getDagDetail: notYet,
   getDagComparison: notYet,
+  getCapacity: notYet,
+  getForecast: notYet,
   getRunComparison: notYet,
   getDagIndex: vi.fn(async () => dagIndex),
   getBottlenecks: notYet,

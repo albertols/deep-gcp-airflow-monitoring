@@ -21,6 +21,8 @@ function fakeApi(overrides: Partial<DcamApi> = {}): DcamApi {
     getDagLeague: async () => LEAGUE,
     getDagDetail: async () => WITH_008,
     getDagComparison: notYet,
+    getCapacity: notYet,
+    getForecast: notYet,
     getRunComparison: async () => RUN_COMPARISON,
     getBottlenecks: notYet,
     getFindings: notYet,

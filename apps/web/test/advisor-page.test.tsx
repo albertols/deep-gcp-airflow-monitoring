@@ -106,6 +106,8 @@ const apiWith = (findings: Finding[], over: Partial<Findings> = {}): DcamApi => 
   getSchedule: reject,
   getDagComparison: reject,
   getRunComparison: reject,
+  getCapacity: reject,
+  getForecast: reject,
   getFindings: async () => fixture(findings, over),
   getAlerts: reject,
   getFleet: reject,

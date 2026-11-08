@@ -83,6 +83,8 @@ function fakeApi() {
     getSchedule: vi.fn(reject),
     getDagComparison: vi.fn(reject),
     getRunComparison: vi.fn(reject),
+    getCapacity: vi.fn(reject),
+    getForecast: vi.fn(reject),
   } satisfies DcamApi;
   return api;
 }

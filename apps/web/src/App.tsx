@@ -67,6 +67,7 @@ const PAGES: Record<Exclude<Page, 'overview'>, ComponentType<PageProps>> = {
   dags: named(() => import('./pages/dags/DagsPage'), 'DagsPage'),
   dag: named(() => import('./pages/dags/DagDetailPage'), 'DagDetailPage'),
   bottlenecks: named(() => import('./pages/bottlenecks/BottlenecksPage'), 'BottlenecksPage'),
+  capacity: named(() => import('./pages/capacity/CapacityPage'), 'CapacityPage'),
   schedule: named(() => import('./pages/schedule/SchedulePage'), 'SchedulePage'),
   fleet: named(() => import('./pages/fleet/FleetPage'), 'FleetPage'),
   advisor: named(() => import('./pages/advisor/AdvisorPage'), 'AdvisorPage'),
@@ -94,6 +95,8 @@ const RANGE_SCOPE: Readonly<Record<Page, RangeScope>> = {
   dags: 'range',
   dag: 'range',
   bottlenecks: 'range',
+  // The capacity page maps the range to the nearest one it analyses (1 h to 7 d) and says so.
+  capacity: 'range',
   schedule: 'range',
   fleet: 'fixed-24h',
   advisor: 'fixed-24h',

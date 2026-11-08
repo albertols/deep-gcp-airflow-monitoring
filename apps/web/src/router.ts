@@ -18,6 +18,7 @@ export type Route =
   | { readonly page: 'dags' }
   | { readonly page: 'dag'; readonly dagId: string }
   | { readonly page: 'bottlenecks' }
+  | { readonly page: 'capacity' }
   | { readonly page: 'schedule' }
   | { readonly page: 'fleet' }
   | { readonly page: 'advisor' }
@@ -52,10 +53,12 @@ export interface Location {
 /** Query keys of the context bar; pages cannot use them for their own state. */
 const GLOBAL_KEYS: ReadonlySet<string> = new Set(['env', 'range', 'tz', 'paused']);
 
-type SimplePage = 'dags' | 'bottlenecks' | 'schedule' | 'fleet' | 'advisor' | 'wiki' | 'alerts' | 'health';
+type SimplePage =
+  'dags' | 'bottlenecks' | 'capacity' | 'schedule' | 'fleet' | 'advisor' | 'wiki' | 'alerts' | 'health';
 const SIMPLE: ReadonlySet<string> = new Set<SimplePage>([
   'dags',
   'bottlenecks',
+  'capacity',
   'schedule',
   'fleet',
   'advisor',

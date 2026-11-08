@@ -18,6 +18,12 @@ export const NAV: readonly NavItem[] = [
   { label: 'Fleet', route: { page: 'fleet' }, hint: 'Every environment', matches: ['fleet'] },
   { label: 'Capacity overview', route: { page: 'overview' }, hint: 'One environment', matches: ['overview'] },
   {
+    label: 'Capacity',
+    route: { page: 'capacity' },
+    hint: 'Worker slots and the forecast',
+    matches: ['capacity'],
+  },
+  {
     label: 'DAG league table',
     route: { page: 'dags' },
     hint: 'Who uses capacity',

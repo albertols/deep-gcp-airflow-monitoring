@@ -9,6 +9,8 @@ import {
   createApiClient,
   type Alerts,
   type Bottlenecks,
+  type Capacity,
+  type CapacityRange,
   type Collection,
   type DagComparison,
   type DagDetail,
@@ -17,6 +19,7 @@ import {
   type EnvironmentOverview,
   type Findings,
   type Fleet,
+  type Forecast,
   type Meta,
   type Range,
   type RunComparison,
@@ -43,6 +46,10 @@ export interface DcamApi {
   getBottlenecks(envId: string, range: Range): Promise<Bottlenecks>;
   /** Schedule intelligence (S-17, FR-BOTL-03). */
   getSchedule(envId: string, range: Range): Promise<Schedule>;
+  /** Capacity against use (S-04, FR-ENV-02, FR-DAGX-06); its range is 1 hour to 7 days. */
+  getCapacity(envId: string, range: CapacityRange): Promise<Capacity>;
+  /** The next 24 hours of slot demand from history (HM-010, FR-BOTL-05); it has no range. */
+  getForecast(envId: string): Promise<Forecast>;
   getFindings(envId: string): Promise<Findings>;
   getAlerts(envId?: string): Promise<Alerts>;
   getFleet(): Promise<Fleet>;
@@ -155,6 +162,20 @@ export function createDcamApi(baseUrl = ''): DcamApi {
           params: { path: env(envId), query: { range } },
         }),
         'schedule intelligence',
+      );
+    },
+    async getCapacity(envId, range) {
+      return unwrap(
+        await client.GET('/api/v1/environments/{env_id}/capacity', {
+          params: { path: env(envId), query: { range } },
+        }),
+        'the capacity analysis',
+      );
+    },
+    async getForecast(envId) {
+      return unwrap(
+        await client.GET('/api/v1/environments/{env_id}/forecast', { params: { path: env(envId) } }),
+        'the forecast',
       );
     },
     async getFindings(envId) {
