@@ -40,7 +40,7 @@ Test tasks come before the code they cover.
 - [x] T-835 Test + code: compare DAGs page: 2 to 4 DAGs from any environment, aligned KPIs, overlaid duration
       distributions on shared bins, hourly profile in UTC, resource shares, capacity context (FR-DAGD-08)
 - [x] T-836 Test + code: reach it from the league (select rows, then "Compare") and from DAG detail ("Compare with")
-- [ ] T-837 Test + code: series palette for both themes (contrast ≥ 3:1, distinct under colour-vision deficiencies);
+- [x] T-837 Test + code: series palette for both themes (contrast ≥ 3:1, distinct under colour-vision deficiencies);
       every new panel, KPI and column has an explanation; provenance on every panel (FR-UI-05, FR-UI-08, NFR-A11Y-01)
 
 ## Done
