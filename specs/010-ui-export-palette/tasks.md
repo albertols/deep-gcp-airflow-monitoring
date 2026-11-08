@@ -13,7 +13,7 @@ Test tasks come before the code they cover.
 
 - [x] T-1010 Test + code: `GET …/dag-index` contract, use case and route (FR-UI-03, NFR-PERF)
 - [x] T-1011 Test + code: ranked search over the targets; 5,000 DAGs under 100 ms (FR-UI-03, NFR-PERF)
-- [ ] T-1012 Test + code: the palette dialog, Ctrl/Cmd+K, keyboard and navigation (FR-UI-03, NFR-A11Y-01)
+- [x] T-1012 Test + code: the palette dialog, Ctrl/Cmd+K, keyboard and navigation (FR-UI-03, NFR-A11Y-01)
 
 ## Not in this feature
 

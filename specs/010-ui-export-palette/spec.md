@@ -60,6 +60,9 @@
   health page names no range.
 - **Rows equal the view.** Each button exports the array the table renders (after filters, sort and limits
   such as the 50 busiest cells or the first 8 sensors), never the raw response.
+- **Charts and list cells.** A chart's button sits beside its table toggle and exports the rows of its table
+  view in either view. A cell that lists items (top DAGs, schedules, overlap windows) holds the items the cell
+  shows, `; `-separated.
 - **Palette chunk.** The palette and its registries (the wiki content) load on first open, so the main chunk
   does not grow (NFR-PERF-05).
 

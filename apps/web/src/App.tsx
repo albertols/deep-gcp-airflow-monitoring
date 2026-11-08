@@ -3,16 +3,27 @@
  * paused, freshness), the live or demo indicator and the selected environment's collection badges, left
  * navigation, demo banner, routed content. The URL holds the bar's state and each page's own state
  * (FR-UI-02). Pages are separate chunks loaded on first visit (NFR-PERF-05). Pages learn where the selected
- * environment lives for their "Open in" menus from the shell (FR-UI-04).
+ * environment lives for their "Open in" menus from the shell (FR-UI-04). The command palette opens with
+ * Ctrl/Cmd+K or the "Jump to" button and navigates with the bar's state kept (FR-UI-03); it is a chunk of
+ * its own too, loaded on first open.
  *
- * @implements FR-UI-01, FR-UI-02, FR-UI-04, FR-UI-06, FR-EMU-01, FR-SELF-01, FR-SETUP-02, FR-COLL-11,
+ * @implements FR-UI-01, FR-UI-02, FR-UI-03, FR-UI-04, FR-UI-06, FR-EMU-01, FR-SELF-01, FR-SETUP-02, FR-COLL-11,
  *   FR-COLL-06
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Suspense, lazy, useCallback, useMemo, useSyncExternalStore, type ComponentType } from 'react';
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ComponentType,
+} from 'react';
 import Alert from '@mui/material/Alert';
 import AppBar from '@mui/material/AppBar';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
@@ -20,11 +31,14 @@ import ListItemText from '@mui/material/ListItemText';
 import Skeleton from '@mui/material/Skeleton';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
+import SearchOutlined from '@mui/icons-material/SearchOutlined';
 import type { DcamApi } from './api';
 import { CollectionBadges, LiveChip, useCollection } from './components/collection';
 import { ContextBar, freshnessOf, type RangeScope } from './components/ContextBar';
 import { EnvironmentPlaceContext, type EnvironmentPlaceValue } from './components/OpenInMenu';
 import { PageErrorBoundary } from './components/PageErrorBoundary';
+import type { PaletteAction } from './components/palette/search';
+import { isMacPlatform, shortcutLabel, usePaletteShortcut } from './components/palette/shortcut';
 import { localTimeZone as browserTimeZone, timeFormat } from './components/time';
 import {
   PageParamsContext,
@@ -60,6 +74,11 @@ const PAGES: Record<Exclude<Page, 'overview'>, ComponentType<PageProps>> = {
   alerts: named(() => import('./pages/alerts/AlertsPage'), 'AlertsPage'),
   health: named(() => import('./pages/health/HealthPage'), 'HealthPage'),
 };
+
+/** Loaded on first open (FR-UI-03), with the wiki and rule registries it searches. */
+const CommandPalette = lazy(async () => ({
+  default: (await import('./components/palette/CommandPalette')).CommandPalette,
+}));
 
 /** Shown only in setup mode (FR-SETUP-02), so it stays out of the main chunk. */
 const SetupPage = lazy(async () => ({ default: (await import('./pages/setup/SetupPage')).SetupPage }));
@@ -161,6 +180,20 @@ export function App({ api, localTimeZone }: { api: DcamApi; localTimeZone?: stri
   const dataAsOf = usePageDataAsOf();
   const PageComponent = route.page === 'overview' ? null : PAGES[route.page];
 
+  // The command palette (FR-UI-03): mounted from its first open on, so closing restores focus.
+  const [palette, setPalette] = useState({ open: false, used: false });
+  const setPaletteOpen = useCallback(
+    (open: boolean) => setPalette((p) => ({ open, used: p.used || open })),
+    [],
+  );
+  usePaletteShortcut(palette.open, setPaletteOpen, !setup);
+  const keys = useMemo(() => shortcutLabel(isMacPlatform()), []);
+  const choose = (action: PaletteAction) => {
+    setPaletteOpen(false);
+    if (action.kind === 'environment') go(linkTo(route, action.envId, view, withoutSelection(params)));
+    else navigate(action.route);
+  };
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: 'background.default' }}>
       <AppBar position="static" elevation={0}>
@@ -190,6 +223,32 @@ export function App({ api, localTimeZone }: { api: DcamApi; localTimeZone?: stri
               freshness={live ? freshnessOf(envCollection) : null}
               badges={<CollectionBadges env={envCollection} href={link({ page: 'health' })} />}
             />
+          )}
+          {!setup && (
+            <Button
+              size="small"
+              variant="outlined"
+              color="inherit"
+              startIcon={<SearchOutlined aria-hidden />}
+              onClick={() => setPaletteOpen(true)}
+              aria-keyshortcuts={keys.aria}
+              sx={{ textTransform: 'none' }}
+            >
+              Jump to
+              <Box
+                component="kbd"
+                sx={{
+                  ml: 2,
+                  px: 1,
+                  borderRadius: 0.5,
+                  border: 1,
+                  borderColor: 'divider',
+                  fontSize: '0.75rem',
+                }}
+              >
+                {keys.text}
+              </Box>
+            </Button>
           )}
           <Box sx={{ flex: 1 }} />
           {meta.data?.mode === 'demo' && (
@@ -282,6 +341,19 @@ export function App({ api, localTimeZone }: { api: DcamApi; localTimeZone?: stri
             </ViewContext.Provider>
           </Box>
         </Box>
+      )}
+
+      {palette.used && (
+        <Suspense fallback={null}>
+          <CommandPalette
+            open={palette.open}
+            onClose={() => setPaletteOpen(false)}
+            api={api}
+            envId={envId}
+            environments={environments}
+            onChoose={choose}
+          />
+        </Suspense>
       )}
     </Box>
   );
