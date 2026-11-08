@@ -26,7 +26,9 @@
  *
  * Pure: no clock, no I/O; the PRNG is seeded from the DAG ID, so results are reproducible.
  *
- * @implements HM-017, FR-BOTL-06
+ * One DAG's score (`noisyNeighbourOf`, FR-DAGD-06) runs the same steps for that DAG only.
+ *
+ * @implements HM-017, FR-BOTL-06, FR-DAGD-06
  */
 import {
   limitKnown,
@@ -475,170 +477,215 @@ function indexWaits(input: NoisyNeighbourInput, minutes: number): WaitIndex {
 
 const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
 
-export function noisyNeighbours(
-  input: NoisyNeighbourInput,
-  options: NoisyNeighbourOptions = {},
-): NoisyNeighbours {
+/** What the sweep shares across candidate DAGs: the window in minutes, its slots and strata, and the waits. */
+interface Sweep {
+  readonly input: NoisyNeighbourInput;
+  readonly opts: Required<NoisyNeighbourOptions>;
+  readonly from: number;
+  /** End of the observed window (`min(to, now)`). */
+  readonly end: number;
+  readonly minutes: number;
+  readonly slots: readonly (number | null)[];
+  readonly minutesWithSlots: number;
+  /** Least running tries that can reach the active share of the fewest slots. */
+  readonly needed: number;
+  readonly stratum: Int32Array;
+  /** Other DAGs' waits, indexed once on first use. */
+  waits(): WaitIndex;
+}
+
+function sweepOf(input: NoisyNeighbourInput, options: NoisyNeighbourOptions): Sweep {
   const opts: Required<NoisyNeighbourOptions> = { ...HM017_DEFAULTS, ...options };
   const { from } = input;
-  const end = Math.min(input.to, Math.max(from, input.now));
   const minutes = Math.max(0, Math.ceil((input.to - from) / MIN));
   const slots = Array.from({ length: minutes }, (_, k) => input.slots[k] ?? null);
-  const minutesWithSlots = slots.filter((s) => s !== null).length;
-  const empty = (evaluated: boolean): NoisyNeighbours => ({
-    evaluated,
+  let fewestSlots = Infinity;
+  let minutesWithSlots = 0;
+  for (const x of slots)
+    if (x !== null) {
+      minutesWithSlots++;
+      if (x < fewestSlots) fewestSlots = x;
+    }
+  let waits: WaitIndex | null = null;
+  return {
+    input,
+    opts,
+    from,
+    end: Math.min(input.to, Math.max(from, input.now)),
+    minutes,
+    slots,
     minutesWithSlots,
-    candidates: 0,
-    qualified: 0,
-    resamples: opts.resamples,
-    items: [],
-  });
-  if (minutesWithSlots === 0) return empty(false);
+    needed: opts.activeShare * fewestSlots * (1 - 1e-9),
+    stratum: Int32Array.from(
+      { length: minutes },
+      (_, k) => (Math.floor((from + k * MIN) / HOUR) + EPOCH_HOUR_OF_WEEK) % 168,
+    ),
+    waits: () => (waits ??= indexWaits(input, minutes)),
+  };
+}
 
-  // 1. Running intervals per DAG, clipped to the observed window.
+/** 1. Running intervals per DAG (only `dagId`'s when given), clipped to the observed window. */
+function runningIntervals(sw: Sweep, dagId?: string): Map<string, number[]> {
   const intervals = new Map<string, number[]>();
-  for (const t of input.tries) {
-    if (t.startAt === null) continue;
-    const stop = Math.min(t.endAt ?? input.now, end);
-    const start = Math.max(t.startAt, from);
+  for (const t of sw.input.tries) {
+    if (t.startAt === null || (dagId !== undefined && t.dagId !== dagId)) continue;
+    const stop = Math.min(t.endAt ?? sw.input.now, sw.end);
+    const start = Math.max(t.startAt, sw.from);
     if (!(stop > start)) continue;
     const list = intervals.get(t.dagId);
     if (list) list.push(start, stop);
     else intervals.set(t.dagId, [start, stop]);
   }
+  return intervals;
+}
 
-  // 2. A DAG whose peak concurrency stays below the active share of the fewest slots can never be active,
-  //    so its minutes are never swept: at thousands of DAGs, almost all of them.
-  let fewestSlots = Infinity;
-  for (const x of slots) if (x !== null && x < fewestSlots) fewestSlots = x;
-  const needed = opts.activeShare * fewestSlots * (1 - 1e-9);
-  const occupancy = new Map<string, Map<number, number>>();
-  for (const [dagId, iv] of intervals) {
-    if (iv.length / 2 < needed || peakConcurrency(iv) < needed) continue;
-    const occ = new Map<number, number>();
-    for (let j = 0; j < iv.length; j += 2) {
-      const start = iv[j] as number;
-      const stop = iv[j + 1] as number;
-      for (let k = Math.floor((start - from) / MIN); k < minutes; k++) {
-        const kFrom = from + k * MIN;
-        if (kFrom >= stop) break;
-        const overlap = Math.min(stop, kFrom + MIN) - Math.max(start, kFrom);
-        if (overlap > 0) occ.set(k, (occ.get(k) ?? 0) + overlap);
-      }
+/**
+ * 2. Running ms per minute, or `null` when the DAG's peak concurrency stays below the active share of the fewest
+ *    slots: it can never be active, so its minutes are never swept (at thousands of DAGs, almost all of them).
+ */
+function minuteOccupancy(sw: Sweep, iv: readonly number[]): Map<number, number> | null {
+  if (iv.length / 2 < sw.needed || peakConcurrency(iv) < sw.needed) return null;
+  const occ = new Map<number, number>();
+  for (let j = 0; j < iv.length; j += 2) {
+    const start = iv[j] as number;
+    const stop = iv[j + 1] as number;
+    for (let k = Math.floor((start - sw.from) / MIN); k < sw.minutes; k++) {
+      const kFrom = sw.from + k * MIN;
+      if (kFrom >= stop) break;
+      const overlap = Math.min(stop, kFrom + MIN) - Math.max(start, kFrom);
+      if (overlap > 0) occ.set(k, (occ.get(k) ?? 0) + overlap);
     }
-    occupancy.set(dagId, occ);
   }
+  return occ;
+}
 
-  const stratum = Int32Array.from(
-    { length: minutes },
-    (_, k) => (Math.floor((from + k * MIN) / HOUR) + EPOCH_HOUR_OF_WEEK) % 168,
-  );
-  let waits: WaitIndex | null = null;
-  let wActive = new Float64Array(0);
-  let wInactive = new Float64Array(0);
-  let candidates = 0;
-  const qualified: Array<Omit<NoisyNeighbour, 'ci' | 'confidence'> & { groups: [Group, Group] }> = [];
+type Qualified = Omit<NoisyNeighbour, 'ci' | 'confidence'> & { readonly groups: [Group, Group] };
 
-  for (const [dagId, occ] of occupancy) {
-    let active = 0;
-    for (const [k, held] of occ) {
-      const x = slots[k];
-      if (x !== null && x !== undefined && held >= opts.activeShare * x * MIN * (1 - 1e-9)) active++;
-    }
-    if (active === 0) continue;
-    candidates++;
-    if (active < opts.minActiveMinutes) continue;
+/** How far one candidate got: its samples, and its measurement once it meets every minimum. */
+interface Measurement {
+  readonly activeMinutes: number;
+  readonly affectedTries: number;
+  readonly affectedMinutes: number;
+  readonly controlTries: number;
+  readonly qualified: Qualified | null;
+}
 
-    // 3. Minute states (1 active, 2 inactive, 0 neither) and, once, the index of other DAGs' waits.
-    const state = new Int8Array(minutes);
-    for (let k = 0; k < minutes; k++) if (slots[k] !== null) state[k] = 2;
-    for (const [k, held] of occ) {
-      const x = slots[k];
-      if (x === null || x === undefined) continue;
-      state[k] = held >= opts.activeShare * x * MIN * (1 - 1e-9) ? 1 : 0;
-    }
-    if (!waits) {
-      waits = indexWaits(input, minutes);
-      wActive = new Float64Array(waits.n);
-      wInactive = new Float64Array(waits.n);
-    }
-    const { offsets, waitDag, rank, sortedWaits, n } = waits;
-    const d = waits.dagIndex.get(dagId) ?? -1;
+/**
+ * 3–5. One candidate DAG: active minutes, matched other DAGs' waits, medians and effect. The sweep stops at the
+ * first minimum it misses; `exhaustive` counts every sample anyway (one DAG's score says how far it got).
+ */
+function measure(
+  sw: Sweep,
+  dagId: string,
+  occ: ReadonlyMap<number, number>,
+  exhaustive: boolean,
+): Measurement {
+  const { opts, slots, minutes, stratum, from } = sw;
+  const isActive = (held: number, x: number) => held >= opts.activeShare * x * MIN * (1 - 1e-9);
+  let active = 0;
+  for (const [k, held] of occ) {
+    const x = slots[k];
+    if (x !== null && x !== undefined && isActive(held, x)) active++;
+  }
+  const none = { affectedTries: 0, affectedMinutes: 0, controlTries: 0, qualified: null };
+  if (active === 0 || (active < opts.minActiveMinutes && !exhaustive))
+    return { activeMinutes: active, ...none };
 
-    const countA = new Float64Array(168);
-    const countI = new Float64Array(168);
-    let allActive = 0;
-    for (let k = 0; k < minutes; k++) {
-      if (state[k] === 0) continue;
-      for (let i = offsets[k] as number; i < (offsets[k + 1] as number); i++) {
-        if (waitDag[i] === d) continue;
-        const h = stratum[k] as number;
-        if (state[k] === 1) {
-          countA[h] = (countA[h] as number) + 1;
-          allActive++;
-        } else countI[h] = (countI[h] as number) + 1;
-      }
-    }
-    let affected = 0;
-    let control = 0;
-    for (let h = 0; h < 168; h++)
-      if ((countA[h] as number) > 0 && (countI[h] as number) > 0) {
-        affected += countA[h] as number;
-        control += countI[h] as number;
-      }
-    if (affected < opts.minAffectedTries || control < opts.minControlTries) continue;
+  // Minute states (1 active, 2 inactive, 0 neither).
+  const state = new Int8Array(minutes);
+  for (let k = 0; k < minutes; k++) if (slots[k] !== null) state[k] = 2;
+  for (const [k, held] of occ) {
+    const x = slots[k];
+    if (x === null || x === undefined) continue;
+    state[k] = isActive(held, x) ? 1 : 0;
+  }
+  const waits = sw.waits();
+  const { offsets, waitDag, rank, sortedWaits, n } = waits;
+  const d = waits.dagIndex.get(dagId) ?? -1;
 
-    wActive.fill(0);
-    wInactive.fill(0);
-    const groupA: Group = { ranks: [], minutes: [] };
-    const groupI: Group = { ranks: [], minutes: [] };
-    let affectedMinutes = 0;
-    for (let k = 0; k < minutes; k++) {
-      if (state[k] === 0) continue;
+  const countA = new Float64Array(168);
+  const countI = new Float64Array(168);
+  let allActive = 0;
+  for (let k = 0; k < minutes; k++) {
+    if (state[k] === 0) continue;
+    for (let i = offsets[k] as number; i < (offsets[k + 1] as number); i++) {
+      if (waitDag[i] === d) continue;
       const h = stratum[k] as number;
-      const a = countA[h] as number;
-      const c = countI[h] as number;
-      if (a === 0 || c === 0) continue;
-      const before = groupA.ranks.length;
-      for (let i = offsets[k] as number; i < (offsets[k + 1] as number); i++) {
-        if (waitDag[i] === d) continue;
-        const r = rank[i] as number;
-        if (state[k] === 1) {
-          wActive[r] = (wActive[r] as number) + 1;
-          groupA.ranks.push(r);
-          groupA.minutes.push(k);
-        } else {
-          wInactive[r] = (wInactive[r] as number) + a / c;
-          groupI.ranks.push(r);
-          groupI.minutes.push(k);
-        }
+      if (state[k] === 1) {
+        countA[h] = (countA[h] as number) + 1;
+        allActive++;
+      } else countI[h] = (countI[h] as number) + 1;
+    }
+  }
+  let affected = 0;
+  let control = 0;
+  for (let h = 0; h < 168; h++)
+    if ((countA[h] as number) > 0 && (countI[h] as number) > 0) {
+      affected += countA[h] as number;
+      control += countI[h] as number;
+    }
+  const enoughTries = affected >= opts.minAffectedTries && control >= opts.minControlTries;
+  if (!enoughTries && !exhaustive)
+    return { ...none, activeMinutes: active, affectedTries: affected, controlTries: control };
+
+  const wActive = new Float64Array(n);
+  const wInactive = new Float64Array(n);
+  const groupA: Group = { ranks: [], minutes: [] };
+  const groupI: Group = { ranks: [], minutes: [] };
+  let affectedMinutes = 0;
+  for (let k = 0; k < minutes; k++) {
+    if (state[k] === 0) continue;
+    const h = stratum[k] as number;
+    const a = countA[h] as number;
+    const c = countI[h] as number;
+    if (a === 0 || c === 0) continue;
+    const before = groupA.ranks.length;
+    for (let i = offsets[k] as number; i < (offsets[k + 1] as number); i++) {
+      if (waitDag[i] === d) continue;
+      const r = rank[i] as number;
+      if (state[k] === 1) {
+        wActive[r] = (wActive[r] as number) + 1;
+        groupA.ranks.push(r);
+        groupA.minutes.push(k);
+      } else {
+        wInactive[r] = (wInactive[r] as number) + a / c;
+        groupI.ranks.push(r);
+        groupI.minutes.push(k);
       }
-      if (groupA.ranks.length > before) affectedMinutes++;
     }
-    if (affectedMinutes < opts.minAffectedMinutes) continue;
-    const medianActiveMs = weightedMedian(sortedWaits, wActive, n);
-    const medianInactiveMs = weightedMedian(sortedWaits, wInactive, n);
-    const effectMs = medianActiveMs - medianInactiveMs;
+    if (groupA.ranks.length > before) affectedMinutes++;
+  }
+  const counts = {
+    activeMinutes: active,
+    affectedTries: affected,
+    affectedMinutes,
+    controlTries: control,
+  };
+  const qualifies =
+    active >= opts.minActiveMinutes && enoughTries && affectedMinutes >= opts.minAffectedMinutes;
+  if (!qualifies) return { ...counts, qualified: null };
+  const medianActiveMs = weightedMedian(sortedWaits, wActive, n);
+  const medianInactiveMs = weightedMedian(sortedWaits, wInactive, n);
+  const effectMs = medianActiveMs - medianInactiveMs;
 
-    const windows: Array<{ from: number; to: number }> = [];
-    for (let k = 0; k < minutes; k++) {
-      if (state[k] !== 1) continue;
-      let j = k;
-      while (j + 1 < minutes && state[j + 1] === 1) j++;
-      windows.push({ from: from + k * MIN, to: from + (j + 1) * MIN });
-      k = j;
-    }
-    const overlapWindows = [...windows]
-      .sort((x, y) => y.to - y.from - (x.to - x.from) || x.from - y.from)
-      .slice(0, opts.maxOverlapWindows)
-      .sort((x, y) => x.from - y.from);
+  const windows: Array<{ from: number; to: number }> = [];
+  for (let k = 0; k < minutes; k++) {
+    if (state[k] !== 1) continue;
+    let j = k;
+    while (j + 1 < minutes && state[j + 1] === 1) j++;
+    windows.push({ from: from + k * MIN, to: from + (j + 1) * MIN });
+    k = j;
+  }
+  const overlapWindows = [...windows]
+    .sort((x, y) => y.to - y.from - (x.to - x.from) || x.from - y.from)
+    .slice(0, opts.maxOverlapWindows)
+    .sort((x, y) => x.from - y.from);
 
-    qualified.push({
+  return {
+    ...counts,
+    qualified: {
       dagId,
-      activeMinutes: active,
-      affectedTries: affected,
-      affectedMinutes,
-      controlTries: control,
+      ...counts,
       matchedShare: allActive > 0 ? affected / allActive : 0,
       medianActiveMs,
       medianInactiveMs,
@@ -646,33 +693,122 @@ export function noisyNeighbours(
       scoreTaskMs: effectMs * affected,
       overlapWindows,
       groups: [groupA, groupI],
-    });
+    },
+  };
+}
+
+/** The bootstrap interval and confidence of a qualified DAG; seeded from its DAG ID, so reproducible. */
+function withInterval(sw: Sweep, { groups, ...q }: Qualified): NoisyNeighbour {
+  const ci = bootstrap(
+    groups[0],
+    groups[1],
+    sw.waits().sortedWaits,
+    sw.stratum,
+    sw.opts,
+    seeded(seedOf(q.dagId)),
+  );
+  const confidence: NeighbourConfidence = ci.lowMs > 0 ? (q.matchedShare >= 0.8 ? 'high' : 'medium') : 'low';
+  return { ...q, ci, confidence };
+}
+
+export function noisyNeighbours(
+  input: NoisyNeighbourInput,
+  options: NoisyNeighbourOptions = {},
+): NoisyNeighbours {
+  const sw = sweepOf(input, options);
+  const { opts } = sw;
+  if (sw.minutesWithSlots === 0)
+    return {
+      evaluated: false,
+      minutesWithSlots: 0,
+      candidates: 0,
+      qualified: 0,
+      resamples: opts.resamples,
+      items: [],
+    };
+
+  let candidates = 0;
+  const qualified: Qualified[] = [];
+  for (const [dagId, iv] of runningIntervals(sw)) {
+    const occ = minuteOccupancy(sw, iv);
+    if (!occ) continue;
+    const m = measure(sw, dagId, occ, false);
+    if (m.activeMinutes === 0) continue;
+    candidates++;
+    if (m.qualified) qualified.push(m.qualified);
   }
 
   const items = qualified
     .filter((q) => q.effectMs > 0)
     .sort((x, y) => y.scoreTaskMs - x.scoreTaskMs || cmp(x.dagId, y.dagId))
     .slice(0, opts.limit)
-    .map(({ groups, ...q }): NoisyNeighbour => {
-      const ci = bootstrap(
-        groups[0],
-        groups[1],
-        (waits as WaitIndex).sortedWaits,
-        stratum,
-        opts,
-        seeded(seedOf(q.dagId)),
-      );
-      const confidence: NeighbourConfidence =
-        ci.lowMs > 0 ? (q.matchedShare >= 0.8 ? 'high' : 'medium') : 'low';
-      return { ...q, ci, confidence };
-    });
+    .map((q) => withInterval(sw, q));
 
   return {
     evaluated: true,
-    minutesWithSlots,
+    minutesWithSlots: sw.minutesWithSlots,
     candidates,
     qualified: qualified.length,
     resamples: opts.resamples,
     items,
+  };
+}
+
+/**
+ * Why a DAG has, or has no, noisy-neighbour score (FR-DAGD-06):
+ * - `not-evaluated`: no minute with known executor slots (HM-032, or no worker counts);
+ * - `inactive`: the DAG never held the active share of the slots;
+ * - `below-minimum`: it did, but missed a minimum (active minutes, affected or control tries, affected minutes);
+ * - `not-associated`: it qualified, and other DAGs did not wait longer while it was active (effect ≤ 0);
+ * - `associated`: it qualified with an effect > 0; this is what the bottlenecks page lists.
+ */
+export type NeighbourStatus =
+  'not-evaluated' | 'inactive' | 'below-minimum' | 'not-associated' | 'associated';
+
+export interface NeighbourScore {
+  readonly status: NeighbourStatus;
+  readonly minutesWithSlots: number;
+  readonly activeMinutes: number;
+  readonly affectedTries: number;
+  readonly affectedMinutes: number;
+  readonly controlTries: number;
+  readonly resamples: number;
+  /** The measurement with its interval for a qualified DAG, as {@link noisyNeighbours} lists it; else `null`. */
+  readonly neighbour: NoisyNeighbour | null;
+}
+
+/**
+ * HM-017 for one DAG (FR-DAGD-06): the same sweep, minimums and seeded bootstrap as {@link noisyNeighbours}, so an
+ * associated DAG's score equals its item there. `input.tries` must hold every DAG's tries: the other DAGs' queue
+ * waits are the evidence. A qualified DAG gets its interval whatever the sign of its effect.
+ */
+export function noisyNeighbourOf(
+  input: NoisyNeighbourInput,
+  dagId: string,
+  options: NoisyNeighbourOptions = {},
+): NeighbourScore {
+  const sw = sweepOf(input, options);
+  const base = {
+    minutesWithSlots: sw.minutesWithSlots,
+    activeMinutes: 0,
+    affectedTries: 0,
+    affectedMinutes: 0,
+    controlTries: 0,
+    resamples: sw.opts.resamples,
+    neighbour: null,
+  };
+  if (sw.minutesWithSlots === 0) return { ...base, status: 'not-evaluated' };
+  const iv = runningIntervals(sw, dagId).get(dagId);
+  const occ = iv ? minuteOccupancy(sw, iv) : null;
+  if (!occ) return { ...base, status: 'inactive' };
+  const { qualified, ...counts } = measure(sw, dagId, occ, true);
+  if (counts.activeMinutes === 0) return { ...base, status: 'inactive' };
+  if (!qualified) return { ...base, ...counts, status: 'below-minimum' };
+  const neighbour = withInterval(sw, qualified);
+  return {
+    ...base,
+    ...counts,
+    status: neighbour.effectMs > 0 ? 'associated' : 'not-associated',
+    neighbour,
   };
 }

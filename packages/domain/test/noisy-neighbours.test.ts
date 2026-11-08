@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import {
+  noisyNeighbourOf,
   noisyNeighbours,
   slotsPerMinute,
   slotsSourceOf,
@@ -200,6 +201,99 @@ describe('HM-017 noisy-neighbour effect (FR-BOTL-06)', () => {
           expect(x.controlTries).toBeGreaterThanOrEqual(5);
           expect(x.effectMs).toBeGreaterThan(0);
           if (x.ci) expect(x.ci.lowMs).toBeLessThanOrEqual(x.ci.highMs);
+        }
+      }),
+      { numRuns: 60 },
+    );
+  });
+});
+
+describe('FR-DAGD-06 HM-017 score of one DAG', () => {
+  const all = noisyNeighbours({ tries: golden(), slots: tenSlots, ...window });
+
+  it("FR-DAGD-06 / HM-017: one DAG's score is its item on the bottlenecks page, with its interval", () => {
+    const score = noisyNeighbourOf({ tries: golden(), slots: tenSlots, ...window }, 'hog');
+    expect(score).toMatchObject({
+      status: 'associated',
+      minutesWithSlots: 180,
+      activeMinutes: 70,
+      affectedTries: 280,
+      affectedMinutes: 70,
+      controlTries: 200,
+      resamples: 1_000,
+    });
+    expect(score.neighbour).toEqual(all.items.find((x) => x.dagId === 'hog'));
+  });
+
+  it('HM-017: a DAG that never holds 10 % of the slots is inactive, with no score', () => {
+    expect(noisyNeighbourOf({ tries: golden(), slots: tenSlots, ...window }, 's1')).toMatchObject({
+      status: 'inactive',
+      activeMinutes: 0,
+      neighbour: null,
+    });
+  });
+
+  it('HM-017: below the minimums it says how far it got', () => {
+    // hog runs minutes 0–29 only: 30 active minutes; 120 affected tries in hour 0, 120 controls after it.
+    const short = golden().filter((x) => !(x.dagId === 'hog' && x.taskId === 'big_2'));
+    expect(noisyNeighbourOf({ tries: short, slots: tenSlots, ...window }, 'hog')).toMatchObject({
+      status: 'below-minimum',
+      activeMinutes: 30,
+      affectedTries: 120,
+      affectedMinutes: 30,
+      controlTries: 120,
+      neighbour: null,
+    });
+  });
+
+  it('HM-017: qualified with shorter waits while it runs: not associated, low confidence, interval kept', () => {
+    // The other DAGs wait 60 s while hog runs and 300 s otherwise.
+    const tries = golden().map((x) => {
+      if (x.dagId === 'hog' || x.queuedAt === null) return x;
+      const m = Math.floor((x.queuedAt - T0) / MIN);
+      const active = m < 30 || (m >= 60 && m < 100);
+      return { ...x, startAt: x.queuedAt + (active ? 60 : 300) * SEC };
+    });
+    const score = noisyNeighbourOf({ tries, slots: tenSlots, ...window }, 'hog');
+    expect(score.status).toBe('not-associated');
+    expect(score.neighbour?.effectMs).toBeLessThan(0);
+    expect(score.neighbour?.confidence).toBe('low');
+    expect(score.neighbour?.ci).not.toBeNull();
+    expect(noisyNeighbours({ tries, slots: tenSlots, ...window }).items).toEqual([]);
+  });
+
+  it('HM-032: without known executor slots the score is not evaluated', () => {
+    const none = noisyNeighbourOf({ tries: golden(), slots: new Array(180).fill(null), ...window }, 'hog');
+    expect(none).toMatchObject({ status: 'not-evaluated', minutesWithSlots: 0, neighbour: null });
+  });
+
+  it("HM-017: for any tries, every associated DAG's score equals its environment-wide item", () => {
+    const arb = fc.array(
+      fc.record({
+        dag: fc.constantFrom('a', 'b', 'c', 'd'),
+        minute: fc.integer({ min: 0, max: 119 }),
+        wait: fc.integer({ min: 0, max: 900 }),
+        run: fc.integer({ min: 1, max: 3_600 }),
+      }),
+      { maxLength: 120 },
+    );
+    const opts = {
+      minActiveMinutes: 5,
+      minAffectedTries: 5,
+      minAffectedMinutes: 2,
+      minControlTries: 5,
+      resamples: 50,
+    };
+    fc.assert(
+      fc.property(arb, (specs) => {
+        const tries = specs.map((s, i) => t(s.dag, s.minute, s.wait, s.run, { taskId: `x${i}` }));
+        const input = { tries, slots: new Array(120).fill(4), from: T0, to: T0 + 2 * H, now: T0 + 2 * H };
+        const r = noisyNeighbours(input, opts);
+        for (const dag of ['a', 'b', 'c', 'd']) {
+          const score = noisyNeighbourOf(input, dag, opts);
+          const item = r.items.find((x) => x.dagId === dag);
+          if (item) expect(score.neighbour).toEqual(item);
+          else expect(score.status).not.toBe('associated');
         }
       }),
       { numRuns: 60 },
