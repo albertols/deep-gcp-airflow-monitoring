@@ -1,9 +1,9 @@
 /**
  * Noisy neighbours (HM-017, FR-BOTL-06, M3 demo step 2): DAGs whose heavy running is associated with
  * longer queue waits of other DAGs, with effect, bootstrap interval, confidence and overlap windows. The
- * wording stays with association: the method cannot show cause.
+ * wording stays with association: the method cannot show cause. The table exports as CSV (FR-STORE-04).
  *
- * @implements FR-BOTL-06, HM-017, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements FR-BOTL-06, HM-017, FR-UI-05, FR-UI-07, FR-UI-08, FR-STORE-04
  */
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
@@ -16,6 +16,8 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import type { Bottlenecks, NoisyNeighbours } from '@dcam/contracts';
+import { csvList, isoUtc, type CsvColumn } from '../../components/csv';
+import { ExportCsvButton } from '../../components/ExportCsv';
 import { formatDuration, formatInt, formatShare } from '../../components/format';
 import { Panel, ProvenanceFooter } from '../../components/Panel';
 import type { TimeFormat } from '../../components/time';
@@ -37,6 +39,32 @@ const signed = (seconds: number) => `${seconds < 0 ? '−' : '+'}${formatDuratio
 const unsigned = (seconds: number) =>
   seconds < 0 ? `−${formatDuration(-seconds)}` : formatDuration(seconds);
 const oneDecimal = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
+/** Overlap windows the table shows, and the file holds, per DAG. */
+const WINDOWS_SHOWN = 3;
+
+type Item = NoisyNeighbours['items'][number];
+
+/** The table as CSV: effect and interval in seconds, windows as ISO 8601 UTC intervals. */
+const NOISY_CSV: readonly CsvColumn<Item>[] = [
+  { name: 'dag_id', value: (x) => x.dag_id },
+  { name: 'effect_seconds', value: (x) => x.effect_seconds },
+  { name: 'ci_low_seconds', value: (x) => x.ci_low_seconds },
+  { name: 'ci_high_seconds', value: (x) => x.ci_high_seconds },
+  { name: 'confidence', value: (x) => x.confidence },
+  { name: 'median_wait_active_seconds', value: (x) => x.median_wait_active_seconds },
+  { name: 'median_wait_inactive_seconds', value: (x) => x.median_wait_inactive_seconds },
+  { name: 'affected_tries', value: (x) => x.affected_tries },
+  { name: 'affected_minutes', value: (x) => x.affected_minutes },
+  { name: 'control_tries', value: (x) => x.control_tries },
+  { name: 'matched_share_ratio', value: (x) => x.matched_share },
+  { name: 'active_minutes', value: (x) => x.active_minutes },
+  { name: 'associated_wait_task_minutes', value: (x) => x.associated_wait_task_minutes },
+  {
+    name: 'overlap_windows_utc',
+    value: (x) =>
+      csvList(x.overlap_windows.slice(0, WINDOWS_SHOWN).map((w) => `${isoUtc(w.from)}/${isoUtc(w.to)}`)),
+  },
+];
 
 /** An overlap window as `5 Nov, 01:00–01:30 UTC` in the context bar's zone. */
 function windowText(w: { from: string; to: string }, time: TimeFormat): string {
@@ -118,7 +146,7 @@ function Body({ n, linkTo }: { n: NoisyNeighbours; linkTo: PageProps['linkTo'] }
                   {x.overlap_windows.length === 0
                     ? '—'
                     : x.overlap_windows
-                        .slice(0, 3)
+                        .slice(0, WINDOWS_SHOWN)
                         .map((w) => windowText(w, time))
                         .join(', ')}
                 </TableCell>
@@ -134,7 +162,17 @@ function Body({ n, linkTo }: { n: NoisyNeighbours; linkTo: PageProps['linkTo'] }
 export function NoisyNeighboursPanel({ b, linkTo }: { b: Bottlenecks; linkTo: PageProps['linkTo'] }) {
   const n = b.noisy_neighbours;
   return (
-    <Panel explanation={X['botl-noisy-neighbours']}>
+    <Panel
+      explanation={X['botl-noisy-neighbours']}
+      actions={
+        <ExportCsvButton
+          view="noisy-neighbours"
+          what="DAGs associated with longer queue waits"
+          rows={n?.evaluated ? n.items : []}
+          columns={NOISY_CSV}
+        />
+      }
+    >
       {n?.evaluated && n.slots_source === 'hostnames' && (
         <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
           Estimated worker slots: without Cloud Monitoring, DCAM counts workers from the hostnames of running

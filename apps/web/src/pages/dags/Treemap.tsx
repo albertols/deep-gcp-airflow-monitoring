@@ -1,9 +1,9 @@
 /**
  * Treemap team → DAG sized by executor slot-seconds and coloured by p95 queue wait, as hand-written SVG
- * on the design tokens, with a legend, an accessible description and a table view. A team click filters
- * to that team; a DAG tile opens the DAG.
+ * on the design tokens, with a legend, an accessible description and a table view that exports as CSV. A
+ * team click filters to that team; a DAG tile opens the DAG.
  *
- * @implements FR-DAGX-04, FR-UI-02
+ * @implements FR-DAGX-04, FR-UI-02, FR-STORE-04
  */
 import { useId, useMemo, type KeyboardEvent } from 'react';
 import Box from '@mui/material/Box';
@@ -19,6 +19,8 @@ import Typography from '@mui/material/Typography';
 import { useTheme } from '@mui/material/styles';
 import type { DagLeagueRow } from '@dcam/contracts';
 import { tokens } from '@dcam/ui-kit';
+import { quantileColumns, type CsvColumn } from '../../components/csv';
+import { ExportCsvButton } from '../../components/ExportCsv';
 import { formatInt, formatQuantile, formatShare, formatSlotHours } from '../../components/format';
 import { usePageParam } from '../../components/view';
 import type { Route } from '../../router';
@@ -58,6 +60,23 @@ function tileLabel(tile: TreemapTile, total: number): string {
   return `${tile.label}, team ${tile.team}: ${hours}, p95 queue wait ${formatQuantile(tile.row.queue_wait_p95)}`;
 }
 
+const NO_QUANTILE = { value_seconds: null, samples: 0, low_sample: true } as const;
+
+/**
+ * The treemap table as CSV: one row per tile, a DAG or a team's "other" tile that folds its small DAGs
+ * (`dag_count` of them), sized in executor slot-seconds (HM-003).
+ */
+const treemapCsv = (total: number): readonly CsvColumn<TreemapTile>[] => [
+  { name: 'team', value: (t) => t.team },
+  { name: 'tile', value: (t) => t.kind },
+  { name: 'dag_id', value: (t) => (t.kind === 'dag' ? (t.row?.dag_id ?? t.label) : null) },
+  { name: 'label', value: (t) => t.label },
+  { name: 'dag_count', value: (t) => t.dagCount },
+  { name: 'executor_slot_seconds', value: (t) => t.value },
+  { name: 'share_ratio', value: (t) => (total > 0 ? t.value / total : null) },
+  ...quantileColumns<TreemapTile>('queue_wait_p95', (t) => t.row?.queue_wait_p95 ?? NO_QUANTILE),
+];
+
 /** Truncates text to fit roughly `width` pixels at the label font size. */
 function fit(text: string, width: number): string | null {
   const chars = Math.floor((width - 8) / 6.6);
@@ -94,6 +113,7 @@ export function Treemap({
   );
   const total = groups.reduce((s, g) => s + g.value, 0);
   const dagCount = groups.reduce((s, g) => s + g.dagCount, 0);
+  const tiles = useMemo(() => groups.flatMap((g) => g.tiles), [groups]);
   const largest = groups.reduce<(typeof groups)[number] | null>(
     (m, g) => (m && m.value >= g.value ? m : g),
     null,
@@ -152,6 +172,7 @@ export function Treemap({
           <Button size="small" variant="outlined" onClick={() => setView(asTable ? 'chart' : 'table')}>
             {asTable ? 'View treemap as chart' : 'View treemap as table'}
           </Button>
+          <ExportCsvButton view="dags-treemap" what={TITLE} rows={tiles} columns={treemapCsv(total)} />
         </Stack>
       </Stack>
 

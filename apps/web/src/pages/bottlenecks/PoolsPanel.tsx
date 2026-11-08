@@ -1,13 +1,15 @@
 /**
  * Pools (FR-ENV-08, M3 demo step 3): per pool the slots, how many ran and queued, how much ready and queued
  * work waited, starvation over time and the DAGs that waited most. Buckets without a snapshot are gaps,
- * never zero (§8.1); the starvation bars have an accessible description and a table view (§12.8).
+ * never zero (§8.1); the starvation bars have an accessible description and a table view (§12.8). Both
+ * tables export as CSV (FR-STORE-04).
  *
- * @implements FR-ENV-08, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements FR-ENV-08, FR-UI-05, FR-UI-07, FR-UI-08, FR-STORE-04
  */
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Link from '@mui/material/Link';
+import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
@@ -16,6 +18,8 @@ import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import { useTheme } from '@mui/material/styles';
 import type { Bottlenecks } from '@dcam/contracts';
+import { csvList, isoUtc, type CsvColumn } from '../../components/csv';
+import { ExportCsvButton } from '../../components/ExportCsv';
 import { formatInt, formatShare } from '../../components/format';
 import { bucketLabels } from '../../components/charts';
 import { Panel, ProvenanceFooter } from '../../components/Panel';
@@ -31,6 +35,37 @@ const taskHours = (seconds: number | undefined) =>
   seconds === undefined ? '—' : oneDecimal.format(seconds / 3600);
 const bucketName = (seconds: number) => (seconds % 60 === 0 ? `${seconds / 60}-minute` : `${seconds}-second`);
 const NO_DATA = 'No data';
+
+/** The pools table as CSV: slots, time-weighted means, waiting in task-seconds (null where not measured). */
+const POOL_CSV: readonly CsvColumn<Pool>[] = [
+  { name: 'pool', value: (p) => p.name },
+  { name: 'slots', value: (p) => p.slots },
+  { name: 'running_slots_mean', value: (p) => p.running_slots_avg },
+  { name: 'running_slots_peak', value: (p) => p.running_slots_peak },
+  { name: 'queued_slots_mean', value: (p) => p.queued_slots_avg },
+  { name: 'ready_task_seconds', value: (p) => p.ready_task_seconds },
+  { name: 'queued_task_seconds', value: (p) => p.queued_task_seconds },
+  { name: 'waiting_task_seconds', value: (p) => p.waiting_task_seconds },
+  { name: 'starved_minutes', value: (p) => p.starved_minutes },
+  { name: 'utilisation_p95_ratio', value: (p) => p.utilisation_p95 },
+  { name: 'top_dags', value: (p) => csvList((p.top_dags ?? []).slice(0, 3).map((d) => d.dag_id)) },
+];
+
+type Bucket = Bottlenecks['series'][number];
+interface StarvedRow {
+  readonly bucket: Bucket;
+  readonly index: number;
+}
+
+/** Starved minutes per bucket as CSV: one column per pool; a bucket without a snapshot is empty. */
+const starvedCsv = (pools: readonly Pool[], bucketSeconds: number): readonly CsvColumn<StarvedRow>[] => [
+  { name: 'bucket_start_utc', value: (x) => isoUtc(x.bucket.start) },
+  { name: 'bucket_seconds', value: () => bucketSeconds },
+  ...pools.map((p) => ({
+    name: `${p.name}_starved_minutes`,
+    value: (x: StarvedRow) => p.starved_series?.[x.index] ?? null,
+  })),
+];
 
 function Starvation({ pool, bucketSeconds }: { pool: Pool; bucketSeconds: number }) {
   const theme = useTheme();
@@ -76,11 +111,14 @@ export function PoolsPanel({ b, linkTo }: { b: Bottlenecks; linkTo: PageProps['l
     <Panel
       explanation={X['botl-pools-activity']}
       actions={
-        withSeries.length > 0 ? (
-          <Button size="small" onClick={() => setView(asTable ? 'bars' : 'table')}>
-            {asTable ? 'View starvation as bars' : 'View starvation as a table'}
-          </Button>
-        ) : undefined
+        <Stack direction="row" sx={{ alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+          {withSeries.length > 0 && (
+            <Button size="small" onClick={() => setView(asTable ? 'bars' : 'table')}>
+              {asTable ? 'View starvation as bars' : 'View starvation as a table'}
+            </Button>
+          )}
+          <ExportCsvButton view="pools" what="Pools" rows={b.pools} columns={POOL_CSV} />
+        </Stack>
       }
     >
       {b.pools.length === 0 ? (
@@ -143,7 +181,17 @@ export function PoolsPanel({ b, linkTo }: { b: Bottlenecks; linkTo: PageProps['l
       )}
 
       {asTable && (
-        <Box sx={{ maxHeight: 320, overflow: 'auto', mt: 3 }}>
+        <Stack direction="row" sx={{ justifyContent: 'flex-end', mt: 3 }}>
+          <ExportCsvButton
+            view="pool-starvation"
+            what="Starved minutes per bucket"
+            rows={b.series.map((bucket, index) => ({ bucket, index }))}
+            columns={starvedCsv(withSeries, b.bucket_seconds)}
+          />
+        </Stack>
+      )}
+      {asTable && (
+        <Box sx={{ maxHeight: 320, overflow: 'auto', mt: 1 }}>
           <Table size="small" stickyHeader aria-label="Starved minutes per bucket">
             <TableHead>
               <TableRow>

@@ -93,6 +93,17 @@ describe('FR-STORE-04 export file name', () => {
     );
   });
 
+  it('FR-STORE-04: names the page subject, such as the DAG, before the view', () => {
+    expect(
+      exportFileName('runs', {
+        subject: 'dag-acme_orders',
+        envId: 'acme-prod',
+        range: '24h',
+        asOf: '2026-11-05T12:00:00Z',
+      }),
+    ).toBe('dcam-dag-acme_orders-runs-acme-prod-24h-2026-11-05T1200Z.csv');
+  });
+
   it('FR-STORE-04: replaces characters that are unsafe in file names', () => {
     expect(
       exportFileName('dag acme/orders:daily', {

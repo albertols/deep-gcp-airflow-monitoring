@@ -1,9 +1,10 @@
 /**
  * Failures, retries and flakiness (HM-015, FR-TASK-02): run and try failure rates, retry and flaky rates and
  * time to recovery for the DAG, and per task, flakiest first. Rates need 20 samples; below that the count
- * is shown. Error signatures need Cloud Logging and are marked unavailable.
+ * is shown. Error signatures need Cloud Logging and are marked unavailable. The task table exports as CSV
+ * with the counts behind every rate (FR-STORE-04).
  *
- * @implements HM-015, FR-TASK-02, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements HM-015, FR-TASK-02, FR-UI-05, FR-UI-07, FR-UI-08, FR-STORE-04
  */
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -16,6 +17,8 @@ import Typography from '@mui/material/Typography';
 import type { DagDetail, TaskReliability } from '@dcam/contracts';
 import { InfoPopover } from '@dcam/ui-kit';
 import type { DcamApi } from '../../api';
+import type { CsvColumn } from '../../components/csv';
+import { ExportCsvButton } from '../../components/ExportCsv';
 import { Kpi, KpiRow, Panel, ProvenanceFooter } from '../../components/Panel';
 import { formatDuration, formatInt, formatShare } from '../../components/format';
 import { DEPTH_EXPLANATIONS as E, type DepthExplanationId } from './depth-explanations';
@@ -92,6 +95,23 @@ function ordered(tasks: DagDetail['tasks']): TaskRow[] {
     );
 }
 
+/** The task table as CSV: counts and rates (null below 20 samples), mean time to recover in seconds. */
+const RELIABILITY_CSV: readonly CsvColumn<TaskRow>[] = [
+  { name: 'task_id', value: (x) => x.taskId },
+  { name: 'task_instances', value: (x) => x.r.task_instances },
+  { name: 'tries', value: (x) => x.r.tries },
+  { name: 'failed_tries', value: (x) => x.r.failed_tries },
+  { name: 'try_failure_rate_ratio', value: (x) => x.r.try_failure_rate },
+  { name: 'retried', value: (x) => x.r.retried },
+  { name: 'retry_rate_ratio', value: (x) => x.r.retry_rate },
+  { name: 'flaky', value: (x) => x.r.flaky },
+  { name: 'flaky_inferred', value: (x) => x.r.flaky_inferred },
+  { name: 'flaky_rate_ratio', value: (x) => x.r.flaky_rate },
+  { name: 'recoveries', value: (x) => x.r.recoveries },
+  { name: 'unrecovered', value: (x) => x.r.unrecovered },
+  { name: 'mttr_seconds', value: (x) => x.r.mttr_seconds },
+];
+
 function TaskTable({ rows }: { rows: readonly TaskRow[] }) {
   return (
     <TableContainer sx={{ maxHeight: 420 }}>
@@ -147,7 +167,20 @@ export function ReliabilityPanel({ detail, api, envId }: { detail: DagDetail; ap
   const r = detail.reliability;
   const rows = ordered(detail.tasks);
   return (
-    <Panel explanation={E['dagd-reliability']} actions={<TaskHistoryFreshness api={api} envId={envId} />}>
+    <Panel
+      explanation={E['dagd-reliability']}
+      actions={
+        <Stack direction="row" sx={{ alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+          <TaskHistoryFreshness api={api} envId={envId} />
+          <ExportCsvButton
+            view="task-reliability"
+            what="Task reliability"
+            rows={rows}
+            columns={RELIABILITY_CSV}
+          />
+        </Stack>
+      }
+    >
       {r === undefined ? (
         <Typography variant="body2" color="text.secondary">
           This DCAM server does not report this yet. Update DCAM to see failures, retries and flakiness.

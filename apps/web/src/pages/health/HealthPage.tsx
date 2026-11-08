@@ -5,12 +5,13 @@
  *
  * The history backfill panel shows each backfill on first add (FR-COLL-04): how many days it read, where
  * the history is complete from, and an ETA from the observed rate, in words while it cannot be estimated.
+ * Each environment's collector, backfill and request tables export as CSV (FR-STORE-04).
  *
  * @implements FR-SELF-01, FR-COLL-04, FR-COLL-11, FR-COLL-06, HM-030, NFR-OBS-06, FR-UI-05, FR-UI-07, FR-UI-08,
- *   FR-STORE-02, FR-STORE-06, FR-STORE-07
+ *   FR-STORE-02, FR-STORE-04, FR-STORE-06, FR-STORE-07
  */
 import { useQuery } from '@tanstack/react-query';
-import type { ComponentType } from 'react';
+import type { ComponentType, ReactNode } from 'react';
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
 import Box from '@mui/material/Box';
@@ -48,6 +49,8 @@ import {
   formatLongDuration,
 } from '../../components/backfill';
 import { COLLECTION_POLL_MS, useCollection } from '../../components/collection';
+import { isoUtc, type CsvColumn } from '../../components/csv';
+import { ExportCsvButton, ExportScope } from '../../components/ExportCsv';
 import { clause, formatBytes, formatDuration, formatInt, formatShare } from '../../components/format';
 import { PageHeader } from '../../components/PageHeader';
 import { refreshOptions, useTimeFormat, useView } from '../../components/view';
@@ -167,6 +170,63 @@ function LastError({ collector, reference }: { collector: CollectorStatus; refer
           copyLabel={`Copy the fix for ${collector.id}`}
         />
       )}
+    </Stack>
+  );
+}
+
+/** The collectors table as CSV: times in UTC, lag and cadence in seconds, the last error in full. */
+const COLLECTOR_CSV: readonly CsvColumn<CollectorStatus>[] = [
+  { name: 'collector_id', value: (c) => c.id },
+  { name: 'source', value: (c) => c.source },
+  { name: 'state', value: (c) => c.state },
+  { name: 'last_attempt_utc', value: (c) => isoUtc(c.last_attempt_at) },
+  { name: 'last_success_utc', value: (c) => isoUtc(c.last_success_at) },
+  { name: 'next_run_utc', value: (c) => isoUtc(c.next_run_at) },
+  { name: 'lag_seconds', value: (c) => c.lag_seconds },
+  { name: 'cadence_seconds', value: (c) => c.cadence_seconds },
+  { name: 'consecutive_failures', value: (c) => c.consecutive_failures },
+  { name: 'error_rate_1h_ratio', value: (c) => c.error_rate_1h },
+  { name: 'last_error_kind', value: (c) => c.last_error?.kind },
+  { name: 'last_error_message', value: (c) => c.last_error?.message },
+  { name: 'last_error_utc', value: (c) => isoUtc(c.last_error?.at) },
+  { name: 'last_error_fix_hint', value: (c) => c.last_error?.fix_hint },
+];
+
+/** The backfill table as CSV: days read of the days configured, the covered range in UTC, the ETA. */
+const BACKFILL_CSV: readonly CsvColumn<BackfillStatus>[] = [
+  { name: 'collector_id', value: (b) => b.collector_id },
+  { name: 'kind', value: (b) => b.kind },
+  { name: 'state', value: (b) => b.state },
+  { name: 'days', value: (b) => b.days },
+  { name: 'days_read', value: (b) => daysRead(b) },
+  { name: 'from_utc', value: (b) => isoUtc(b.from) },
+  { name: 'to_utc', value: (b) => isoUtc(b.to) },
+  { name: 'covered_from_utc', value: (b) => isoUtc(b.covered_from) },
+  { name: 'items_read', value: (b) => b.items_read },
+  { name: 'requests_used', value: (b) => b.requests_used },
+  { name: 'eta_seconds', value: (b) => b.eta_seconds },
+];
+
+/** The requests table as CSV: counts per window, bytes and latency with their units. */
+const FOOTPRINT_CSV: readonly CsvColumn<ApiFootprint>[] = [
+  { name: 'api', value: (f) => f.api },
+  { name: 'budget_per_minute', value: (f) => f.budget_per_minute },
+  { name: 'requests_1h', value: (f) => f.requests_1h },
+  { name: 'requests_24h', value: (f) => f.requests_24h },
+  { name: 'errors_24h', value: (f) => f.errors_24h },
+  { name: 'bytes_24h', value: (f) => f.bytes_24h },
+  { name: 'p95_latency_ms', value: (f) => f.p95_latency_ms },
+];
+
+/** A table's title with its (i) and, at the right, its export button. */
+function TableTitle({ id, action }: { id: HealthExplanationId; action: ReactNode }) {
+  return (
+    <Stack
+      direction="row"
+      sx={{ alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}
+    >
+      <PanelTitle explanation={X[id]} component="h3" />
+      {action}
     </Stack>
   );
 }
@@ -508,61 +568,95 @@ function EnvironmentHealth({
   const headingId = `health-${env.env_id}`;
   return (
     <Paper component="section" aria-labelledby={headingId} sx={{ p: 4, minWidth: 0 }}>
-      <Stack spacing={4}>
-        <Stack direction="row" sx={{ alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-          <Typography id={headingId} variant="h2" component="h2">
-            {name}
-          </Typography>
-          <Chip size="small" variant="outlined" label={PROFILE[env.profile]} />
-          <InfoPopover explanation={X['health-profile']} />
+      <ExportScope envId={env.env_id} range={null} asOf={isoUtc(reference)}>
+        <Stack spacing={4}>
+          <Stack direction="row" sx={{ alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+            <Typography id={headingId} variant="h2" component="h2">
+              {name}
+            </Typography>
+            <Chip size="small" variant="outlined" label={PROFILE[env.profile]} />
+            <InfoPopover explanation={X['health-profile']} />
+          </Stack>
+
+          {env.failing && (
+            <Alert severity="error" variant="outlined">
+              <AlertTitle>Collection failing</AlertTitle>
+              At least one collector failed three or more cycles in a row, so pages for this environment can
+              show older data. Read the last error and its fix below, then run <code>
+                pnpm dcam doctor
+              </code>{' '}
+              to check access.
+            </Alert>
+          )}
+          {env.reduced_fidelity && (
+            <Alert severity="warning" variant="outlined">
+              <AlertTitle>Reduced fidelity</AlertTitle>
+              DCAM slowed collection to stay within its request budget: a budget ran out in the last 15
+              minutes. Some data can be older than the cadences below. If this lasts, choose a lighter profile
+              for this environment in dcam.config.yaml.
+            </Alert>
+          )}
+
+          <Box>
+            <TableTitle
+              id="health-collectors"
+              action={
+                <ExportCsvButton
+                  view="collectors"
+                  what={`Collectors for ${env.env_id}`}
+                  rows={env.collectors}
+                  columns={COLLECTOR_CSV}
+                />
+              }
+            />
+            <CollectorsTable env={env} reference={reference} />
+          </Box>
+          <Box>
+            <TableTitle
+              id="health-backfill"
+              action={
+                <ExportCsvButton
+                  view="backfill"
+                  what={`History backfill for ${env.env_id}`}
+                  rows={env.backfill ?? []}
+                  columns={BACKFILL_CSV}
+                />
+              }
+            />
+            <BackfillTable env={env} reference={reference} />
+          </Box>
+          <Box>
+            <TableTitle
+              id="health-footprint"
+              action={
+                <ExportCsvButton
+                  view="requests"
+                  what={`Requests to each API from ${env.env_id}`}
+                  rows={env.footprint}
+                  columns={FOOTPRINT_CSV}
+                />
+              }
+            />
+            <FootprintTable env={env} />
+          </Box>
+          <Retention env={env} />
+          <Box>
+            <PanelTitle explanation={X['health-series']} component="h3" />
+            <Typography sx={{ fontSize: '1.5rem', fontVariantNumeric: 'tabular-nums' }}>
+              {env.series_24h === null ? (
+                'Not used'
+              ) : (
+                <>
+                  {formatInt(env.series_24h)}{' '}
+                  <Typography component="span" variant="body1" color="text.secondary">
+                    series
+                  </Typography>
+                </>
+              )}
+            </Typography>
+          </Box>
         </Stack>
-
-        {env.failing && (
-          <Alert severity="error" variant="outlined">
-            <AlertTitle>Collection failing</AlertTitle>
-            At least one collector failed three or more cycles in a row, so pages for this environment can
-            show older data. Read the last error and its fix below, then run <code>pnpm dcam doctor</code> to
-            check access.
-          </Alert>
-        )}
-        {env.reduced_fidelity && (
-          <Alert severity="warning" variant="outlined">
-            <AlertTitle>Reduced fidelity</AlertTitle>
-            DCAM slowed collection to stay within its request budget: a budget ran out in the last 15 minutes.
-            Some data can be older than the cadences below. If this lasts, choose a lighter profile for this
-            environment in dcam.config.yaml.
-          </Alert>
-        )}
-
-        <Box>
-          <PanelTitle explanation={X['health-collectors']} component="h3" />
-          <CollectorsTable env={env} reference={reference} />
-        </Box>
-        <Box>
-          <PanelTitle explanation={X['health-backfill']} component="h3" />
-          <BackfillTable env={env} reference={reference} />
-        </Box>
-        <Box>
-          <PanelTitle explanation={X['health-footprint']} component="h3" />
-          <FootprintTable env={env} />
-        </Box>
-        <Retention env={env} />
-        <Box>
-          <PanelTitle explanation={X['health-series']} component="h3" />
-          <Typography sx={{ fontSize: '1.5rem', fontVariantNumeric: 'tabular-nums' }}>
-            {env.series_24h === null ? (
-              'Not used'
-            ) : (
-              <>
-                {formatInt(env.series_24h)}{' '}
-                <Typography component="span" variant="body1" color="text.secondary">
-                  series
-                </Typography>
-              </>
-            )}
-          </Typography>
-        </Box>
-      </Stack>
+      </ExportScope>
     </Paper>
   );
 }

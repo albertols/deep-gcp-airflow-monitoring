@@ -3,10 +3,11 @@
  * timeline, the Gantt chart of one run with its critical path, per-task statistics, durations against
  * their baseline, and failures, retries and flakiness. The range comes from the context bar; the run shown
  * in the Gantt chart is in the URL (`run`), so a shared link opens the same run. "Open in" opens the DAG and
- * that run in the Airflow UI and the Cloud console, and each task row opens the task in that run.
+ * that run in the Airflow UI and the Cloud console, and each task row opens the task in that run. Every table
+ * exports the rows it shows, in files named after the DAG (FR-STORE-04).
  *
  * @implements FR-DAGD-01, FR-DAGD-02, FR-DAGD-03, FR-DAGD-04, FR-TASK-01, HM-005, HM-007, HM-015, HM-016,
- *   FR-UI-01, FR-UI-02, FR-UI-04, FR-UI-05, FR-UI-07, FR-UI-08
+ *   FR-UI-01, FR-UI-02, FR-UI-04, FR-UI-05, FR-UI-07, FR-UI-08, FR-STORE-04
  */
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -31,6 +32,8 @@ import { InfoPopover } from '@dcam/ui-kit';
 import type { RunRef } from '../../components/deep-links';
 import { triesWindow } from '../../components/open-in-links';
 import { OpenInMenu } from '../../components/OpenInMenu';
+import { quantileColumns, type CsvColumn } from '../../components/csv';
+import { ExportCsvButton, ExportScope } from '../../components/ExportCsv';
 import { PageHeader } from '../../components/PageHeader';
 import { EXPLANATIONS } from '../../explanations';
 import { Kpi, KpiRow, Panel, ProvenanceFooter } from '../../components/Panel';
@@ -124,35 +127,72 @@ function Facts({ meta }: { meta: DagDetail['meta'] }) {
 const NOT_KNOWN = 'Not known yet';
 const NOT_KNOWN_WHY = 'No override in the Composer configuration, and DCAM does not assume a default. ';
 
-function Limits({ limits }: { limits: DagDetail['meta']['limits'] }) {
-  const rows: ReadonlyArray<readonly [string, string, string]> = [
-    [
-      'max_active_tasks',
-      formatInt(limits.max_active_tasks),
-      'Running + queued task instances of this DAG, all runs together',
-    ],
-    ['max_active_runs', formatInt(limits.max_active_runs), 'Active runs of this DAG'],
-    ...limits.pools.map(
-      (p) =>
-        [
-          `Pool ${p.name}`,
-          p.slots > 0
-            ? `${formatInt(p.pool_slots)} of ${formatInt(p.slots)} slots per task`
-            : 'Pool not defined',
-          'Shared with every DAG that uses the pool',
-        ] as const,
-    ),
-    [
-      '[core] parallelism × schedulers',
-      limits.parallelism === null ? NOT_KNOWN : formatInt(limits.parallelism),
-      `${limits.parallelism === null ? NOT_KNOWN_WHY : ''}Running + queued task instances in the environment`,
-    ],
-    [
-      'Worker slots',
-      limits.worker_slots === null ? NOT_KNOWN : formatInt(limits.worker_slots),
-      `${limits.worker_slots === null ? NOT_KNOWN_WHY : ''}Maximum workers × worker_concurrency`,
-    ],
+type DagLimits = DagDetail['meta']['limits'];
+
+/** One limit that can throttle the DAG, as the table shows it and as its CSV row. */
+interface LimitRow {
+  readonly limit: string;
+  /** Task instances, runs or slots; `null` when not known (HM-032) or the pool is not defined. */
+  readonly value: number | null;
+  /** For a pool: the slots each task of this DAG takes. */
+  readonly slotsPerTask: number | null;
+  readonly shown: string;
+  readonly counts: string;
+}
+
+function limitRows(limits: DagLimits): LimitRow[] {
+  const known = (value: number | null) => (value === null ? NOT_KNOWN : formatInt(value));
+  const why = (value: number | null) => (value === null ? NOT_KNOWN_WHY : '');
+  return [
+    {
+      limit: 'max_active_tasks',
+      value: limits.max_active_tasks,
+      slotsPerTask: null,
+      shown: formatInt(limits.max_active_tasks),
+      counts: 'Running + queued task instances of this DAG, all runs together',
+    },
+    {
+      limit: 'max_active_runs',
+      value: limits.max_active_runs,
+      slotsPerTask: null,
+      shown: formatInt(limits.max_active_runs),
+      counts: 'Active runs of this DAG',
+    },
+    ...limits.pools.map((p) => ({
+      limit: `Pool ${p.name}`,
+      value: p.slots > 0 ? p.slots : null,
+      slotsPerTask: p.pool_slots,
+      shown:
+        p.slots > 0
+          ? `${formatInt(p.pool_slots)} of ${formatInt(p.slots)} slots per task`
+          : 'Pool not defined',
+      counts: 'Shared with every DAG that uses the pool',
+    })),
+    {
+      limit: '[core] parallelism × schedulers',
+      value: limits.parallelism,
+      slotsPerTask: null,
+      shown: known(limits.parallelism),
+      counts: `${why(limits.parallelism)}Running + queued task instances in the environment`,
+    },
+    {
+      limit: 'Worker slots',
+      value: limits.worker_slots,
+      slotsPerTask: null,
+      shown: known(limits.worker_slots),
+      counts: `${why(limits.worker_slots)}Maximum workers × worker_concurrency`,
+    },
   ];
+}
+
+const LIMIT_CSV: readonly CsvColumn<LimitRow>[] = [
+  { name: 'limit', value: (r) => r.limit },
+  { name: 'value', value: (r) => r.value },
+  { name: 'pool_slots_per_task', value: (r) => r.slotsPerTask },
+  { name: 'counts', value: (r) => r.counts },
+];
+
+function Limits({ rows }: { rows: readonly LimitRow[] }) {
   return (
     <TableContainer sx={{ minWidth: 0 }}>
       <Table size="small" aria-label="Limits that can throttle this DAG">
@@ -164,13 +204,13 @@ function Limits({ limits }: { limits: DagDetail['meta']['limits'] }) {
           </TableRow>
         </TableHead>
         <TableBody>
-          {rows.map(([name, value, scope]) => (
-            <TableRow key={name}>
-              <TableCell sx={{ fontFamily: MONO }}>{name}</TableCell>
-              <TableCell align="right">{value}</TableCell>
+          {rows.map((r) => (
+            <TableRow key={r.limit}>
+              <TableCell sx={{ fontFamily: MONO }}>{r.limit}</TableCell>
+              <TableCell align="right">{r.shown}</TableCell>
               <TableCell>
                 <Typography variant="caption" color="text.secondary">
-                  {scope}
+                  {r.counts}
                 </Typography>
               </TableCell>
             </TableRow>
@@ -227,6 +267,23 @@ const TASK_COLUMNS: ReadonlyArray<{ id: DagExplanationId; numeric: boolean }> = 
   { id: 'dagd-col-failure', numeric: true },
   { id: 'dagd-col-share', numeric: true },
   { id: 'dagd-col-contribution', numeric: true },
+];
+
+type Task = DagDetail['tasks'][number];
+
+/** The tasks table as CSV: every statistic with its unit and sample count. */
+const TASK_CSV: readonly CsvColumn<Task>[] = [
+  { name: 'task_id', value: (t) => t.task_id },
+  { name: 'tries', value: (t) => t.tries },
+  ...quantileColumns<Task>('duration_p50', (t) => t.duration_p50),
+  ...quantileColumns<Task>('duration_p95', (t) => t.duration_p95),
+  ...quantileColumns<Task>('queue_wait_p95', (t) => t.queue_wait_p95),
+  { name: 'retries', value: (t) => t.retries },
+  { name: 'failure_rate_ratio', value: (t) => t.failure_rate },
+  { name: 'slot_seconds_share_ratio', value: (t) => t.slot_seconds_share },
+  { name: 'contribution_seconds', value: (t) => t.contribution_seconds },
+  { name: 'critical_path_runs', value: (t) => t.critical_path_runs },
+  { name: 'critical_path_share_ratio', value: (t) => t.critical_path_share },
 ];
 
 /**
@@ -371,14 +428,30 @@ export function DagDetailPage({ api, envId, route, linkTo }: PageProps) {
       )}
 
       {d && (
-        <>
-          <Panel explanation={E['dagd-limits']}>
+        <ExportScope
+          subject={`dag-${dagId}`}
+          envId={d.env_id}
+          range={range}
+          asOf={d.data_as_of}
+          rangeEnd={d.range.to}
+        >
+          <Panel
+            explanation={E['dagd-limits']}
+            actions={
+              <ExportCsvButton
+                view="limits"
+                what="Limits that can throttle this DAG"
+                rows={limitRows(d.meta.limits)}
+                columns={LIMIT_CSV}
+              />
+            }
+          >
             <Stack direction={{ xs: 'column', lg: 'row' }} sx={{ gap: 6, alignItems: { lg: 'flex-start' } }}>
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Facts meta={d.meta} />
               </Box>
               <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Limits limits={d.meta.limits} />
+                <Limits rows={limitRows(d.meta.limits)} />
               </Box>
             </Stack>
           </Panel>
@@ -414,7 +487,10 @@ export function DagDetailPage({ api, envId, route, linkTo }: PageProps) {
             <CriticalPathSummary detail={d} />
           </Panel>
 
-          <Panel explanation={E['dagd-tasks']}>
+          <Panel
+            explanation={E['dagd-tasks']}
+            actions={<ExportCsvButton view="tasks" what="Tasks" rows={d.tasks} columns={TASK_CSV} />}
+          >
             <Tasks detail={d} />
           </Panel>
 
@@ -427,7 +503,7 @@ export function DagDetailPage({ api, envId, route, linkTo }: PageProps) {
             sources={d.sources}
             note={`Range ${time.dateTime(d.range.from)} to ${time.dateTime(d.range.to)}`}
           />
-        </>
+        </ExportScope>
       )}
     </Stack>
   );

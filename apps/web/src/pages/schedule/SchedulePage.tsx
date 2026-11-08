@@ -2,9 +2,10 @@
  * S-17 schedule intelligence: where planned and actual DAG run starts fall in the day (UTC), how strongly
  * they collide (HM-009), the minutes and schedules that collide most, and the REC-SCHED-01 findings. Actual
  * starts follow the context bar's range; the heatmap view and table view are in the URL. The heatmaps stay
- * in UTC whatever the time zone toggle says: they are hours of the day of UTC cron schedules.
+ * in UTC whatever the time zone toggle says: they are hours of the day of UTC cron schedules. Every table,
+ * and the heatmap's table view (the 50 busiest cells), exports as CSV (FR-STORE-04).
  *
- * @implements FR-BOTL-03, HM-009, FR-UI-01, FR-UI-02, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements FR-BOTL-03, HM-009, FR-UI-01, FR-UI-02, FR-UI-05, FR-UI-07, FR-UI-08, FR-STORE-04
  */
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
@@ -22,6 +23,8 @@ import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
 import type { Schedule } from '@dcam/contracts';
+import { csvList, type CsvColumn } from '../../components/csv';
+import { ExportCsvButton, ExportScope } from '../../components/ExportCsv';
 import { formatInt, formatShare } from '../../components/format';
 import { PageHeader } from '../../components/PageHeader';
 import { Kpi, KpiRow, Panel, ProvenanceFooter, QueryState } from '../../components/Panel';
@@ -36,6 +39,38 @@ const perDay = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
 const pad = (n: number) => String(n).padStart(2, '0');
 
 type View = 'planned' | 'actual';
+
+/** Cells in the heatmap's table view, busiest first; the export holds the same cells. */
+const BUSIEST_SHOWN = 50;
+
+/** The busiest cells as CSV, in UTC hour and minute; the value is starts per day or runs. */
+const cellsCsv = (view: View): readonly CsvColumn<HeatCell>[] => [
+  { name: 'hour_utc', value: (c) => c.hour },
+  { name: 'minute_utc', value: (c) => c.minute },
+  { name: view === 'planned' ? 'starts_per_day' : 'runs', value: (c) => c.value },
+];
+
+type TopMinute = Schedule['top_minutes'][number];
+type SharedSchedule = Schedule['top_schedules'][number];
+
+/** The colliding minutes as CSV; schedules as `<cron> (<DAGs>)`, the first 5 DAGs as shown. */
+const MINUTE_CSV: readonly CsvColumn<TopMinute>[] = [
+  { name: 'minute_utc', value: (m) => m.minute },
+  { name: 'starts_per_day', value: (m) => m.starts_per_day },
+  { name: 'share_ratio', value: (m) => m.share },
+  { name: 'dags', value: (m) => m.dags },
+  { name: 'schedules', value: (m) => csvList(m.schedules.map((x) => `${x.schedule} (${x.dags})`)) },
+  { name: 'top_dags', value: (m) => csvList(m.top_dags.slice(0, 5)) },
+];
+
+/** The shared schedules as CSV; the first 3 example DAGs as shown. */
+const SCHEDULE_CSV: readonly CsvColumn<SharedSchedule>[] = [
+  { name: 'schedule', value: (x) => x.schedule },
+  { name: 'dags', value: (x) => x.dags },
+  { name: 'starts_per_day', value: (x) => x.starts_per_day },
+  { name: 'start_minutes_utc', value: (x) => x.minutes.join('; ') },
+  { name: 'example_dags', value: (x) => csvList(x.example_dags.slice(0, 3)) },
+];
 
 function HeatmapPanel({ s }: { s: Schedule }) {
   const [viewParam, setView] = usePageParam('heatmap', 'planned');
@@ -52,6 +87,7 @@ function HeatmapPanel({ s }: { s: Schedule }) {
   );
   const unit = view === 'planned' ? 'starts per day' : 'runs';
   const busiest = [...cells].sort((a, b) => b.value - a.value || a.hour - b.hour || a.minute - b.minute);
+  const shown = busiest.slice(0, BUSIEST_SHOWN);
   const top = busiest[0];
   const label =
     view === 'planned'
@@ -83,6 +119,12 @@ function HeatmapPanel({ s }: { s: Schedule }) {
           <Button size="small" onClick={() => setCellsView(asTable ? 'chart' : 'table')}>
             {asTable ? 'View as a heatmap' : 'View as a table'}
           </Button>
+          <ExportCsvButton
+            view={`busiest-cells-${view}`}
+            what="Busiest cells"
+            rows={shown}
+            columns={cellsCsv(view)}
+          />
         </Stack>
       }
     >
@@ -100,7 +142,7 @@ function HeatmapPanel({ s }: { s: Schedule }) {
               </TableRow>
             </TableHead>
             <TableBody>
-              {busiest.slice(0, 50).map((c) => (
+              {shown.map((c) => (
                 <TableRow key={cellTime(c)}>
                   <TableCell>{cellTime(c)}</TableCell>
                   <TableCell align="right">{perDay.format(c.value)}</TableCell>
@@ -127,7 +169,17 @@ function HeatmapPanel({ s }: { s: Schedule }) {
 
 function TopMinutesPanel({ s, linkTo }: { s: Schedule; linkTo: PageProps['linkTo'] }) {
   return (
-    <Panel explanation={X['sched-top-minutes']}>
+    <Panel
+      explanation={X['sched-top-minutes']}
+      actions={
+        <ExportCsvButton
+          view="colliding-minutes"
+          what="Most colliding minutes"
+          rows={s.top_minutes}
+          columns={MINUTE_CSV}
+        />
+      }
+    >
       {s.top_minutes.length === 0 ? (
         <Typography variant="body2" color="text.secondary">
           No planned starts yet, so no minute collides.
@@ -185,7 +237,17 @@ function TopMinutesPanel({ s, linkTo }: { s: Schedule; linkTo: PageProps['linkTo
 
 function SharedSchedulesPanel({ s, linkTo }: { s: Schedule; linkTo: PageProps['linkTo'] }) {
   return (
-    <Panel explanation={X['sched-shared']}>
+    <Panel
+      explanation={X['sched-shared']}
+      actions={
+        <ExportCsvButton
+          view="shared-schedules"
+          what="Shared schedules"
+          rows={s.top_schedules}
+          columns={SCHEDULE_CSV}
+        />
+      }
+    >
       {s.top_schedules.length === 0 ? (
         <Typography variant="body2" color="text.secondary">
           No two unpaused DAGs share a cron schedule.
@@ -290,7 +352,7 @@ export function SchedulePage({ api, envId, linkTo }: PageProps) {
       />
       <QueryState isPending={q.isPending} error={q.error} what="schedule intelligence" range={range} />
       {s && (
-        <>
+        <ExportScope envId={s.env_id} range={range} asOf={s.data_as_of} rangeEnd={s.range.to}>
           <KpiRow>
             <Kpi
               explanation={X['sched-collision-index']}
@@ -326,7 +388,7 @@ export function SchedulePage({ api, envId, linkTo }: PageProps) {
             sources={s.sources}
             note="times in UTC (DAG time zones are not collected); planned starts from the DAG inventory, actual starts by first task start"
           />
-        </>
+        </ExportScope>
       )}
     </Stack>
   );

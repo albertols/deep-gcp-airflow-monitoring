@@ -3,10 +3,11 @@
  * worker capacity, top contributors, noisy neighbours, pools, priority fairness and sensor waste, over the
  * context bar's range. The chart's bucket keeps it at 360 bars or fewer and is named in the chart; chart or
  * table view is in the URL. "Open in" adds the Airflow pools list and the environment's logs over the range;
- * the DAGs in the tables link to DCAM's DAG page, which has its own menu.
+ * the DAGs in the tables link to DCAM's DAG page, which has its own menu. Every table, and the chart's table
+ * view, exports as CSV (FR-STORE-04).
  *
  * @implements FR-BOTL-01, FR-BOTL-02, FR-BOTL-06, FR-BOTL-07, FR-BOTL-09, FR-ENV-08, HM-017, HM-023,
- *   FR-UI-01, FR-UI-02, FR-UI-04, FR-UI-05, FR-UI-07, FR-UI-08, NFR-PERF-06
+ *   FR-UI-01, FR-UI-02, FR-UI-04, FR-UI-05, FR-UI-07, FR-UI-08, NFR-PERF-06, FR-STORE-04
  */
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
@@ -26,6 +27,8 @@ import type { Bottlenecks, WaitReasonId } from '@dcam/contracts';
 import { InfoPopover } from '@dcam/ui-kit';
 import { HistoryNote } from '../../components/backfill';
 import { Legend, StackedBars, ValueBars, bucketLabels } from '../../components/charts';
+import { csvList, isoUtc, type CsvColumn } from '../../components/csv';
+import { ExportCsvButton, ExportScope } from '../../components/ExportCsv';
 import { formatCadence, formatDuration, formatInt, formatShare } from '../../components/format';
 import { OpenInMenu } from '../../components/OpenInMenu';
 import { PageHeader } from '../../components/PageHeader';
@@ -82,6 +85,43 @@ function seriesBuckets(b: Bottlenecks) {
   });
 }
 
+type Bucket = ReturnType<typeof seriesBuckets>[number];
+
+/** The waiting chart's table view as CSV: task-minutes per reason series and bucket, unrounded. */
+const waitingCsv = (
+  series: ReadonlyArray<{ key: ChartSeriesKey }>,
+  bucketSeconds: number,
+): readonly CsvColumn<Bucket>[] => [
+  { name: 'bucket_start_utc', value: (x) => isoUtc(x.start) },
+  { name: 'bucket_seconds', value: () => bucketSeconds },
+  ...series.map((s) => ({
+    name: `${s.key.replace(/-/g, '_')}_task_minutes`,
+    value: (x: Bucket) => x.values[s.key] ?? 0,
+  })),
+];
+
+type Reason = Bottlenecks['reasons'][number];
+
+/** The reasons table as CSV; reasons whose inputs are not collected have no time or share. */
+const REASON_CSV: readonly CsvColumn<Reason>[] = [
+  { name: 'reason_id', value: (r) => r.id },
+  { name: 'reason', value: (r) => REASONS[r.id].label },
+  { name: 'phase', value: (r) => r.phase },
+  { name: 'evaluated', value: (r) => r.evaluated },
+  { name: 'waiting_task_seconds', value: (r) => (r.evaluated ? r.waiting_task_seconds : null) },
+  { name: 'share_ratio', value: (r) => (r.evaluated ? r.share : null) },
+  { name: 'top_dags', value: (r) => csvList(r.top_contributors.slice(0, 3).map((c) => c.dag_id)) },
+];
+
+/** Sensors shown, and exported, in the sensors table. */
+const SENSORS_SHOWN = 8;
+
+const SENSOR_CSV: readonly CsvColumn<Bottlenecks['sensors'][number]>[] = [
+  { name: 'dag_id', value: (s) => s.dag_id },
+  { name: 'task_id', value: (s) => s.task_id },
+  { name: 'slot_seconds', value: (s) => s.slot_seconds },
+];
+
 export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
   const { range, time } = useView();
   const [view, setView] = usePageParam('waiting', 'chart');
@@ -107,7 +147,7 @@ export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
       </PageHeader>
       <QueryState isPending={q.isPending} error={q.error} what="the bottleneck analysis" range={range} />
       {b && (
-        <>
+        <ExportScope envId={b.env_id} range={range} asOf={b.data_as_of} rangeEnd={b.range.to}>
           {b.answer.reason ? (
             <Alert severity="info" icon={false} action={<InfoPopover explanation={X['botl-answer']} />}>
               <Typography component="p">
@@ -165,9 +205,17 @@ export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
           <Panel
             explanation={X['botl-waiting-chart']}
             actions={
-              <Button size="small" onClick={() => setView(asTable ? 'chart' : 'table')}>
-                {asTable ? 'View waiting as a chart' : 'View waiting as a table'}
-              </Button>
+              <Stack direction="row" sx={{ alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                <Button size="small" onClick={() => setView(asTable ? 'chart' : 'table')}>
+                  {asTable ? 'View waiting as a chart' : 'View waiting as a table'}
+                </Button>
+                <ExportCsvButton
+                  view="waiting"
+                  what="Waiting task-minutes per bucket"
+                  rows={buckets}
+                  columns={waitingCsv(present, b.bucket_seconds)}
+                />
+              </Stack>
             }
           >
             <Stack spacing={2}>
@@ -233,7 +281,17 @@ export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
             />
           </Panel>
 
-          <Panel explanation={X['botl-reasons']}>
+          <Panel
+            explanation={X['botl-reasons']}
+            actions={
+              <ExportCsvButton
+                view="waiting-reasons"
+                what="Waiting by reason"
+                rows={b.reasons}
+                columns={REASON_CSV}
+              />
+            }
+          >
             <Table size="small" aria-label="Waiting by reason">
               <TableHead>
                 <TableRow>
@@ -321,7 +379,17 @@ export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
               <PriorityPanel b={b} />
             </Box>
             <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Panel explanation={X['botl-sensors']}>
+              <Panel
+                explanation={X['botl-sensors']}
+                actions={
+                  <ExportCsvButton
+                    view="sensors"
+                    what="Sensors holding worker slots"
+                    rows={b.sensors.slice(0, SENSORS_SHOWN)}
+                    columns={SENSOR_CSV}
+                  />
+                }
+              >
                 {b.sensors.length === 0 ? (
                   <Typography variant="body2" color="text.secondary">
                     No poke-mode sensors held worker slots in this range.
@@ -336,7 +404,7 @@ export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {b.sensors.slice(0, 8).map((s) => (
+                      {b.sensors.slice(0, SENSORS_SHOWN).map((s) => (
                         <TableRow key={`${s.dag_id}/${s.task_id}`}>
                           <TableCell>
                             <Link href={linkTo({ page: 'dag', dagId: s.dag_id })}>{s.dag_id}</Link>
@@ -370,7 +438,7 @@ export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
                 : `live snapshots every ${formatCadence(b.snapshot_interval_seconds)}`
             }; pre-queue reasons only from DCAM's own collection`}
           />
-        </>
+        </ExportScope>
       )}
     </Stack>
   );

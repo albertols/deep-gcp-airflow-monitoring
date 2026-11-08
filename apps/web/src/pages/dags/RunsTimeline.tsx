@@ -1,12 +1,12 @@
 /**
  * Runs timeline (FR-DAGD-02): one bar per run at its start time, its height the duration, its state
  * shown by colour and a mark. The bars form a radio group (arrow keys move) that picks the run shown
- * in the Gantt chart; a table view lists every run.
+ * in the Gantt chart; a table view lists every run, latest first, and exports as CSV (FR-STORE-04).
  *
  * Start delay (HM-002) is measured from the end of the data interval where DCAM can derive it; any
  * other basis is named next to the value.
  *
- * @implements FR-DAGD-02, HM-002, FR-UI-01, FR-UI-02
+ * @implements FR-DAGD-02, HM-002, FR-UI-01, FR-UI-02, FR-STORE-04
  */
 import { useId, useRef, type KeyboardEvent } from 'react';
 import Box from '@mui/material/Box';
@@ -22,6 +22,8 @@ import Typography from '@mui/material/Typography';
 import { useTheme } from '@mui/material/styles';
 import type { DagDetail } from '@dcam/contracts';
 import { tokens } from '@dcam/ui-kit';
+import { isoUtc, type CsvColumn } from '../../components/csv';
+import { ExportCsvButton } from '../../components/ExportCsv';
 import { formatDuration, formatInt } from '../../components/format';
 import { usePageParam, useTimeFormat } from '../../components/view';
 
@@ -62,6 +64,19 @@ export const STATE_LABEL: Record<Run['state'], string> = {
   running: 'Running',
 };
 
+/** The runs table as CSV: times in UTC, durations and start delays in seconds. */
+const RUN_CSV: readonly CsvColumn<Run>[] = [
+  { name: 'run_id', value: (r) => r.run_id },
+  { name: 'state', value: (r) => r.state },
+  { name: 'logical_date_utc', value: (r) => isoUtc(r.logical_date) },
+  { name: 'start_utc', value: (r) => isoUtc(r.start) },
+  { name: 'end_utc', value: (r) => isoUtc(r.end) },
+  { name: 'duration_seconds', value: (r) => r.duration_seconds },
+  { name: 'start_delay_seconds', value: (r) => r.start_delay_seconds },
+  { name: 'start_delay_basis', value: (r) => r.start_delay_basis },
+  { name: 'tries', value: (r) => r.tries },
+];
+
 export function RunsTimeline({
   runs,
   range,
@@ -82,6 +97,7 @@ export function RunsTimeline({
   const [view, setView] = usePageParam('runs', 'chart');
   const asTable = view === 'table';
   const setAsTable = (next: (v: boolean) => boolean) => setView(next(asTable) ? 'table' : 'chart');
+  const latestFirst = [...runs].reverse();
   const from = Date.parse(range.from);
   const to = Date.parse(range.to);
   const now = to;
@@ -177,9 +193,12 @@ export function RunsTimeline({
             </Box>
           ))}
         </Box>
-        <Button size="small" variant="outlined" onClick={() => setAsTable((v) => !v)}>
-          {asTable ? 'View runs as chart' : 'View runs as table'}
-        </Button>
+        <Stack direction="row" sx={{ gap: 1, flexWrap: 'wrap' }}>
+          <Button size="small" variant="outlined" onClick={() => setAsTable((v) => !v)}>
+            {asTable ? 'View runs as chart' : 'View runs as table'}
+          </Button>
+          <ExportCsvButton view="runs" what="Runs" rows={latestFirst} columns={RUN_CSV} />
+        </Stack>
       </Stack>
       <Typography id={descId} variant="caption" color="text.secondary">
         {formatInt(runs.length)} runs: {formatInt(counts.success)} succeeded, {formatInt(counts.failed)}{' '}
@@ -201,7 +220,7 @@ export function RunsTimeline({
               </TableRow>
             </TableHead>
             <TableBody>
-              {[...runs].reverse().map((r) => (
+              {latestFirst.map((r) => (
                 <TableRow key={r.run_id} selected={r.run_id === selectedRunId}>
                   <TableCell title={r.run_id}>{time.dateTime(r.start)}</TableCell>
                   <TableCell>{STATE_LABEL[r.state]}</TableCell>

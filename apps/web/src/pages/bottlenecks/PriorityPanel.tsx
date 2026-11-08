@@ -1,8 +1,9 @@
 /**
  * Priority fairness (HM-023, the observed part): observed waits per priority_weight band within each
- * pool, with the §8.9 low-sample rule; the starvation ratio is shown as not computed, with its reason.
+ * pool, with the §8.9 low-sample rule; the starvation ratio is shown as not computed, with its reason. The
+ * table exports as CSV, one row per pool and band (FR-STORE-04).
  *
- * @implements HM-023, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements HM-023, FR-UI-05, FR-UI-07, FR-UI-08, FR-STORE-04
  */
 import { Fragment } from 'react';
 import Alert from '@mui/material/Alert';
@@ -14,6 +15,8 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import type { Bottlenecks, PriorityFairness } from '@dcam/contracts';
+import type { CsvColumn } from '../../components/csv';
+import { ExportCsvButton } from '../../components/ExportCsv';
 import { formatDuration, formatInt } from '../../components/format';
 import { Panel, ProvenanceFooter } from '../../components/Panel';
 import { DEPTH_EXPLANATIONS as X } from './explanations-depth';
@@ -25,8 +28,28 @@ const MONO = { fontFamily: '"Roboto Mono", ui-monospace, monospace' } as const;
 const weights = (b: Band) =>
   b.min_weight === b.max_weight ? `${b.min_weight}` : `${b.min_weight}–${b.max_weight}`;
 
+interface BandRow {
+  readonly pool: string;
+  readonly band: Band;
+}
+
+/** The table as CSV: one row per pool and band; waits in seconds, p95 the max below 20 tries. */
+const BAND_CSV: readonly CsvColumn<BandRow>[] = [
+  { name: 'pool', value: (x) => x.pool },
+  { name: 'band', value: (x) => x.band.band },
+  { name: 'min_priority_weight', value: (x) => x.band.min_weight },
+  { name: 'max_priority_weight', value: (x) => x.band.max_weight },
+  { name: 'tries', value: (x) => x.band.tries },
+  { name: 'wait_p50_seconds', value: (x) => x.band.wait_p50_seconds },
+  { name: 'wait_p95_seconds', value: (x) => x.band.wait_p95_seconds },
+  { name: 'wait_p95_low_sample', value: (x) => x.band.p95_low_sample },
+];
+
+/** Pools whose waiting tries have more than one priority band: the only ones priority can favour. */
+const bandedPools = (p: PriorityFairness) => p.pools.filter((x) => x.bands.length > 1);
+
 function Body({ p }: { p: PriorityFairness }) {
-  const banded = p.pools.filter((x) => x.bands.length > 1);
+  const banded = bandedPools(p);
   const single = p.pools.filter((x) => x.bands.length <= 1 && x.tries > 0).length;
   return (
     <>
@@ -94,7 +117,19 @@ function Body({ p }: { p: PriorityFairness }) {
 export function PriorityPanel({ b }: { b: Bottlenecks }) {
   const p = b.priority_fairness;
   return (
-    <Panel explanation={X['botl-priority']}>
+    <Panel
+      explanation={X['botl-priority']}
+      actions={
+        <ExportCsvButton
+          view="priority-bands"
+          what="Observed wait by priority band"
+          rows={
+            p ? bandedPools(p).flatMap((pool) => pool.bands.map((band) => ({ pool: pool.pool, band }))) : []
+          }
+          columns={BAND_CSV}
+        />
+      }
+    >
       {p ? (
         <Body p={p} />
       ) : (

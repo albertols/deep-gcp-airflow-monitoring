@@ -1,9 +1,11 @@
 /**
  * Top contributors per throttle reason (HM-006 output, M3 demo step 2): the DAGs and the pools whose
- * waiting task instances make up the selected reason, with their shares.
+ * waiting task instances make up the selected reason, with their shares. Both tables export as CSV
+ * (FR-STORE-04).
  *
- * @implements FR-BOTL-01, HM-006, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements FR-BOTL-01, HM-006, FR-UI-05, FR-UI-07, FR-UI-08, FR-STORE-04
  */
+import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import LinearProgress from '@mui/material/LinearProgress';
 import Link from '@mui/material/Link';
@@ -17,6 +19,8 @@ import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
 import type { Bottlenecks, WaitReasonId } from '@dcam/contracts';
+import type { CsvColumn } from '../../components/csv';
+import { ExportCsvButton } from '../../components/ExportCsv';
 import { formatShare } from '../../components/format';
 import { Panel, ProvenanceFooter } from '../../components/Panel';
 import type { PageProps } from '../types';
@@ -29,6 +33,34 @@ const taskHours = (seconds: number) =>
   new Intl.NumberFormat('en-US', { maximumFractionDigits: 1, minimumFractionDigits: 1 }).format(
     seconds / 3600,
   );
+
+type Reason = Bottlenecks['reasons'][number];
+type Contributor = Reason['top_contributors'][number];
+type PoolContributor = NonNullable<Reason['top_pools']>[number];
+
+/** The DAGs table as CSV: waiting task-seconds and share of the selected reason. */
+const dagCsv = (reason: WaitReasonId): readonly CsvColumn<Contributor>[] => [
+  { name: 'reason_id', value: () => reason },
+  { name: 'dag_id', value: (c) => c.dag_id },
+  { name: 'waiting_task_seconds', value: (c) => c.waiting_task_seconds },
+  { name: 'share_ratio', value: (c) => c.share },
+];
+
+const poolCsv = (reason: WaitReasonId): readonly CsvColumn<PoolContributor>[] => [
+  { name: 'reason_id', value: () => reason },
+  { name: 'pool', value: (p) => p.pool },
+  { name: 'waiting_task_seconds', value: (p) => p.waiting_task_seconds },
+  { name: 'share_ratio', value: (p) => p.share },
+];
+
+/** An export button above a table, at its right edge. */
+function TableActions({ children }: { children: ReactNode }) {
+  return (
+    <Stack direction="row" sx={{ justifyContent: 'flex-end', mb: 1 }}>
+      {children}
+    </Stack>
+  );
+}
 
 function ShareCell({ share, label }: { share: number; label: string }) {
   return (
@@ -74,6 +106,14 @@ export function TopContributorsPanel({ b, linkTo }: { b: Bottlenecks; linkTo: Pa
           </ToggleButtonGroup>
           <Stack direction={{ xs: 'column', md: 'row' }} sx={{ gap: 4 }}>
             <Box sx={{ flex: 1, minWidth: 0 }}>
+              <TableActions>
+                <ExportCsvButton
+                  view="top-dags-per-reason"
+                  what="DAGs that waited most"
+                  rows={selected.top_contributors}
+                  columns={dagCsv(selected.id)}
+                />
+              </TableActions>
               <Table size="small" aria-label="DAGs that waited most">
                 <TableHead>
                   <TableRow>
@@ -99,26 +139,36 @@ export function TopContributorsPanel({ b, linkTo }: { b: Bottlenecks; linkTo: Pa
             </Box>
             <Box sx={{ flex: 1, minWidth: 0 }}>
               {selected.top_pools ? (
-                <Table size="small" aria-label="Pools that waited most">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Pool</TableCell>
-                      <TableCell align="right">Task-hours</TableCell>
-                      <TableCell sx={{ width: '40%' }}>Share of the reason</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {selected.top_pools.map((p) => (
-                      <TableRow key={p.pool}>
-                        <TableCell sx={MONO}>{p.pool}</TableCell>
-                        <TableCell align="right">{taskHours(p.waiting_task_seconds)}</TableCell>
-                        <TableCell>
-                          <ShareCell share={p.share} label={`${p.pool} share`} />
-                        </TableCell>
+                <>
+                  <TableActions>
+                    <ExportCsvButton
+                      view="top-pools-per-reason"
+                      what="Pools that waited most"
+                      rows={selected.top_pools}
+                      columns={poolCsv(selected.id)}
+                    />
+                  </TableActions>
+                  <Table size="small" aria-label="Pools that waited most">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Pool</TableCell>
+                        <TableCell align="right">Task-hours</TableCell>
+                        <TableCell sx={{ width: '40%' }}>Share of the reason</TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHead>
+                    <TableBody>
+                      {selected.top_pools.map((p) => (
+                        <TableRow key={p.pool}>
+                          <TableCell sx={MONO}>{p.pool}</TableCell>
+                          <TableCell align="right">{taskHours(p.waiting_task_seconds)}</TableCell>
+                          <TableCell>
+                            <ShareCell share={p.share} label={`${p.pool} share`} />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </>
               ) : (
                 <Typography variant="body2" color="text.secondary">
                   Pools per reason are not available from this DCAM server. Update DCAM to see them.

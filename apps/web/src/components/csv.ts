@@ -67,6 +67,8 @@ export function quantileColumns<R>(name: string, get: (row: R) => QuantileLike):
 
 /** What an export belongs to: shown in its file name. */
 export interface ExportContext {
+  /** What every view of the page is about, before the view's own name: `dag-orders_daily`. */
+  readonly subject?: string | null;
   readonly envId: string | null;
   /** A range preset (`24h`), or `null` for views that do not follow a range. */
   readonly range: string | null;
@@ -84,11 +86,14 @@ function stamp(time: string | null | undefined): string | null {
   return iso === null ? null : `${iso.slice(0, 13)}${iso.slice(14, 16)}Z`;
 }
 
-/** `dcam-<view>-<environment>-<range>-<data as of>.csv`; parts that are not known are left out. */
+/**
+ * `dcam-[<subject>-]<view>-<environment>-<range>-<data as of>.csv`; parts that are not known are left
+ * out, and data as of falls back to the range end, then to `undated`.
+ */
 export function exportFileName(view: string, context: ExportContext): string {
   const when = stamp(context.asOf) ?? stamp(context.rangeEnd) ?? 'undated';
-  const parts = ['dcam', view, context.envId, context.range, when].filter(
-    (p): p is string => p !== null && p !== '',
+  const parts = ['dcam', context.subject, view, context.envId, context.range, when].filter(
+    (p): p is string => typeof p === 'string' && p !== '',
   );
   return `${parts.map(unsafe).join('-')}.csv`;
 }

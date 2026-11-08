@@ -1,7 +1,8 @@
 /**
- * S-02 fleet: every environment at a glance with an explainable health score.
+ * S-02 fleet: every environment at a glance with an explainable health score. The environments and each
+ * card's health checks export as CSV (FR-STORE-04).
  *
- * @implements FR-FLEET-01, FR-FLEET-02, FR-UI-01, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements FR-FLEET-01, FR-FLEET-02, FR-UI-01, FR-UI-05, FR-UI-07, FR-UI-08, FR-STORE-04
  */
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -23,6 +24,8 @@ import HelpOutlineOutlined from '@mui/icons-material/HelpOutlineOutlined';
 import WarningAmberOutlined from '@mui/icons-material/WarningAmberOutlined';
 import type { FleetCard, HealthCheck } from '@dcam/contracts';
 import { InfoPopover, type Explanation } from '@dcam/ui-kit';
+import { csvList, isoUtc, type CsvColumn } from '../../components/csv';
+import { ExportCsvButton, ExportScope } from '../../components/ExportCsv';
 import { formatInt, formatSlotHours } from '../../components/format';
 import { PageHeader } from '../../components/PageHeader';
 import { PanelTitle, ProvenanceFooter, QueryState } from '../../components/Panel';
@@ -42,6 +45,42 @@ const LABEL = {
 } as const;
 
 const CHECK_STATE: Record<HealthCheck['state'], string> = { pass: 'Pass', fail: 'Fail', unknown: 'No data' };
+
+/** The fleet as CSV, one row per environment card: the 24 h figures with their units (FR-FLEET-01). */
+const FLEET_CSV: readonly CsvColumn<FleetCard>[] = [
+  { name: 'env_id', value: (e) => e.env_id },
+  { name: 'display_name', value: (e) => e.display_name },
+  { name: 'tier', value: (e) => e.tier },
+  { name: 'composer_image', value: (e) => e.composer_image },
+  { name: 'airflow_version', value: (e) => e.airflow_version },
+  { name: 'health_score', value: (e) => e.health.score },
+  { name: 'health_label', value: (e) => e.health.label },
+  { name: 'checks_evaluated', value: (e) => e.health.evaluated },
+  { name: 'checks_total', value: (e) => e.health.total },
+  { name: 'running', value: (e) => e.running },
+  { name: 'queued', value: (e) => e.queued },
+  { name: 'workers_current', value: (e) => e.workers.current },
+  { name: 'workers_min', value: (e) => e.workers.min },
+  { name: 'workers_max', value: (e) => e.workers.max },
+  { name: 'slot_seconds_24h', value: (e) => e.slot_seconds_24h },
+  { name: 'waiting_task_seconds_24h', value: (e) => e.waiting_task_seconds_24h },
+  { name: 'failed_tries_24h', value: (e) => e.failures_24h },
+  { name: 'top_reason', value: (e) => e.top_reason },
+  { name: 'top_findings', value: (e) => csvList(e.top_findings.map((f) => f.rule_id)) },
+  { name: 'alerts_firing', value: (e) => e.alerts_firing },
+  { name: 'data_as_of_utc', value: (e) => isoUtc(e.data_as_of) },
+];
+
+/** One card's health checks as CSV (HM-028); the value is as the check reports it. */
+const CHECK_CSV: readonly CsvColumn<HealthCheck>[] = [
+  { name: 'check_id', value: (c) => c.id },
+  { name: 'label', value: (c) => c.label },
+  { name: 'critical', value: (c) => c.critical },
+  { name: 'state', value: (c) => c.state },
+  { name: 'healthy_when', value: (c) => c.threshold },
+  { name: 'value', value: (c) => c.value },
+  { name: 'weight', value: (c) => c.weight },
+];
 
 /**
  * The platform line of a card in plain words (§12.12). A self-managed Airflow (the emulator) has no
@@ -131,9 +170,21 @@ function EnvironmentCard({ env }: { env: FleetCard }) {
           </Box>
         </Stack>
         <Box>
-          <Button size="small" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-            {open ? 'Hide the checks' : `Show the ${env.health.total} checks`}
-          </Button>
+          <Stack direction="row" sx={{ alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+            <Button size="small" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+              {open ? 'Hide the checks' : `Show the ${env.health.total} checks`}
+            </Button>
+            {open && (
+              <ExportScope envId={env.env_id} range="24h" asOf={env.data_as_of}>
+                <ExportCsvButton
+                  view="health-checks"
+                  what={`Health checks for ${env.display_name}`}
+                  rows={env.health.checks}
+                  columns={CHECK_CSV}
+                />
+              </ExportScope>
+            )}
+          </Stack>
           {open && (
             <Table size="small" aria-label={`Health checks for ${env.display_name}`}>
               <TableHead>
@@ -250,7 +301,18 @@ export function FleetPage({ api }: PageProps) {
       <PageHeader
         title="Fleet"
         subtitle="Every environment at a glance: health, load and what holds work back."
-      />
+      >
+        {q.data && (
+          <ExportScope envId={null} range="24h" asOf={q.data.data_as_of}>
+            <ExportCsvButton
+              view="fleet"
+              what="Environments"
+              rows={q.data.environments}
+              columns={FLEET_CSV}
+            />
+          </ExportScope>
+        )}
+      </PageHeader>
       <QueryState isPending={q.isPending} error={q.error} what="the fleet" />
       {q.data && (
         <>

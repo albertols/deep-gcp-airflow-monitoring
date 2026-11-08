@@ -4,9 +4,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from '@mui/material/styles';
 import type { ComponentType } from 'react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { AlertEvent, AlertRule, Alerts, Meta } from '@dcam/contracts';
 import { createDcamTheme } from '@dcam/ui-kit';
 import type { DcamApi } from '../src/api';
 import { PageParamsContext } from '../src/components/view';
+import { AlertsPage } from '../src/pages/alerts/AlertsPage';
+import { DagDetailPage } from '../src/pages/dags/DagDetailPage';
 import { DagsPage } from '../src/pages/dags/DagsPage';
 import type { PageProps } from '../src/pages/types';
 import { linkTo, type PageParams, type Route } from '../src/router';
@@ -168,4 +171,107 @@ describe('FR-STORE-04 the export equals the filtered view', { timeout: UI_TIMEOU
     expect(csvColumn(file.text, 'run_duration_p95_seconds')).toEqual(['1500', '900']);
     expect(csvColumn(file.text, 'run_duration_p95_low_sample')).toEqual(['true', 'false']);
   });
+
+  it('FR-STORE-04: alert rules and alert history export their filtered rows, in order', async () => {
+    downloads = captureDownloads();
+    renderPage(
+      AlertsPage,
+      fakeApi({ getMeta: async () => META, getAlerts: async () => ALERTS }),
+      {
+        page: 'alerts',
+      },
+      { state: 'firing', event: 'fired' },
+    );
+    await screen.findByRole('table', { name: 'Alert rules' });
+    const rules = tableColumn('Alert rules', 1).map((text) => text.slice(0, 5));
+    expect(rules).toEqual(['AL-15', 'AL-19']);
+    const rulesFile = await exportCsv('Alert rules');
+    expect(rulesFile.name).toBe('dcam-alert-rules-acme-prod-24h-2026-11-05T1159Z.csv');
+    expect(csvColumn(rulesFile.text, 'rule_id')).toEqual(rules);
+    expect(csvColumn(rulesFile.text, 'value')).toEqual(['34.5', '3']);
+    expect(csvColumn(rulesFile.text, 'since_utc')).toEqual([
+      '2026-11-05T11:40:00.000Z',
+      '2026-11-05T12:00:00.000Z',
+    ]);
+
+    const history = tableColumn('Alert history', 2);
+    expect(history).toEqual(['AL-19', 'AL-15', 'AL-15']);
+    const historyFile = await exportCsv('Alert history');
+    expect(csvColumn(historyFile.text, 'rule_id')).toEqual(history);
+    expect(csvColumn(historyFile.text, 'kind')).toEqual(['fired', 'fired', 'fired']);
+    expect(csvColumn(historyFile.text, 'at_utc')[0]).toBe('2026-11-05T12:00:00.000Z');
+  });
+
+  it('FR-STORE-04: the DAG tasks and runs export the rows their tables show', async () => {
+    downloads = captureDownloads();
+    renderPage(DagDetailPage, fakeApi(), { page: 'dag', dagId: 'orders_daily' }, { runs: 'table' });
+    await screen.findByRole('table', { name: 'Tasks' });
+    const tasks = tableColumn('Tasks', 0);
+    expect(tasks).toEqual(['load', 'extract']);
+    const tasksFile = await exportCsv('Tasks');
+    expect(tasksFile.name).toBe('dcam-dag-orders_daily-tasks-acme-prod-24h-2026-11-05T1200Z.csv');
+    expect(csvColumn(tasksFile.text, 'task_id')).toEqual(tasks);
+    expect(csvColumn(tasksFile.text, 'duration_p95_seconds')).toEqual(['1800', '600']);
+    expect(csvColumn(tasksFile.text, 'duration_p95_low_sample')).toEqual(['true', 'true']);
+    expect(csvColumn(tasksFile.text, 'failure_rate_ratio')).toEqual(['', '']);
+
+    // The runs table lists the latest run first; so does its file.
+    const runsFile = await exportCsv('Runs');
+    expect(csvColumn(runsFile.text, 'start_utc')).toEqual([
+      '2026-11-05T11:02:00.000Z',
+      '2026-11-05T10:00:05.000Z',
+    ]);
+    expect(csvColumn(runsFile.text, 'duration_seconds')).toEqual(['1080', '2400']);
+  });
 });
+
+const T = (h: number, m = 0) => new Date(Date.UTC(2026, 10, 5, h, m)).toISOString();
+const META: Meta = {
+  name: 'DCAM',
+  version: '0.0.0',
+  mode: 'demo',
+  environments: [{ env_id: 'acme-prod', display_name: 'acme-prod', tier: 'prod' }],
+};
+const rule = (id: string, p: Partial<AlertRule>): AlertRule => ({
+  id,
+  name: `Rule ${id}`,
+  env_id: 'acme-prod',
+  severity: 'warning',
+  state: 'inactive',
+  condition: 'A condition',
+  for_seconds: 0,
+  threshold: null,
+  value: null,
+  unit: '',
+  since: null,
+  summary: 'A summary.',
+  runbook: null,
+  export_cloud_monitoring: 'no',
+  fired_count_24h: 0,
+  ...p,
+});
+const event = (id: string, rule_id: string, kind: AlertEvent['kind'], at: string): AlertEvent => ({
+  id,
+  rule_id,
+  env_id: 'acme-prod',
+  severity: 'warning',
+  kind,
+  at,
+  value: 1,
+});
+const ALERTS: Alerts = {
+  data_as_of: T(11, 59),
+  sources: ['DEMO'],
+  rules: [
+    rule('AL-01', { value: 99, unit: '%', threshold: 90 }),
+    rule('AL-05', { state: 'pending', value: 14, since: T(11, 52) }),
+    rule('AL-15', { state: 'firing', value: 34.5, unit: 'min', since: T(11, 40), fired_count_24h: 2 }),
+    rule('AL-19', { state: 'firing', value: 3, unit: 'restarts', since: T(12), fired_count_24h: 1 }),
+  ],
+  events: [
+    event('e4', 'AL-19', 'fired', T(12)),
+    event('e3', 'AL-15', 'fired', T(11, 40)),
+    event('e2', 'AL-15', 'resolved', T(9, 30)),
+    event('e1', 'AL-15', 'fired', T(8, 0)),
+  ],
+};

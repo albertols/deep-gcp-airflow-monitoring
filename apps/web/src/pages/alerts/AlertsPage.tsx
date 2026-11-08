@@ -1,8 +1,10 @@
 /**
  * S-24 "Alerts": the default alert pack evaluated locally while DCAM runs, firing and pending first,
- * with fire counts, mean time to resolve and the 24 h history. Read-only: nothing is sent anywhere.
+ * with fire counts, mean time to resolve and the 24 h history. Read-only: nothing is sent anywhere. Both
+ * tables export the rows they show (FR-STORE-04).
  *
- * @implements FR-ALRT-01, FR-ALRT-02, FR-ALRT-06, FR-UI-01, FR-UI-02, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements FR-ALRT-01, FR-ALRT-02, FR-ALRT-06, FR-UI-01, FR-UI-02, FR-UI-05, FR-UI-07, FR-UI-08,
+ *   FR-STORE-04
  */
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, type ComponentType } from 'react';
@@ -29,6 +31,8 @@ import RadioButtonUncheckedOutlined from '@mui/icons-material/RadioButtonUncheck
 import ReportOutlined from '@mui/icons-material/ReportOutlined';
 import WarningAmberOutlined from '@mui/icons-material/WarningAmberOutlined';
 import type { AlertEvent, AlertRule, AlertState, Severity } from '@dcam/contracts';
+import { isoUtc, type CsvColumn } from '../../components/csv';
+import { ExportCsvButton, ExportScope } from '../../components/ExportCsv';
 import { formatDuration, formatInt } from '../../components/format';
 import { PageHeader } from '../../components/PageHeader';
 import { usePageParam, useRefresh, useTimeFormat } from '../../components/view';
@@ -88,7 +92,6 @@ function Labelled({
   );
 }
 
-/** A value in the rule's unit: durations humanised, percentages and counts with their unit. */
 /** Count units of the alert pack in the singular, for a value of exactly one. */
 const SINGULAR_UNIT: Readonly<Record<string, string>> = {
   restarts: 'restart',
@@ -98,6 +101,7 @@ const SINGULAR_UNIT: Readonly<Record<string, string>> = {
   days: 'day',
 };
 
+/** A value in the rule's unit: durations humanised, percentages and counts with their unit. */
 function formatValue(value: number | null, unit: string): string {
   if (value === null) return '—';
   if (unit === 's') return formatDuration(value);
@@ -106,6 +110,36 @@ function formatValue(value: number | null, unit: string): string {
   if (unit === '%') return `${n} %`;
   return `${n} ${(value === 1 && SINGULAR_UNIT[unit]) || unit}`;
 }
+
+/** The alert rules table as CSV (FR-STORE-04): value and threshold are in the row's `unit`. */
+const RULE_CSV: readonly CsvColumn<AlertRule>[] = [
+  { name: 'rule_id', value: (r) => r.id },
+  { name: 'name', value: (r) => r.name },
+  { name: 'env_id', value: (r) => r.env_id },
+  { name: 'state', value: (r) => r.state },
+  { name: 'severity', value: (r) => r.severity },
+  { name: 'condition', value: (r) => r.condition },
+  { name: 'value', value: (r) => r.value },
+  { name: 'threshold', value: (r) => r.threshold },
+  { name: 'unit', value: (r) => r.unit },
+  { name: 'for_seconds', value: (r) => r.for_seconds },
+  { name: 'since_utc', value: (r) => isoUtc(r.since) },
+  { name: 'fired_count_24h', value: (r) => r.fired_count_24h },
+  { name: 'runbook', value: (r) => r.runbook },
+  { name: 'export_cloud_monitoring', value: (r) => r.export_cloud_monitoring },
+  { name: 'summary', value: (r) => r.summary },
+];
+
+/** The alert history as CSV; each value is in the unit of its event's rule. */
+const historyCsv = (unitOf: (e: AlertEvent) => string): readonly CsvColumn<AlertEvent>[] => [
+  { name: 'at_utc', value: (e) => isoUtc(e.at) },
+  { name: 'kind', value: (e) => e.kind },
+  { name: 'rule_id', value: (e) => e.rule_id },
+  { name: 'severity', value: (e) => e.severity },
+  { name: 'env_id', value: (e) => e.env_id },
+  { name: 'value', value: (e) => e.value },
+  { name: 'unit', value: unitOf },
+];
 
 export function AlertsPage({ api, envId, linkTo }: PageProps) {
   // `null` follows the environment selected in the top bar.
@@ -154,6 +188,7 @@ export function AlertsPage({ api, envId, linkTo }: PageProps) {
       unitOf: (e: AlertEvent) => units.get(`${e.env_id}\u0000${e.rule_id}`) ?? '',
     };
   }, [a]);
+  const eventCsv = useMemo(() => (view ? historyCsv(view.unitOf) : []), [view]);
   const rules = view ? view.sorted.filter((r) => stateFilter === ALL || r.state === stateFilter) : [];
   const events = a ? a.events.filter((e) => eventFilter === ALL || e.kind === eventFilter) : [];
   const many = filterEnv === undefined;
@@ -192,7 +227,7 @@ export function AlertsPage({ api, envId, linkTo }: PageProps) {
 
       <QueryState isPending={q.isPending} error={q.error} what="alerts" />
       {a && view && (
-        <>
+        <ExportScope envId={scope} range="24h" asOf={a.data_as_of}>
           <KpiRow>
             <Kpi explanation={X['alerts-firing']} value={formatInt(view.counts.firing)} />
             <Kpi explanation={X['alerts-pending']} value={formatInt(view.counts.pending)} />
@@ -227,21 +262,24 @@ export function AlertsPage({ api, envId, linkTo }: PageProps) {
           <Panel
             explanation={X['alerts-rules']}
             actions={
-              <ToggleButtonGroup
-                size="small"
-                exclusive
-                value={stateFilter}
-                aria-label="Filter rules by state"
-                onChange={(_e, next: AlertState | typeof ALL | null) => next && setStateFilter(next)}
-                sx={{ flexWrap: 'wrap' }}
-              >
-                <ToggleButton value={ALL}>All ({a.rules.length})</ToggleButton>
-                {STATES.map((s) => (
-                  <ToggleButton key={s} value={s}>
-                    {STATE_LABEL[s]} ({view.counts[s]})
-                  </ToggleButton>
-                ))}
-              </ToggleButtonGroup>
+              <Stack direction="row" sx={{ alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                <ToggleButtonGroup
+                  size="small"
+                  exclusive
+                  value={stateFilter}
+                  aria-label="Filter rules by state"
+                  onChange={(_e, next: AlertState | typeof ALL | null) => next && setStateFilter(next)}
+                  sx={{ flexWrap: 'wrap' }}
+                >
+                  <ToggleButton value={ALL}>All ({a.rules.length})</ToggleButton>
+                  {STATES.map((s) => (
+                    <ToggleButton key={s} value={s}>
+                      {STATE_LABEL[s]} ({view.counts[s]})
+                    </ToggleButton>
+                  ))}
+                </ToggleButtonGroup>
+                <ExportCsvButton view="alert-rules" what="Alert rules" rows={rules} columns={RULE_CSV} />
+              </Stack>
             }
           >
             {rules.length === 0 ? (
@@ -289,23 +327,28 @@ export function AlertsPage({ api, envId, linkTo }: PageProps) {
           <Panel
             explanation={X['alerts-history']}
             actions={
-              <ToggleButtonGroup
-                size="small"
-                exclusive
-                value={eventFilter}
-                aria-label="Filter events"
-                onChange={(_e, next: AlertEvent['kind'] | typeof ALL | null) => next && setEventFilter(next)}
-              >
-                <ToggleButton value={ALL} aria-label="All events">
-                  All
-                </ToggleButton>
-                <ToggleButton value="fired" aria-label="Fired events">
-                  Fired
-                </ToggleButton>
-                <ToggleButton value="resolved" aria-label="Resolved events">
-                  Resolved
-                </ToggleButton>
-              </ToggleButtonGroup>
+              <Stack direction="row" sx={{ alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                <ToggleButtonGroup
+                  size="small"
+                  exclusive
+                  value={eventFilter}
+                  aria-label="Filter events"
+                  onChange={(_e, next: AlertEvent['kind'] | typeof ALL | null) =>
+                    next && setEventFilter(next)
+                  }
+                >
+                  <ToggleButton value={ALL} aria-label="All events">
+                    All
+                  </ToggleButton>
+                  <ToggleButton value="fired" aria-label="Fired events">
+                    Fired
+                  </ToggleButton>
+                  <ToggleButton value="resolved" aria-label="Resolved events">
+                    Resolved
+                  </ToggleButton>
+                </ToggleButtonGroup>
+                <ExportCsvButton view="alert-history" what="Alert history" rows={events} columns={eventCsv} />
+              </Stack>
             }
           >
             {events.length === 0 ? (
@@ -359,7 +402,7 @@ export function AlertsPage({ api, envId, linkTo }: PageProps) {
             sources={a.sources}
             note="evaluated every minute; a source older than 3 × its cadence makes a rule unknown"
           />
-        </>
+        </ExportScope>
       )}
     </Stack>
   );

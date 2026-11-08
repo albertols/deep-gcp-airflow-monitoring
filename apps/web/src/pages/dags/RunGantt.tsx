@@ -2,9 +2,9 @@
  * Run Gantt (FR-DAGD-03): every try of one run on a time axis, with the wait before the queue, the wait
  * in the queue and the running time in visually distinct, accessible styles (hatched, dotted, solid),
  * a legend, a text summary and a table view. Tries on the critical path (HM-007, estimated from timing)
- * have a dashed outline, a legend entry and a table column.
+ * have a dashed outline, a legend entry and a table column. The table exports as CSV (FR-STORE-04).
  *
- * @implements FR-DAGD-03, HM-007, FR-UI-01, FR-UI-02
+ * @implements FR-DAGD-03, HM-007, FR-UI-01, FR-UI-02, FR-STORE-04
  */
 import { useId } from 'react';
 import Box from '@mui/material/Box';
@@ -20,6 +20,8 @@ import Typography from '@mui/material/Typography';
 import { useTheme } from '@mui/material/styles';
 import type { DagDetail } from '@dcam/contracts';
 import { tokens } from '@dcam/ui-kit';
+import { isoUtc, type CsvColumn } from '../../components/csv';
+import { ExportCsvButton } from '../../components/ExportCsv';
 import { formatDuration, formatInt } from '../../components/format';
 import { usePageParam, useTimeFormat } from '../../components/view';
 
@@ -56,6 +58,32 @@ function segments(r: GanttRow, now: number): Bar[] {
 }
 
 const seconds = (b: Bar | undefined) => (b ? (b.to - b.from) / 1000 : null);
+
+/** One try of the Gantt table as a CSV row: its times, its three phases and the critical path. */
+interface GanttCsvRow {
+  readonly runId: string | null;
+  readonly row: GanttRow;
+  readonly bars: readonly Bar[];
+  readonly onPath: boolean;
+}
+
+const phase = (x: GanttCsvRow, kind: Segment) => seconds(x.bars.find((b) => b.kind === kind));
+
+/** The Gantt table as CSV: times in UTC, phases in seconds (open phases end at the range end). */
+const GANTT_CSV: readonly CsvColumn<GanttCsvRow>[] = [
+  { name: 'run_id', value: (x) => x.runId },
+  { name: 'task_id', value: (x) => x.row.task_id },
+  { name: 'try_number', value: (x) => x.row.try_number },
+  { name: 'state', value: (x) => x.row.state },
+  { name: 'ready_utc', value: (x) => isoUtc(x.row.ready_at) },
+  { name: 'queued_utc', value: (x) => isoUtc(x.row.queued_at) },
+  { name: 'start_utc', value: (x) => isoUtc(x.row.start) },
+  { name: 'end_utc', value: (x) => isoUtc(x.row.end) },
+  { name: 'pre_queue_wait_seconds', value: (x) => phase(x, 'pre-queue') },
+  { name: 'queue_wait_seconds', value: (x) => phase(x, 'queued') },
+  { name: 'running_seconds', value: (x) => phase(x, 'running') },
+  { name: 'critical_path', value: (x) => x.onPath },
+];
 
 function rowLabel(r: GanttRow): string {
   return r.try_number > 1 ? `${r.task_id} · try ${r.try_number}` : r.task_id;
@@ -119,6 +147,12 @@ export function RunGantt({ gantt, now: nowIso }: { gantt: DagDetail['gantt']; no
     critical.size > 0 ? ` Critical path, estimated from timing: ${formatInt(critical.size)} tries.` : ''
   }`;
   const ticks = Array.from({ length: 5 }, (_, i) => t0 + ((t1 - t0) * i) / 4);
+  const csvRows: GanttCsvRow[] = gantt.rows.map((row, i) => ({
+    runId: gantt.run_id,
+    row,
+    bars: segments(row, now),
+    onPath: critical.has(i),
+  }));
 
   return (
     <Stack spacing={2}>
@@ -182,9 +216,17 @@ export function RunGantt({ gantt, now: nowIso }: { gantt: DagDetail['gantt']; no
             </Box>
           )}
         </Box>
-        <Button size="small" variant="outlined" onClick={() => setAsTable((v) => !v)}>
-          {asTable ? 'View Gantt as chart' : 'View Gantt as table'}
-        </Button>
+        <Stack direction="row" sx={{ gap: 1, flexWrap: 'wrap' }}>
+          <Button size="small" variant="outlined" onClick={() => setAsTable((v) => !v)}>
+            {asTable ? 'View Gantt as chart' : 'View Gantt as table'}
+          </Button>
+          <ExportCsvButton
+            view="gantt"
+            what={`Gantt of run ${gantt.run_id}`}
+            rows={csvRows}
+            columns={GANTT_CSV}
+          />
+        </Stack>
       </Stack>
       <Typography id={descId} variant="caption" color="text.secondary">
         {description}

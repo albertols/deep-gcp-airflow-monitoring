@@ -2,8 +2,9 @@
  * Duration against baseline (FR-TASK-01, HM-016): the DAG's run duration and each task's duration
  * distribution in the range, over the band of the 28 days before it, with the regression verdict in words.
  * Partial and missing baselines say so; a server without these fields says the panel is not available.
+ * The task table exports as CSV with both distributions (FR-STORE-04).
  *
- * @implements FR-TASK-01, HM-016, FR-DAGD-04 (baseline delta), FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements FR-TASK-01, HM-016, FR-DAGD-04 (baseline delta), FR-UI-05, FR-UI-07, FR-UI-08, FR-STORE-04
  */
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
@@ -23,6 +24,8 @@ import type { DagDetail, DurationDistribution, DurationRegression } from '@dcam/
 import { InfoPopover, tokens } from '@dcam/ui-kit';
 import type { DcamApi } from '../../api';
 import { HistoryNote } from '../../components/backfill';
+import type { CsvColumn } from '../../components/csv';
+import { ExportCsvButton } from '../../components/ExportCsv';
 import { Panel, ProvenanceFooter } from '../../components/Panel';
 import { formatDuration, formatInt } from '../../components/format';
 import { DEPTH_EXPLANATIONS as E, type DepthExplanationId } from './depth-explanations';
@@ -189,6 +192,35 @@ function ordered(tasks: DagDetail['tasks']): TaskRow[] {
     );
 }
 
+/** A distribution's columns: `<name>_min_seconds` … `<name>_max_seconds`, samples and low sample. */
+function distributionColumns(name: string, get: (r: TaskRow) => DurationDistribution): CsvColumn<TaskRow>[] {
+  const at = (key: 'min' | 'p25' | 'p50' | 'p75' | 'p95' | 'max'): CsvColumn<TaskRow> => ({
+    name: `${name}_${key}_seconds`,
+    value: (r) => get(r)[key],
+  });
+  return [
+    at('min'),
+    at('p25'),
+    at('p50'),
+    at('p75'),
+    at('p95'),
+    at('max'),
+    { name: `${name}_samples`, value: (r) => get(r).samples },
+    { name: `${name}_low_sample`, value: (r) => get(r).low_sample },
+  ];
+}
+
+/** The task table as CSV: the verdict, both distributions and the test statistics (HM-016). */
+const DURATION_CSV: readonly CsvColumn<TaskRow>[] = [
+  { name: 'task_id', value: (r) => r.task_id },
+  { name: 'verdict', value: (r) => r.duration_regression.status },
+  ...distributionColumns('current', (r) => r.duration_regression.current),
+  ...distributionColumns('baseline', (r) => r.duration_regression.baseline),
+  { name: 'p95_ratio', value: (r) => r.duration_regression.ratio },
+  { name: 'p_value', value: (r) => r.duration_regression.p_value },
+  { name: 'q_value', value: (r) => r.duration_regression.q_value },
+];
+
 const p95 = (d: DurationDistribution) =>
   d.p95 === null ? '—' : `${d.low_sample ? '≤ ' : ''}${formatDuration(d.p95)}`;
 
@@ -249,7 +281,17 @@ export function DurationPanel({
   return (
     <Panel
       explanation={E['dagd-duration-baseline']}
-      actions={<TaskHistoryFreshness api={api} envId={envId} />}
+      actions={
+        <Stack direction="row" sx={{ alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+          <TaskHistoryFreshness api={api} envId={envId} />
+          <ExportCsvButton
+            view="task-durations"
+            what="Task durations against baseline"
+            rows={rows}
+            columns={DURATION_CSV}
+          />
+        </Stack>
+      }
     >
       {baseline === undefined || regression === undefined ? (
         <Typography variant="body2" color="text.secondary">

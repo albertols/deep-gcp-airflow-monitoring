@@ -1,8 +1,9 @@
 /**
  * Capacity overview (M0): the first slice of the DAG league table (spec §12.4 S-05, FR-DAGX-02/03), over
  * the context bar's range, with "Open in" links to the environment in the Cloud console and the Airflow UI.
+ * The top DAGs table exports as CSV (FR-STORE-04).
  *
- * @implements HM-003, HM-011, FR-DAGX-03, FR-UI-01, FR-UI-04, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements HM-003, HM-011, FR-DAGX-03, FR-UI-01, FR-UI-04, FR-UI-05, FR-UI-07, FR-UI-08, FR-STORE-04
  */
 import { useQuery } from '@tanstack/react-query';
 import Alert from '@mui/material/Alert';
@@ -17,8 +18,11 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
+import type { EnvironmentOverview } from '@dcam/contracts';
 import { InfoPopover } from '@dcam/ui-kit';
 import type { DcamApi } from './api';
+import type { CsvColumn } from './components/csv';
+import { ExportCsvButton, ExportScope } from './components/ExportCsv';
 import { clause } from './components/format';
 import { OpenInMenu } from './components/OpenInMenu';
 import { CoverageNote, PageHeader } from './components/PageHeader';
@@ -38,6 +42,13 @@ export const PANELS: readonly ExplanationId[] = [
 const hours = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1, minimumFractionDigits: 1 });
 const pct = new Intl.NumberFormat('en-US', { style: 'percent', maximumFractionDigits: 1 });
 const int = new Intl.NumberFormat('en-US');
+
+/** The top DAGs table as CSV, in rank order (HM-003). */
+const TOP_DAGS_CSV: readonly CsvColumn<EnvironmentOverview['top_dags'][number]>[] = [
+  { name: 'dag_id', value: (d) => d.dag_id },
+  { name: 'executor_slot_seconds', value: (d) => d.executor_slot_seconds },
+  { name: 'share_ratio', value: (d) => d.share },
+];
 
 function PanelTitle({ id }: { id: ExplanationId }) {
   const e = EXPLANATIONS[id];
@@ -97,7 +108,12 @@ export function OverviewPage({ api, envId }: { api: DcamApi; envId: string }) {
       )}
 
       {overview.data && (
-        <>
+        <ExportScope
+          envId={overview.data.env_id}
+          range={range}
+          asOf={overview.data.data_as_of}
+          rangeEnd={overview.data.range.to}
+        >
           <Stack direction="row" sx={{ gap: 4, flexWrap: 'wrap' }}>
             <Kpi
               id="hm-003-slot-seconds"
@@ -117,7 +133,18 @@ export function OverviewPage({ api, envId }: { api: DcamApi; envId: string }) {
           </Stack>
 
           <Paper sx={{ p: 4 }}>
-            <PanelTitle id="top-dags" />
+            <Stack
+              direction="row"
+              sx={{ alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}
+            >
+              <PanelTitle id="top-dags" />
+              <ExportCsvButton
+                view="top-dags"
+                what="Top DAGs by slot-hours"
+                rows={overview.data.top_dags}
+                columns={TOP_DAGS_CSV}
+              />
+            </Stack>
             <Table size="small" aria-label="Top DAGs by slot-hours">
               <TableHead>
                 <TableRow>
@@ -160,7 +187,7 @@ export function OverviewPage({ api, envId }: { api: DcamApi; envId: string }) {
             sources={overview.data.sources}
             note={`Range ${time.dateTime(overview.data.range.from)} to ${time.dateTime(overview.data.range.to)}`}
           />
-        </>
+        </ExportScope>
       )}
     </Stack>
   );
