@@ -66,7 +66,10 @@ export async function createDemoWorkspace(
       scenario: acmeScenario(e.id),
     }),
   );
-  for (const r of results) await store.upsertTaskTries(r.tries);
+  // Committed as af.facts commits them, with its watermark at the end of the simulated data: the store has
+  // read every try up to `now`, so pages say "data as of" now, never "no data collected" (FR-UI-01).
+  for (const [i, e] of ENVIRONMENTS.entries())
+    await store.commitFacts(e.id, 'af.facts', results[i]?.tries ?? [], now);
   return {
     mode: 'demo',
     environments: ENVIRONMENTS.map(demoSummary),

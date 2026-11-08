@@ -81,6 +81,20 @@ describe('ADR-0003 contract: responses conform to openapi.yaml', () => {
     expect(body.sources).toEqual(['DEMO']);
   });
 
+  it('FR-UI-01 / FR-EMU-01: demo pages are as of the end of the simulated data, never "no data collected"', async () => {
+    const asOf = async (url: string) =>
+      get(url).then((r) => r.json<{ data_as_of: string | null }>().data_as_of);
+    const end = new Date(NOW).toISOString();
+    expect(await asOf('/api/v1/environments/acme-prod/overview?range=24h')).toBe(end);
+    const league = await get('/api/v1/environments/acme-prod/dags?range=24h').then((r) =>
+      r.json<{ data_as_of: string | null; rows: { dag_id: string }[] }>(),
+    );
+    expect(league.data_as_of).toBe(end);
+    const dag = encodeURIComponent(league.rows[0]?.dag_id ?? '');
+    expect(await asOf(`/api/v1/environments/acme-prod/dags/${dag}?range=24h`)).toBe(end);
+    expect(await asOf('/api/v1/environments/acme-prod/bottlenecks?range=1h')).not.toBeNull();
+  });
+
   it('returns RFC 9457 problems for an unknown environment and a bad range', async () => {
     const missing = await get('/api/v1/environments/nope/overview');
     expect(missing.statusCode).toBe(404);
