@@ -7,7 +7,7 @@ Test tasks come before the code they cover.
 - [x] T-1100 Test + code: URL builders for the Composer environments page, Metrics Explorer, Logs Explorer with
       a query and a range, and the Airflow UI home, DAG grid, run, task log and pools; odd IDs encoded; unsafe
       Airflow addresses refused (FR-UI-04)
-- [ ] T-1101 Test + code: menu items per page with hints and what is missing (FR-UI-04)
+- [x] T-1101 Test + code: menu items per page with hints and what is missing (FR-UI-04)
 
 ## Data
 
