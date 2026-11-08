@@ -4,15 +4,21 @@
  * priority bands (HM-023). Durations leave the domain in ms and enter the contract in seconds or minutes,
  * as the field names say.
  *
- * @implements FR-BOTL-01, FR-BOTL-06, FR-ENV-08, HM-006, HM-017, HM-023
+ * @implements FR-BOTL-01, FR-BOTL-06, FR-DAGD-06, FR-ENV-08, HM-006, HM-017, HM-023
  */
-import type { Bottlenecks, NoisyNeighbours, PriorityFairness } from '@dcam/contracts';
+import type {
+  Bottlenecks,
+  NoisyNeighbour as NoisyNeighbourItem,
+  NoisyNeighbours,
+  PriorityFairness,
+} from '@dcam/contracts';
 import {
   HM017_DEFAULTS,
   limitKnown,
   noisyNeighbours,
   type EnvironmentConfig,
   type NeighbourTry,
+  type NoisyNeighbour,
   type PoolActivity,
   type PoolPriority,
   type WorkerCountSource,
@@ -61,6 +67,33 @@ export interface NeighbourInput {
   readonly now: number;
 }
 
+/** Why HM-017 could not be evaluated over a window: no known executor slots in any minute. */
+export function neighbourNotEvaluatedReason(config: EnvironmentConfig): string {
+  return !limitKnown(config, 'workerConcurrency')
+    ? 'worker_concurrency is not known (no override in the Composer configuration), so DCAM cannot tell which DAGs hold 10 % of the executor slots. Set the override, or wait for HM-032 to infer it.'
+    : 'No worker counts arrived in this range (Cloud Monitoring worker samples or live snapshots), so the executor slots are not known. Check the collectors on the DCAM health page.';
+}
+
+/** One HM-017 measurement in the contract's units: seconds, task-minutes and ISO times. */
+export function toNeighbourItem(x: NoisyNeighbour): NoisyNeighbourItem {
+  return {
+    dag_id: x.dagId,
+    active_minutes: x.activeMinutes,
+    affected_tries: x.affectedTries,
+    affected_minutes: x.affectedMinutes,
+    control_tries: x.controlTries,
+    matched_share: x.matchedShare,
+    median_wait_active_seconds: x.medianActiveMs / 1000,
+    median_wait_inactive_seconds: x.medianInactiveMs / 1000,
+    effect_seconds: x.effectMs / 1000,
+    ci_low_seconds: x.ci ? x.ci.lowMs / 1000 : null,
+    ci_high_seconds: x.ci ? x.ci.highMs / 1000 : null,
+    confidence: x.confidence,
+    associated_wait_task_minutes: x.scoreTaskMs / 60_000,
+    overlap_windows: x.overlapWindows.map((w) => ({ from: iso(w.from), to: iso(w.to) })),
+  };
+}
+
 /** HM-017 over the window, with the reason when it cannot be evaluated. */
 export function noisyNeighboursIn(input: NeighbourInput): NoisyNeighbours {
   const r = noisyNeighbours({
@@ -71,11 +104,7 @@ export function noisyNeighboursIn(input: NeighbourInput): NoisyNeighbours {
     now: input.now,
   });
   const slotsSource = input.slotsSource;
-  let notEvaluated: string | null = null;
-  if (!r.evaluated)
-    notEvaluated = !limitKnown(input.config, 'workerConcurrency')
-      ? 'worker_concurrency is not known (no override in the Composer configuration), so DCAM cannot tell which DAGs hold 10 % of the executor slots. Set the override, or wait for HM-032 to infer it.'
-      : 'No worker counts arrived in this range (Cloud Monitoring worker samples or live snapshots), so the executor slots are not known. Check the collectors on the DCAM health page.';
+  const notEvaluated = r.evaluated ? null : neighbourNotEvaluatedReason(input.config);
   return {
     method: 'HM-017/range',
     evaluated: r.evaluated,
@@ -90,22 +119,7 @@ export function noisyNeighboursIn(input: NeighbourInput): NoisyNeighbours {
     min_affected_minutes: HM017_DEFAULTS.minAffectedMinutes,
     resamples: r.resamples,
     slots_source: slotsSource,
-    items: r.items.map((x) => ({
-      dag_id: x.dagId,
-      active_minutes: x.activeMinutes,
-      affected_tries: x.affectedTries,
-      affected_minutes: x.affectedMinutes,
-      control_tries: x.controlTries,
-      matched_share: x.matchedShare,
-      median_wait_active_seconds: x.medianActiveMs / 1000,
-      median_wait_inactive_seconds: x.medianInactiveMs / 1000,
-      effect_seconds: x.effectMs / 1000,
-      ci_low_seconds: x.ci ? x.ci.lowMs / 1000 : null,
-      ci_high_seconds: x.ci ? x.ci.highMs / 1000 : null,
-      confidence: x.confidence,
-      associated_wait_task_minutes: x.scoreTaskMs / 60_000,
-      overlap_windows: x.overlapWindows.map((w) => ({ from: iso(w.from), to: iso(w.to) })),
-    })),
+    items: r.items.map(toNeighbourItem),
   };
 }
 

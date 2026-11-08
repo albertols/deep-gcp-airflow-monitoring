@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   concurrencyProfile,
+  createConcurrencyProfile,
   dagSelfThrottling,
   type EnvironmentConfig,
   type LiveSnapshot,
@@ -115,5 +116,12 @@ describe('FR-DAGD-05 concurrency profile', () => {
     ).toBe(true);
     expect(p).toMatchObject({ peakInFlight: null, snapshots: 0, cadenceMs: null });
     expect(p.selfThrottling.activeMs).toBe(0);
+  });
+
+  it('FR-DAGD-05 / NFR-PERF-01: snapshots added in batches give the same profile, spans across batches included', () => {
+    const acc = createConcurrencyProfile(base);
+    for (const batch of [snapshots.slice(0, 4), snapshots.slice(4, 11), [], snapshots.slice(11)])
+      acc.add(batch);
+    expect(acc.result(tries)).toEqual(concurrencyProfile(base));
   });
 });

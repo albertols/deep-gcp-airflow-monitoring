@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { environmentLoad, loadShare, slotSeconds } from '../src/index';
+import { createEnvironmentLoad, environmentLoad, loadShare, slotSeconds } from '../src/index';
 import { M, T0, tryAt, windowOf } from './fixtures';
 
 const W = windowOf(0, 30);
@@ -60,6 +60,19 @@ describe('HM-003 environment load per bucket', () => {
       }),
       { numRuns: 100 },
     );
+  });
+});
+
+describe('NFR-PERF-01 environment load from store slices', () => {
+  it('HM-003 / NFR-PERF-01: slices in any order, each read 1 ms early, give the load of one pass', () => {
+    const w = windowOf(0, 30);
+    const overlapping = (from: number, to: number) =>
+      tries.filter((t) => t.startAt !== null && t.startAt < to && (t.endAt === null || t.endAt > from));
+    const acc = createEnvironmentLoad(w, 10 * M);
+    const edges = [0, 7, 14, 21, 28, 30].map((m) => T0 + m * M);
+    const slices = edges.slice(1).map((to, i) => ({ from: edges[i] as number, to }));
+    for (const slice of [...slices].reverse()) acc.add(overlapping(slice.from - 1, slice.to), slice);
+    expect(acc.result()).toEqual(environmentLoad(tries, w, 10 * M));
   });
 });
 

@@ -6,7 +6,8 @@
  * league never holds 60 days of tries at once (NFR-PERF-01).
  *
  * @implements FR-DAGX-01, FR-DAGX-02, FR-DAGX-03, FR-DAGD-01, FR-DAGD-02, FR-DAGD-03, FR-DAGD-04,
- *   FR-TASK-01, FR-TASK-02, HM-001, HM-003, HM-005, HM-007, HM-015, HM-016, FR-UI-01, NFR-PERF-01
+ *   FR-DAGD-05, FR-DAGD-06, FR-TASK-01, FR-TASK-02, HM-001, HM-003, HM-005, HM-007, HM-015, HM-016, HM-017,
+ *   FR-UI-01, NFR-PERF-01
  */
 import type {
   DagDetail,
@@ -23,8 +24,10 @@ import {
   DURATION_REGRESSION_RULE,
   SNAPSHOT_GAP_CADENCES,
   createCapacityAccumulator,
+  createConcurrencyProfile,
+  createEnvironmentLoad,
   createLeagueAccumulator,
-  createSelfThrottle,
+  createSlotsPerMinute,
   criticalPath,
   criticalPathFrequency,
   dagDurationRegression,
@@ -42,6 +45,7 @@ import {
   type DurationDistribution as DomainDistribution,
   type EnvironmentConfig,
   type LiveSnapshot,
+  type NeighbourTry,
   type Quantile as DomainQuantile,
   type RegressionVerdict,
   type SweepWindow,
@@ -49,9 +53,10 @@ import {
 } from '@dcam/domain';
 import type { Clock, EnvironmentModelSource, StoredTaskTry, TaskInstanceStore } from '@dcam/ports';
 import { DEFAULT_SNAPSHOT_CADENCE_MS } from './bottlenecks';
+import { concurrencyOf, impactOf } from './dag-concurrency';
 import { dataAsOf, readHistoryStart } from './history';
 import { paretoCount } from './overview';
-import { RANGE_MS } from './range';
+import { CHART_BUCKET_MS, RANGE_MS } from './range';
 import { earliestOf, historyCoverage, sliceSnapshots, sliceTries, slicesOf } from './slices';
 
 /** Snapshots that show the current `af.live` cadence, newest last. */
@@ -341,13 +346,30 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
   ]);
   const dagTries: StoredTaskTry[] = [];
   const environment = createCapacityAccumulator(current);
+  // FR-DAGD-06: the environment's load per chart bucket, and the four fields of every try HM-017 reads.
+  const bucketMs = CHART_BUCKET_MS[q.range];
+  const load = createEnvironmentLoad(current, bucketMs);
+  const neighbourTries: NeighbourTry[] = [];
   let earliest = Infinity;
   const reach = { from: previous.from, to: now };
   for (const slice of slicesOf(reach.from, reach.to)) {
     const tries = await sliceTries(deps.store, q.envId, slice);
     earliest = earliestOf(tries, earliest);
-    if (slice.from >= current.from) environment.add(tries, slice);
-    else if (slice.to > current.from) environment.add(tries, { from: current.from, to: slice.to });
+    // The range's part of the slice; the slice accumulators count each try once.
+    const part =
+      slice.from >= current.from
+        ? slice
+        : slice.to > current.from
+          ? { from: current.from, to: slice.to }
+          : null;
+    if (part) {
+      environment.add(tries, part);
+      load.add(tries, part);
+      const firstPart = part.from <= current.from;
+      for (const t of tries)
+        if (ownsTry(t, part, firstPart))
+          neighbourTries.push({ dagId: t.dagId, startAt: t.startAt, endAt: t.endAt, queuedAt: t.queuedAt });
+    }
     const first = slice.from <= reach.from;
     for (const t of tries) if (t.dagId === q.dagId && ownsTry(t, slice, first)) dagTries.push(t);
   }
@@ -360,12 +382,34 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
   );
   if (q.runId !== undefined && !dagTries.some((t) => t.runId === q.runId)) return { kind: 'unknown-run' };
 
-  // HM-005 over the window's snapshots, a day at a time; the newest ones also give the latest snapshot.
-  const throttle = createSelfThrottle(q.dagId, meta.maxActiveTasks);
+  // The environment's history, not this DAG's: a DAG first seen 3 days ago did not run before (HM-016). The
+  // per-DAG read holds this DAG's tries only, so without the store's history start it does not date it.
+  const environmentEarliest = deps.store.dagTaskTries ? earliest : Math.min(earliest, olderEarliest);
+  const historyFrom =
+    storedHistory !== undefined
+      ? storedHistory
+      : Number.isFinite(environmentEarliest)
+        ? environmentEarliest
+        : null;
+
+  // FR-DAGD-05 (HM-005 as the advisor evaluates it) and the executor slots per minute, from the window's
+  // snapshots a day at a time; the newest ones also give the latest snapshot.
+  const samples = await deps.model.workerSamples(q.envId, current.from, now);
+  const profile = createConcurrencyProfile({
+    dagId: q.dagId,
+    limit: meta.maxActiveTasks,
+    config,
+    window: current,
+    bucketMs,
+    fallbackCadenceMs: DEFAULT_SNAPSHOT_CADENCE_MS,
+    historyFrom,
+  });
+  const slots = createSlotsPerMinute({ samples, config, from: current.from, to: current.to });
   let recent: LiveSnapshot[] = [];
   for (const slice of slicesOf(current.from, now + 1)) {
     const snapshots = await sliceSnapshots(deps.model, q.envId, slice);
-    throttle.add(snapshots);
+    profile.add(snapshots);
+    slots.add(snapshots);
     recent = recent.concat(snapshots.slice(-RECENT_SNAPSHOT_COUNT)).slice(-RECENT_SNAPSHOT_COUNT);
   }
   const latest = freshLatest(recent, now);
@@ -392,15 +436,21 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
       ? null
       : criticalPath(dagTries.filter((t) => t.runId === ganttRunId));
   const rowIndex = new Map(gantt.map((g, i) => [`${g.taskId}\u0000${g.mapIndex}\u0000${g.tryNumber}`, i]));
-  // The environment's history, not this DAG's: a DAG first seen 3 days ago did not run before (HM-016). The
-  // per-DAG read holds this DAG's tries only, so without the store's history start it does not date it.
-  const environmentEarliest = deps.store.dagTaskTries ? earliest : Math.min(earliest, olderEarliest);
-  const historyFrom =
-    storedHistory !== undefined
-      ? storedHistory
-      : Number.isFinite(environmentEarliest)
-        ? environmentEarliest
-        : null;
+  const depth = {
+    config,
+    meta,
+    dagTries,
+    profile: profile.result(dagTries),
+    environment: load.result(),
+    neighbourTries,
+    slots: slots.result(),
+    slotsSource: slots.source(),
+    window: current,
+    bucketMs,
+    historyFrom,
+    findings: q.findings ?? [],
+  };
+  const { concurrency, selfThrottledRatio } = concurrencyOf(depth);
 
   return {
     kind: 'ok',
@@ -427,7 +477,8 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
         share: environmentSeconds > 0 ? Math.min(1, stats.executorSlotSeconds / environmentSeconds) : 0,
         run_duration_p95: toQuantile(stats.runDurationP95),
         queue_wait_p95: toQuantile(stats.queueWaitP95),
-        self_throttled_ratio: throttle.ratio(),
+        // HM-005 as the advisor evaluates it (REC-DAG-01): the concurrency section's share.
+        self_throttled_ratio: selfThrottledRatio,
       },
       runs: runs.map((r) => ({
         run_id: r.runId,
@@ -500,6 +551,8 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
         };
       }),
       findings: [...(q.findings ?? [])],
+      concurrency,
+      impact: impactOf(depth),
     },
   };
 }

@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { LiveSnapshot, SnapshotTaskInstance } from '../src/index';
-import {
-  createSelfThrottle,
-  dagRuns,
-  logicalDateFromRunId,
-  runGantt,
-  selfThrottledRatio,
-  taskStats,
-} from '../src/index';
+import type { SnapshotTaskInstance } from '../src/index';
+import { dagRuns, logicalDateFromRunId, runGantt, taskStats } from '../src/index';
 import { M, T0, tryAt, windowOf } from './fixtures';
 
 const W = windowOf(60, 120);
@@ -117,56 +110,5 @@ describe('FR-DAGD-04 task statistics', () => {
       tryAt({ runId: `r${i}`, start: 60 + i, state: i < 5 ? 'failed' : 'success' }),
     );
     expect(taskStats(tries, W)[0]?.failureRate).toBe(0.25);
-  });
-});
-
-describe('HM-005 DAG self-throttling', () => {
-  const snapshot = (at: number, active: number, ready: boolean): LiveSnapshot => ({
-    at: T0 + at * M,
-    scheduled: ready
-      ? [
-          {
-            dagId: 'dag_a',
-            runId: RUN_1,
-            taskId: 'x',
-            mapIndex: -1,
-            tryNumber: 1,
-            pool: 'default_pool',
-            poolSlots: 1,
-            priorityWeight: 1,
-            since: T0,
-          },
-        ]
-      : [],
-    queued: [],
-    pools: [],
-    dagActive: active > 0 ? { dag_a: active } : {},
-    executor: { running: active, queued: 0 },
-    workers: { current: 1, target: 1 },
-  });
-
-  it('HM-005: minutes at max_active_tasks with ready work ÷ minutes the DAG was active', () => {
-    const snapshots = [
-      snapshot(60, 4, true), // throttled
-      snapshot(60.5, 4, true), // same minute
-      snapshot(61, 4, false), // at the limit, nothing waiting: active only
-      snapshot(62, 2, true), // below the limit: active only
-      snapshot(63, 0, false), // inactive
-    ];
-    expect(selfThrottledRatio(snapshots, 'dag_a', 4)).toBeCloseTo(1 / 3, 12);
-  });
-
-  it('HM-005: null without live snapshots or without active minutes', () => {
-    expect(selfThrottledRatio([], 'dag_a', 4)).toBeNull();
-    expect(selfThrottledRatio([snapshot(60, 0, false)], 'dag_a', 4)).toBeNull();
-  });
-
-  it('HM-005 / NFR-PERF-01: snapshots added in batches give the same ratio; a minute split across batches counts once', () => {
-    const counter = createSelfThrottle('dag_a', 4);
-    counter.add([snapshot(60, 4, true)]);
-    counter.add([snapshot(60.5, 4, true), snapshot(61, 4, false)]);
-    counter.add([snapshot(62, 2, true), snapshot(63, 0, false)]);
-    expect(counter.ratio()).toBeCloseTo(1 / 3, 12);
-    expect(createSelfThrottle('dag_a', 4).ratio()).toBeNull();
   });
 });

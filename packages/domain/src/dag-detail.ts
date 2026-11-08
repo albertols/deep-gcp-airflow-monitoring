@@ -1,9 +1,9 @@
 /**
- * One DAG in detail (spec §12.4 S-12): its runs, the tries of one run for a Gantt chart, per-task
- * statistics and how often the DAG's own `max_active_tasks` holds back its ready work. Pure; times are
- * epoch ms, durations in the results are seconds.
+ * One DAG in detail (spec §12.4 S-12): its runs, the tries of one run for a Gantt chart and per-task
+ * statistics. How often the DAG's own `max_active_tasks` holds back its ready work (HM-005) is
+ * `self-throttling.ts`, shared with the advisor. Pure; times are epoch ms, durations in the results are seconds.
  *
- * @implements FR-DAGD-02, FR-DAGD-03, FR-DAGD-04, HM-002, HM-005
+ * @implements FR-DAGD-02, FR-DAGD-03, FR-DAGD-04, HM-002
  */
 import {
   groupBy,
@@ -16,7 +16,7 @@ import {
   type RunSummary,
 } from './dag-runs';
 import { MIN_SAMPLES_FOR_RATE, queueWaitsSeconds, runsInWindow } from './dag-league';
-import type { LiveSnapshot, SnapshotTaskInstance } from './model';
+import type { SnapshotTaskInstance } from './model';
 import { slotSeconds, type SweepWindow } from './occupancy';
 import { dataIntervalEnd } from './schedule';
 import { quantile, type Quantile } from './stats';
@@ -215,43 +215,4 @@ export function taskStats(tries: readonly DagTaskTry[], w: SweepWindow): TaskSta
     });
   }
   return stats.sort((a, b) => b.contributionSeconds - a.contributionSeconds || byId(a.taskId, b.taskId));
-}
-
-/**
- * HM-005 (`max_active_tasks` saturation, Airflow 2 scope: across all active runs of the DAG): minutes in
- * which a snapshot shows the DAG's running and queued task instances at `maxActiveTasks` while it has
- * ready, unqueued work, ÷ minutes in which it had work in flight or waiting. `null` without snapshots or
- * without active minutes.
- */
-export function selfThrottledRatio(
-  snapshots: readonly LiveSnapshot[],
-  dagId: string,
-  maxActiveTasks: number,
-): number | null {
-  const counter = createSelfThrottle(dagId, maxActiveTasks);
-  counter.add(snapshots);
-  return counter.ratio();
-}
-
-/**
- * {@link selfThrottledRatio} over snapshots added in batches (NFR-PERF-01): a 30-day window is read in
- * slices; only the active and throttled minutes are kept (at most 129,600 for 90 days).
- */
-export function createSelfThrottle(dagId: string, maxActiveTasks: number) {
-  const active = new Set<number>();
-  const throttled = new Set<number>();
-  return {
-    add(snapshots: readonly LiveSnapshot[]): void {
-      for (const s of snapshots) {
-        const minute = Math.floor(s.at / 60_000);
-        const inFlight = s.dagActive[dagId] ?? 0;
-        const ready = s.scheduled.some((ti) => ti.dagId === dagId);
-        if (inFlight > 0 || ready) active.add(minute);
-        if (ready && maxActiveTasks > 0 && inFlight >= maxActiveTasks) throttled.add(minute);
-      }
-    },
-    ratio(): number | null {
-      return active.size > 0 ? throttled.size / active.size : null;
-    },
-  };
 }
