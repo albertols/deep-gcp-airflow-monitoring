@@ -18,6 +18,7 @@ export * from './schedule';
 export * from './schedule-heatmap';
 export * from './advisor-model';
 export * from './self-throttling';
+export * from './concurrency-profile';
 export * from './advisor-signals';
 export * from './advisor-rule';
 export * from './advisor';
