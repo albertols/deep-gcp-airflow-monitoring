@@ -33,9 +33,9 @@ Test tasks come before the code they cover.
       table view (FR-DAGD-05, HM-005, HM-011, REC-DAG-01)
 - [x] T-832 Test + code: impact panel: share of the environment's load and of its slots over time; the noisy-neighbour
       score with its interval and confidence, or the reason and minimums, never a zero (FR-DAGD-06, HM-003, HM-017)
-- [ ] T-833 Test + code: the DAG's findings on DAG detail, linked to the advisor, which opens the linked finding
+- [x] T-833 Test + code: the DAG's findings on DAG detail, linked to the advisor, which opens the linked finding
       (FR-DAGD-01 findings, FR-ADV-02)
-- [ ] T-834 Test + code: compare runs on DAG detail: the selected run against another (default the previous
+- [x] T-834 Test + code: compare runs on DAG detail: the selected run against another (default the previous
       successful one), per-task deltas ranked by contribution, method stated (FR-DAGD-09, HM-007)
 - [ ] T-835 Test + code: compare DAGs page: 2 to 4 DAGs from any environment, aligned KPIs, overlaid duration
       distributions on shared bins, hourly profile in UTC, resource shares, capacity context (FR-DAGD-08)

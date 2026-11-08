@@ -223,7 +223,10 @@ const inRun = (p: Partial<TaskInRun>): TaskInRun => ({
   ...p,
 });
 
-/** Run 2 against run 1: `load` got much slower on the path, `extract` a little faster, `notify` is off it. */
+/**
+ * Run 2 against run 1, in the server's order: `load` got much slower on the path, `notify` slower off it,
+ * `cleanup` did not run in run 2, `extract` got a little faster on the path.
+ */
 export const RUN_COMPARISON: RunComparison = {
   env_id: 'acme-prod',
   dag_id: 'orders_daily',
@@ -283,12 +286,13 @@ export const RUN_COMPARISON: RunComparison = {
     {
       task_id: 'cleanup',
       a: inRun({ on_critical_path: false, critical_path_seconds: 0, duration_seconds: 20 }),
+      // Not in run b: no delta; off both paths, so it contributes nothing.
       b: null,
       duration_delta_seconds: null,
       queue_wait_delta_seconds: null,
-      contribution_seconds: null,
-      contribution_wait_seconds: null,
-      contribution_running_seconds: null,
+      contribution_seconds: 0,
+      contribution_wait_seconds: 0,
+      contribution_running_seconds: 0,
     },
     {
       task_id: 'extract',

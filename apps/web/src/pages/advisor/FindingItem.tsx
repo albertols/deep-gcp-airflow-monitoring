@@ -57,6 +57,9 @@ const SOURCE: Record<SourceId, string> = {
 /** Affected DAG links shown before "and N more". */
 const DAG_LINKS = 10;
 
+/** The element ID of a finding in the list, for links that open one finding. */
+export const findingAnchor = (id: string) => `finding-${id.replace(/[^\w-]/g, '_')}`;
+
 const weight = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 const fixed2 = (x: number) => x.toFixed(2);
 
@@ -110,17 +113,24 @@ export function FindingItem({
   finding: f,
   rank,
   linkTo,
+  expanded = false,
 }: {
   finding: Finding;
   rank: number;
   linkTo: PageProps['linkTo'];
+  /** Opened on arrival: the finding a link pointed to (FR-ADV-02). */
+  expanded?: boolean;
 }) {
   const factors = `Impact ${f.impact}/5 · Confidence ${fixed2(f.confidence)} · Effort ${f.effort} (${EFFORT[f.effort]}) · Priority ${fixed2(f.priority_score)}`;
   const shownDags = f.affected_dags.slice(0, DAG_LINKS);
   const wikiSlug = wikiPageFor(f);
   return (
-    <Box component="li" sx={{ listStyle: 'none' }}>
-      <Accordion disableGutters slotProps={{ transition: { unmountOnExit: true } }}>
+    <Box component="li" id={findingAnchor(f.id)} sx={{ listStyle: 'none' }}>
+      <Accordion
+        disableGutters
+        defaultExpanded={expanded}
+        slotProps={{ transition: { unmountOnExit: true } }}
+      >
         <AccordionSummary expandIcon={<ExpandMore />}>
           <Stack spacing={1} sx={{ minWidth: 0 }}>
             <Stack direction="row" sx={{ alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>

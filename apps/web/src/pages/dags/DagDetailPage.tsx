@@ -52,10 +52,12 @@ import { usePageParam, useRefresh, useView } from '../../components/view';
 import type { PageProps } from '../types';
 import { ConcurrencyPanel } from './ConcurrencyPanel';
 import { CriticalPathSummary } from './CriticalPathSummary';
+import { DagFindingsPanel } from './DagFindingsPanel';
 import { DurationPanel } from './DurationPanel';
 import { DAG_EXPLANATIONS as E, type DagExplanationId } from './explanations';
 import { ImpactPanel } from './ImpactPanel';
 import { ReliabilityPanel } from './ReliabilityPanel';
+import { RunComparisonPanel } from './RunComparisonPanel';
 import { RunGantt } from './RunGantt';
 import { RunsTimeline, STATE_LABEL } from './RunsTimeline';
 
@@ -437,6 +439,15 @@ export function DagDetailPage({ api, envId, route, linkTo }: PageProps) {
           asOf={d.data_as_of}
           rangeEnd={d.range.to}
         >
+          <Button
+            size="small"
+            variant="outlined"
+            href={linkTo({ page: 'compare-dags' }, { dags: `${envId}:${dagId}` })}
+            sx={{ alignSelf: 'flex-start' }}
+          >
+            Compare with other DAGs
+          </Button>
+
           <Panel
             explanation={E['dagd-limits']}
             actions={
@@ -459,6 +470,8 @@ export function DagDetailPage({ api, envId, route, linkTo }: PageProps) {
           </Panel>
 
           <Kpis stats={d.stats} />
+
+          <DagFindingsPanel detail={d} linkTo={linkTo} />
 
           <Panel explanation={E['dagd-runs-timeline']}>
             <RunsTimeline runs={d.runs} range={d.range} selectedRunId={d.gantt.run_id} onSelect={select} />
@@ -488,6 +501,8 @@ export function DagDetailPage({ api, envId, route, linkTo }: PageProps) {
             <RunGantt gantt={d.gantt} now={d.range.to} />
             <CriticalPathSummary detail={d} />
           </Panel>
+
+          <RunComparisonPanel detail={d} api={api} envId={envId} />
 
           <Panel
             explanation={E['dagd-tasks']}

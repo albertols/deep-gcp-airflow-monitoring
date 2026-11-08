@@ -1,10 +1,13 @@
 /**
  * S-18 Advisor: ranked findings with evidence and copy-only remediation ("Top actions", spec §13.4).
  * DCAM never applies changes; people review each snippet and apply it themselves. The findings export as
- * CSV in rank order, one row per finding (FR-STORE-04).
+ * CSV in rank order, one row per finding (FR-STORE-04). A link can open one finding (`finding` in the URL,
+ * for example from DAG detail): it is expanded and scrolled into view.
  *
- * @implements FR-ADV-01, FR-ADV-03, FR-ADV-04, FR-ADV-08, FR-UI-05, FR-UI-07, FR-UI-08, FR-STORE-04
+ * @implements FR-ADV-01, FR-ADV-02, FR-ADV-03, FR-ADV-04, FR-ADV-08, FR-UI-02, FR-UI-05, FR-UI-07, FR-UI-08,
+ *   FR-STORE-04
  */
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Alert from '@mui/material/Alert';
 import Stack from '@mui/material/Stack';
@@ -13,11 +16,11 @@ import type { Finding } from '@dcam/contracts';
 import { csvList, isoUtc, type CsvColumn } from '../../components/csv';
 import { ExportCsvButton, ExportScope } from '../../components/ExportCsv';
 import { PageHeader } from '../../components/PageHeader';
-import { useRefresh } from '../../components/view';
+import { usePageParam, useRefresh } from '../../components/view';
 import { Panel, ProvenanceFooter, QueryState } from '../../components/Panel';
 import type { PageProps } from '../types';
 import { ADVISOR_EXPLANATIONS as X } from './explanations';
-import { FindingItem } from './FindingItem';
+import { FindingItem, findingAnchor } from './FindingItem';
 
 /** "Top actions" shows at most 10 items per environment (spec §13.4). */
 export const TOP_ACTIONS = 10;
@@ -55,16 +58,24 @@ function FindingList({
   findings,
   offset,
   linkTo,
+  opened,
 }: {
   label: string;
   findings: readonly Finding[];
   offset: number;
   linkTo: PageProps['linkTo'];
+  opened: string;
 }) {
   return (
     <Stack component="ul" aria-label={label} spacing={1} sx={{ m: 0, p: 0 }}>
       {findings.map((f, i) => (
-        <FindingItem key={f.id} finding={f} rank={offset + i + 1} linkTo={linkTo} />
+        <FindingItem
+          key={f.id}
+          finding={f}
+          rank={offset + i + 1}
+          linkTo={linkTo}
+          expanded={f.id === opened}
+        />
       ))}
     </Stack>
   );
@@ -79,6 +90,12 @@ export function AdvisorPage({ api, envId, linkTo }: PageProps) {
   const data = q.data;
   const top = data?.findings.slice(0, TOP_ACTIONS) ?? [];
   const rest = data?.findings.slice(TOP_ACTIONS) ?? [];
+  // FR-ADV-02: a link that names one finding opens it.
+  const [opened] = usePageParam('finding');
+  const openedFound = opened !== '' && (data?.findings.some((f) => f.id === opened) ?? false);
+  useEffect(() => {
+    if (openedFound) document.getElementById(findingAnchor(opened))?.scrollIntoView?.({ block: 'start' });
+  }, [opened, openedFound]);
 
   return (
     <Stack spacing={4}>
@@ -104,6 +121,12 @@ export function AdvisorPage({ api, envId, linkTo }: PageProps) {
       <QueryState isPending={q.isPending} error={q.error} what="the findings" />
       {data && (
         <>
+          {opened !== '' && !openedFound && (
+            <Alert severity="info" variant="outlined">
+              The finding you opened is no longer open: its rule's condition did not hold in the last 24
+              hours. The findings that are open now are listed below.
+            </Alert>
+          )}
           {data.findings.length === 0 ? (
             data.not_evaluated.length === 0 ? (
               <Alert severity="success">
@@ -121,12 +144,18 @@ export function AdvisorPage({ api, envId, linkTo }: PageProps) {
             )
           ) : (
             <Panel explanation={X['adv-top-actions']}>
-              <FindingList label="Top actions" findings={top} offset={0} linkTo={linkTo} />
+              <FindingList label="Top actions" findings={top} offset={0} linkTo={linkTo} opened={opened} />
             </Panel>
           )}
           {rest.length > 0 && (
             <Panel explanation={X['adv-other']}>
-              <FindingList label="Other findings" findings={rest} offset={TOP_ACTIONS} linkTo={linkTo} />
+              <FindingList
+                label="Other findings"
+                findings={rest}
+                offset={TOP_ACTIONS}
+                linkTo={linkTo}
+                opened={opened}
+              />
             </Panel>
           )}
           {data.not_evaluated.length > 0 && (

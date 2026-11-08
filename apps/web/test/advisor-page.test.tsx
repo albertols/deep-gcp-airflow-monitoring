@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Finding, Findings } from '@dcam/contracts';
 import { createDcamTheme } from '@dcam/ui-kit';
 import type { DcamApi } from '../src/api';
-import { linkTo } from '../src/router';
+import { PageParamsContext } from '../src/components/view';
+import { linkTo, type PageParams } from '../src/router';
 import { AdvisorPage } from '../src/pages/advisor/AdvisorPage';
 import { ADVISOR_EXPLANATIONS, ADVISOR_PANELS } from '../src/pages/advisor/explanations';
 
@@ -111,18 +112,20 @@ const apiWith = (findings: Finding[], over: Partial<Findings> = {}): DcamApi => 
   getCollection: reject,
 });
 
-function renderPage(findings: Finding[] = many, over: Partial<Findings> = {}) {
+function renderPage(findings: Finding[] = many, over: Partial<Findings> = {}, params: PageParams = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ThemeProvider theme={createDcamTheme('dark')}>
       <QueryClientProvider client={client}>
-        <AdvisorPage
-          api={apiWith(findings, over)}
-          envId="acme-prod"
-          route={{ page: 'advisor' }}
-          linkTo={(r) => linkTo(r, 'acme-prod')}
-          navigate={() => {}}
-        />
+        <PageParamsContext.Provider value={{ params, set: () => {} }}>
+          <AdvisorPage
+            api={apiWith(findings, over)}
+            envId="acme-prod"
+            route={{ page: 'advisor' }}
+            linkTo={(r) => linkTo(r, 'acme-prod')}
+            navigate={() => {}}
+          />
+        </PageParamsContext.Provider>
       </QueryClientProvider>
     </ThemeProvider>,
   );
@@ -267,6 +270,20 @@ describe('S-18 advisor page (FR-ADV-01..04, FR-ADV-08)', () => {
       (_text, el) => el?.tagName === 'FOOTER' && /Data as of .* Source: demo data/.test(el.textContent ?? ''),
     );
     expect(footer).toHaveTextContent('last 24 hours');
+  });
+
+  it('FR-ADV-02: a link to one finding (from DAG detail) opens that finding', async () => {
+    const linked = 'acme-prod:REC-CONC-02:pool:pool_3';
+    renderPage(many, {}, { finding: linked });
+    const item = (await screen.findByRole('button', { name: /pool_3/ })).closest('li') as HTMLElement;
+    expect(within(item).getByRole('button', { name: /pool_3/ })).toHaveAttribute('aria-expanded', 'true');
+    const other = screen.getByRole('button', { name: /pool_4/ });
+    expect(other).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('FR-ADV-02: a link to a finding that is no longer open says so', async () => {
+    renderPage(many, {}, { finding: 'acme-prod:REC-DAG-01:dag:orders_daily' });
+    expect(await screen.findByText(/The finding you opened is no longer open/)).toBeInTheDocument();
   });
 
   it('FR-UI-05: every panel and ranking factor has an explanation', () => {
