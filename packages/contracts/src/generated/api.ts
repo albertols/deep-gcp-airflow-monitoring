@@ -1895,6 +1895,8 @@ export interface components {
             cadence_seconds: number;
             /** @description How often the collector refreshes its data: its cadence, or longer when each cycle reads only part of it (the DAG inventory makes one full pass an hour, spec §7.5). Staleness (§12.10) is the lag against this. */
             refresh_seconds?: number;
+            /** @description How long after the fact the collector reads its data, by design: af.facts reads finished task instances up to one minute ago (the settling delay, spec Appendix B.3). Staleness (§12.10) does not count it. */
+            delay_seconds?: number;
             /** Format: date-time */
             last_attempt_at: string | null;
             /** Format: date-time */

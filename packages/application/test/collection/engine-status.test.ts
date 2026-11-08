@@ -172,6 +172,9 @@ describe('collector health (FR-COLL-11, NFR-OBS-06)', () => {
       [
         collector(manifest({ id: 'af.live' }), async (ctx) => ({ dataAsOf: ctx.now() })),
         collector(manifest({ id: 'af.inventory', refreshMs: HOUR }), async () => ({ dataAsOf: null })),
+        collector(manifest({ id: 'af.facts', delayMs: 60_000 }), async (ctx) => ({
+          dataAsOf: ctx.now() - 60_000,
+        })),
       ],
     );
     engine.start();
@@ -179,6 +182,9 @@ describe('collector health (FR-COLL-11, NFR-OBS-06)', () => {
     const status = (id: string) => environment(engine, 'acme-emulator').collectors.find((c) => c.id === id);
     expect(status('af.live')).toMatchObject({ cadence_seconds: 10, refresh_seconds: 10 });
     expect(status('af.inventory')).toMatchObject({ cadence_seconds: 600, refresh_seconds: 3_600 });
+    // Data read one minute after the fact by design says so; others have no delay.
+    expect(status('af.facts')).toMatchObject({ delay_seconds: 60 });
+    expect(status('af.live')).toMatchObject({ delay_seconds: 0 });
     await engine.stop();
   });
 

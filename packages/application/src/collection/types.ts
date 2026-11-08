@@ -34,6 +34,11 @@ export interface CollectorManifest {
    * this and the cadence.
    */
   readonly refreshMs?: number;
+  /**
+   * How long after the fact its data is read, by design: `af.facts` reads finished task instances up to
+   * one minute ago (the settling delay, spec Appendix B.3). Staleness (§12.10) does not count it.
+   */
+  readonly delayMs?: number;
   /** Priority class (§7.11 item 2): live > standard > background; background work always yields. */
   readonly priority: 'live' | 'standard' | 'background';
   /** Most requests one cycle may make before it must stop and report reduced fidelity. */

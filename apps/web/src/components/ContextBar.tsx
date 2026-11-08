@@ -60,7 +60,8 @@ export function freshnessOf(env: CollectionEnvironment | undefined): Freshness |
     const every = c.refresh_seconds ?? c.cadence_seconds;
     parts.push(`${c.id}: ${secondsText(lag)} old, every ${secondsText(every)}`);
     if (c.source === 'SRC-MON' || every <= 0) continue;
-    worst = Math.max(worst, lag / every);
+    // Finished task instances are read one minute after the fact by design: that delay is not staleness.
+    worst = Math.max(worst, Math.max(0, lag - (c.delay_seconds ?? 0)) / every);
   }
   const level: FreshnessLevel = worst > 5 ? 'very-stale' : worst > 2 ? 'stale' : 'fresh';
   const lead =

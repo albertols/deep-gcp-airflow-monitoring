@@ -439,3 +439,9 @@ describe('FR-COLL-06 af.facts: windows that fit in one page, within the budget',
     });
   });
 });
+
+describe('§12.10 af.facts: manifest', () => {
+  it('§12.10: says its data is read one minute after the fact (the settling delay), which is not staleness', () => {
+    expect(afFactsCollector().manifest.delayMs).toBe(60_000);
+  });
+});

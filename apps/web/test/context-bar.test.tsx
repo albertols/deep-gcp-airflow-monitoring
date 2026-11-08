@@ -339,6 +339,15 @@ describe('§12.10 freshness in live mode', () => {
     expect(freshnessOf(env([collector({ lag_seconds: 61 })]))?.level).toBe('stale');
   });
 
+  it('§12.10: the settling delay of finished task instances is not staleness', () => {
+    // Live profile: af.facts every 30 s, reading up to one minute ago.
+    const facts = (lag: number) =>
+      collector({ id: 'af.facts', cadence_seconds: 30, delay_seconds: 60, lag_seconds: lag });
+    expect(freshnessOf(env([facts(95)]))?.level).toBe('fresh');
+    expect(freshnessOf(env([facts(121)]))?.level).toBe('stale');
+    expect(freshnessOf(env([facts(211)]))?.level).toBe('very-stale');
+  });
+
   it('§12.10: disabled collectors and the Monitoring ingestion delay do not make data stale; no data yet says so', () => {
     const monitoring = collector({
       id: 'mon.core',

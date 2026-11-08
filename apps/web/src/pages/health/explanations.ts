@@ -120,7 +120,7 @@ export const HEALTH_EXPLANATIONS = {
     summary: 'Age of the newest data this collector saved, at the time of this status.',
     whyItMatters: 'Pages for this environment are at least this old for the data this collector provides.',
     howToRead:
-      'A healthy lag stays close to one cadence, or to how often the data is refreshed where that is longer: the DAG inventory runs every few minutes but refreshes the whole list once an hour, so its lag is up to an hour while it is healthy. Cloud Monitoring data is read only after its ingestion delay (FR-COLL-07), so its lag never drops below that delay.',
+      'A healthy lag stays close to one cadence, or to how often the data is refreshed where that is longer: the DAG inventory runs every few minutes but refreshes the whole list once an hour, so its lag is up to an hour while it is healthy. Finished task instances are read one minute after the fact (the settling delay), so the lag of af.facts is about a minute more than its cadence. Cloud Monitoring data is read only after its ingestion delay (FR-COLL-07), so its lag never drops below that delay.',
     sources: [ENGINE],
   },
   'health-cadence': {

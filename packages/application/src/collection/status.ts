@@ -9,6 +9,8 @@
  * - `lag_seconds`: age of the newest data a collector committed (`CollectorResult.dataAsOf`).
  * - `refresh_seconds`: how often that data is refreshed, the longer of the cadence and the manifest's
  *   `refreshMs` (the DAG inventory's hourly pass); §12.10 staleness compares the lag with it.
+ * - `delay_seconds`: how long after the fact the data is read by design (`af.facts`' settling delay);
+ *   staleness does not count it.
  * - `error_rate_1h`: failed cycles / finished cycles in the last hour (minute buckets, see `footprint.ts`);
  *   `null` when no cycle finished in that hour.
  * - `last_error` keeps the most recent error after a recovery, so the page can say what happened.
@@ -101,6 +103,7 @@ export function collectorStatus(task: TaskView, now: number, extras: TaskExtras)
     // A disabled collector (cadence 0) refreshes nothing.
     refresh_seconds:
       task.cadenceMs <= 0 ? 0 : Math.round(Math.max(task.cadenceMs, task.manifest.refreshMs ?? 0) / 1_000),
+    delay_seconds: Math.round((task.manifest.delayMs ?? 0) / 1_000),
     last_attempt_at: isoOrNull(task.lastAttemptAt),
     last_success_at: isoOrNull(task.lastSuccessAt),
     next_run_at: isoOrNull(extras.nextRunAt),

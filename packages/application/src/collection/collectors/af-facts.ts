@@ -82,6 +82,7 @@ export function afFactsCollector(): Collector {
       source: 'SRC-AF-API',
       api: 'airflow',
       cadence: 'airflowFacts',
+      delayMs: FACTS_SETTLE_MS,
       priority: 'standard',
       maxRequestsPerCycle: MAX_REQUESTS + 1,
       outputs: ['tries', 'health'],
