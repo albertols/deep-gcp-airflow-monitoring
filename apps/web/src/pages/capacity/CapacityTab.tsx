@@ -1,9 +1,10 @@
 /**
  * S-04 capacity tab: the answer (capacity-bound or not, and the longest stretch), KPIs, worker slots against
- * running and queued task instances with the capacity-bound buckets highlighted, and the capacity-bound periods
- * listed. Times follow the context bar's zone; chart or table view is in the URL.
+ * running and queued task instances with the capacity-bound buckets highlighted, the capacity-bound periods
+ * listed, then workers and scale events, limits, worker CPU and memory, and pools. Times follow the context
+ * bar's zone; chart or table views are in the URL.
  *
- * @implements FR-ENV-02, HM-011, NFR-DATA-03, FR-UI-05, FR-UI-07
+ * @implements FR-ENV-02, HM-011, HM-012, NFR-DATA-03, FR-UI-05, FR-UI-07
  */
 import { useMemo } from 'react';
 import Alert from '@mui/material/Alert';
@@ -26,6 +27,7 @@ import { clause, formatInt, formatShare } from '../../components/format';
 import { Kpi, KpiRow, Panel } from '../../components/Panel';
 import { usePageParam, useTimeFormat } from '../../components/view';
 import type { PageProps } from '../types';
+import { LimitsPanel, PoolSlotsPanel, WorkersPanel, WorkloadsPanel } from './CapacityDetails';
 import { capacityColours } from './colours';
 import { CAPACITY_EXPLANATIONS as X } from './explanations';
 import { NO_DATA, bucketName, formatCount, formatRatio, periodText, spreadP95 } from './format';
@@ -385,6 +387,16 @@ export function CapacityTab({
       <Kpis c={c} />
       <SlotsPanel c={c} />
       <PeriodsPanel c={c} />
+      <WorkersPanel c={c} />
+      <Stack direction={{ xs: 'column', lg: 'row' }} sx={{ gap: 4 }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <LimitsPanel c={c} />
+        </Box>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <WorkloadsPanel c={c} />
+        </Box>
+      </Stack>
+      <PoolSlotsPanel c={c} />
     </Stack>
   );
 }

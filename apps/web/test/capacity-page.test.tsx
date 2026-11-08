@@ -10,7 +10,7 @@ import { App } from '../src/App';
 import { DEFAULT_PAGE_VIEW, ViewContext } from '../src/components/view';
 import { linkTo, parseLocation, toHref } from '../src/router';
 import { CapacityPage } from '../src/pages/capacity/CapacityPage';
-import { capacityApi, capacityFixture } from './capacity-fixtures';
+import { capacityApi, capacityFixture, unknownConcurrency } from './capacity-fixtures';
 
 afterEach(() => {
   window.location.hash = '';
@@ -192,5 +192,96 @@ describe('S-04 capacity tab: slots and capacity-bound periods (FR-ENV-02, HM-011
     expect(await panel('Capacity-bound periods')).toHaveTextContent(
       'No capacity-bound period in this range.',
     );
+  });
+});
+
+describe('S-04 capacity tab: limits, workers, workloads and pools (FR-ENV-02, HM-012, HM-032)', () => {
+  /** The cells of the limits table row whose first cell is `name`. */
+  const limitRow = async (name: string) => {
+    const table = within(await panel('Limits and their sources')).getByRole('table', { name: 'Limits' });
+    const row = within(table).getByText(name).closest('tr');
+    if (!(row instanceof HTMLElement)) throw new Error(`No limit row ${name}`);
+    return row;
+  };
+
+  it('HM-032: each limit shows its value and where DCAM read it', async () => {
+    renderPage();
+    expect(await limitRow('worker_concurrency')).toHaveTextContent(/12.*Configured/);
+    expect(await limitRow('parallelism')).toHaveTextContent(
+      /96 per scheduler.*Airflow configuration override/,
+    );
+    expect(await limitRow('Worker slots at max_count')).toHaveTextContent('72');
+  });
+
+  it('HM-032 / NFR-DATA-03: unknown limits read as unknown, never as zero', async () => {
+    renderPage(capacityApi(unknownConcurrency));
+    const concurrency = await limitRow('worker_concurrency');
+    expect(concurrency).toHaveTextContent(/Unknown.*Unknown: DCAM could not read it/);
+    expect(concurrency).not.toHaveTextContent(/\b0\b/);
+    expect(await limitRow('Worker slots at max_count')).toHaveTextContent('Unknown');
+    expect(await limitRow('parallelism × schedulers')).toHaveTextContent('Unknown');
+    expect(await kpi('Capacity-bound minutes')).toHaveTextContent('Not known yet');
+    expect(await kpi('Worker slot utilisation (p95)')).toHaveTextContent('Not known yet');
+    expect(
+      await alertWith(
+        /^Capacity-bound periods are not evaluated for the last 24 hours: worker_concurrency is not known/,
+      ),
+    ).toBeInTheDocument();
+    expect(await panel('Capacity-bound periods')).toHaveTextContent(
+      /^Capacity-bound periods.*Not evaluated: /,
+    );
+  });
+
+  it('HM-012: workers against min_count and max_count, with the scale events and the scale-up lag', async () => {
+    renderPage();
+    const p = await panel('Workers and scale events');
+    expect(
+      within(p).getByRole('img', {
+        name: /Workers per 15-minute bucket against min_count 2 and max_count 6/,
+      }),
+    ).toBeInTheDocument();
+    expect(p).toHaveTextContent('2 scale-ups and 2 scale-downs');
+    expect(p).toHaveTextContent('Scale-up lag ≤ 3m (low sample: 4 episodes)');
+    expect(p).toHaveTextContent('Worker counts from Cloud Monitoring samples.');
+    const events = within(p).getByRole('table', { name: 'Scale events' });
+    expect(within(events).getAllByRole('row')).toHaveLength(1 + 4);
+    expect(within(events).getAllByRole('row')[1]).toHaveTextContent(/5 Nov, 03:05.*6 → 3.*Down/);
+  });
+
+  it('HM-012: without Cloud Monitoring samples scale events say why they are not evaluated', async () => {
+    renderPage(
+      capacityApi({
+        ...capacityFixture,
+        slots_source: 'hostnames',
+        scale_events: {
+          evaluated: false,
+          not_evaluated_reason: 'Scale events need Cloud Monitoring worker counts.',
+          up: 0,
+          down: 0,
+          items: [],
+        },
+      }),
+    );
+    const p = await panel('Workers and scale events');
+    expect(p).toHaveTextContent('Not evaluated: Scale events need Cloud Monitoring worker counts.');
+    expect(p).toHaveTextContent(/estimated from task instance hostnames: a lower bound/);
+    expect(within(p).queryByRole('table', { name: 'Scale events' })).toBeNull();
+  });
+
+  it('FR-ENV-02: worker CPU and memory against their limits, and the workload types not collected', async () => {
+    renderPage();
+    const p = await panel('Worker CPU and memory');
+    const row = within(p).getByText('Celery workers').closest('tr');
+    expect(row).toHaveTextContent(/41%.*72%.*90%.*62%.*78%.*81%/);
+    expect(p).toHaveTextContent('Not collected yet: scheduler, triggerer, DAG processor and web server.');
+  });
+
+  it('FR-ENV-08: pool slots against running and queued slots; a pool without snapshots has no data, not zero', async () => {
+    renderPage();
+    const p = await panel('Pool slots');
+    const etl = within(p).getByText('acme_etl').closest('tr');
+    expect(etl).toHaveTextContent(/24.*10.*24.*6.*35/);
+    const api = within(p).getByText('acme_partner_api').closest('tr');
+    expect(api).toHaveTextContent(/4.*No data.*No data.*No data.*No data/);
   });
 });

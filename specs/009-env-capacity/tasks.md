@@ -27,7 +27,7 @@ Test tasks come before the code they cover.
 - [x] T-990b Test + code: capacity tab: the answer, KPIs, worker slots against running and queued task
       instances with the capacity-bound periods highlighted, a table view, and the periods listed (FR-ENV-02,
       HM-011)
-- [ ] T-990c Test + code: limits with their provenance (unknown reads as unknown, never zero), workers against
+- [x] T-990c Test + code: limits with their provenance (unknown reads as unknown, never zero), workers against
       min and max with scale events, worker CPU and memory, pools (FR-ENV-02, HM-012, HM-032)
 - [ ] T-990d Test + code: a colour-blind-safe sequential scale for the light and dark themes; the UTC day × hour
       saturation heatmap with the selected cell in the URL and a table view (FR-ENV-02, FR-UI-06)
