@@ -46,6 +46,15 @@ type Bucket = DagConcurrency['series'][number];
 const peakOf = (values: readonly (number | null)[]) =>
   values.reduce<number | null>((m, v) => (v === null ? m : Math.max(m ?? 0, v)), null);
 
+const AT_LIMIT_NOT_KNOWN = 'Time at the limit is not known: no live snapshot in this range.';
+
+/** Time at max_active_tasks over the buckets with a live snapshot; `null` when no bucket has one (never 0). */
+function timeAtLimit(c: DagConcurrency): number | null {
+  let total: number | null = null;
+  for (const b of c.series) if (b.at_limit_seconds !== null) total = (total ?? 0) + b.at_limit_seconds;
+  return total;
+}
+
 const hasData = (c: DagConcurrency) =>
   c.series.some(
     (b) =>
@@ -175,10 +184,14 @@ function ProfileChart({ c }: { c: DagConcurrency }) {
       dash: cc?.dash ?? 'none',
     },
   ];
-  const atLimit = c.series.reduce((s, x) => s + (x.at_limit_seconds ?? 0), 0);
+  const atLimit = timeAtLimit(c);
   const description = `Concurrency per ${formatDuration(c.bucket_seconds)} bucket: ${
     c.peak_running === null ? 'no task ran' : `peak ${formatInt(c.peak_running)} running at once`
-  } against max_active_tasks ${formatInt(c.max_active_tasks)}; at the limit for ${formatDuration(atLimit)} in the range.`;
+  } against max_active_tasks ${formatInt(c.max_active_tasks)}${
+    atLimit === null
+      ? `. ${AT_LIMIT_NOT_KNOWN}`
+      : `; at the limit for ${formatDuration(atLimit)} in the range.`
+  }`;
   return (
     <Stack spacing={2}>
       <LineChart
@@ -200,15 +213,21 @@ function ProfileChart({ c }: { c: DagConcurrency }) {
       <Typography variant="caption" color="text.secondary" component="p">
         Time at the limit with its own ready work, per bucket (HM-005)
       </Typography>
-      <ValueBars
-        buckets={c.series.map((x, i) => ({ start: starts[i] ?? 0, value: x.at_limit_seconds }))}
-        bucketMs={bucketMs}
-        max={c.bucket_seconds}
-        format={formatDuration}
-        color={b?.color ?? t.statusWarning}
-        label={`Time at the limit per bucket: ${formatDuration(atLimit)} in total; empty buckets had no live snapshot.`}
-        height={100}
-      />
+      {atLimit === null ? (
+        <Typography variant="body2" color="text.secondary">
+          {AT_LIMIT_NOT_KNOWN}
+        </Typography>
+      ) : (
+        <ValueBars
+          buckets={c.series.map((x, i) => ({ start: starts[i] ?? 0, value: x.at_limit_seconds }))}
+          bucketMs={bucketMs}
+          max={c.bucket_seconds}
+          format={formatDuration}
+          color={b?.color ?? t.statusWarning}
+          label={`Time at the limit per bucket: ${formatDuration(atLimit)} in total; empty buckets had no live snapshot.`}
+          height={100}
+        />
+      )}
     </Stack>
   );
 }

@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from '@mui/material/styles';
 import type { ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
-import type { DagDetail } from '@dcam/contracts';
+import type { DagConcurrency, DagDetail } from '@dcam/contracts';
 import { createDcamTheme } from '@dcam/ui-kit';
 import type { DcamApi } from '../src/api';
 import { ConcurrencyPanel } from '../src/pages/dags/ConcurrencyPanel';
@@ -138,6 +138,36 @@ describe('S-12 concurrency profile (FR-DAGD-05)', { timeout: UI_TIMEOUT_MS }, ()
     const panel = screen.getByRole('region', { name: 'Concurrency profile' });
     expect(within(panel).getByText(/No task of this DAG ran in this range/)).toBeInTheDocument();
     expect(within(panel).queryByRole('img')).toBeNull();
+  });
+
+  it('FR-DAGD-05 / NFR-DATA-03: with task history but no live snapshot, time at the limit is not known, never 0s', () => {
+    const noSnapshots: DagConcurrency = {
+      ...CONCURRENCY,
+      snapshots: 0,
+      snapshot_interval_seconds: null,
+      peak_in_flight: null,
+      series: CONCURRENCY.series.map((s) => ({
+        ...s,
+        in_flight_max: null,
+        ready_max: null,
+        at_limit_seconds: null,
+      })),
+      self_throttling: {
+        ...CONCURRENCY.self_throttling,
+        at_limit_share: null,
+        raises_rec_dag_01: false,
+        finding_id: null,
+      },
+    };
+    concurrency({ ...WITH_008, concurrency: noSnapshots });
+    const panel = screen.getByRole('region', { name: 'Concurrency profile' });
+    const notKnown = 'Time at the limit is not known: no live snapshot in this range.';
+    const chart = within(panel).getByRole('img', { name: /peak 4 running at once/ });
+    expect(chart.getAttribute('aria-label')).toContain(notKnown);
+    expect(chart.getAttribute('aria-label')).not.toMatch(/at the limit for 0s/);
+    expect(within(panel).getByText(notKnown)).toBeInTheDocument();
+    expect(within(panel).queryByRole('img', { name: /in total/ })).toBeNull();
+    expect(panel).not.toHaveTextContent(/\b0s\b/);
   });
 
   it('FR-UI-08: the panel has a provenance footer with the method', () => {

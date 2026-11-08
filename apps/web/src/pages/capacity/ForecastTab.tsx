@@ -480,6 +480,7 @@ function DagsPanel({ f, linkTo }: { f: Forecast; linkTo: PageProps['linkTo'] }) 
 
 function PoolsPanel({ f }: { f: Forecast }) {
   const time = useTimeFormat();
+  const zone = time.zoneName(f.pools.find((p) => p.peak_at !== null)?.peak_at ?? f.horizon.from);
   return (
     <Panel explanation={X['fc-pools']}>
       {f.pools.length === 0 ? (
@@ -494,7 +495,7 @@ function PoolsPanel({ f }: { f: Forecast }) {
                 <TableCell>Pool</TableCell>
                 <TableCell align="right">Slots</TableCell>
                 <TableCell align="right">Peak demand (p50)</TableCell>
-                <TableCell>Peak at</TableCell>
+                <TableCell>{`Peak at (${zone})`}</TableCell>
                 <TableCell align="right">Time over its size</TableCell>
               </TableRow>
             </TableHead>

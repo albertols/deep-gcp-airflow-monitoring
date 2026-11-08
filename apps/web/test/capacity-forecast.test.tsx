@@ -6,7 +6,8 @@ import { useCallback, useState, type ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
 import type { Forecast, Range } from '@dcam/contracts';
 import { createDcamTheme } from '@dcam/ui-kit';
-import { DEFAULT_PAGE_VIEW, PageParamsContext, ViewContext } from '../src/components/view';
+import { timeFormat } from '../src/components/time';
+import { DEFAULT_PAGE_VIEW, PageParamsContext, ViewContext, type View } from '../src/components/view';
 import { linkTo, type PageParams } from '../src/router';
 import { CapacityPage } from '../src/pages/capacity/CapacityPage';
 import { capacityApi, forecastFixture } from './capacity-fixtures';
@@ -27,12 +28,16 @@ function Params({ initial, children }: { initial: PageParams; children: ReactNod
   return <PageParamsContext.Provider value={{ params, set }}>{children}</PageParamsContext.Provider>;
 }
 
-function renderForecast(forecast: Forecast = forecastFixture, range: Range = '24h') {
+function renderForecast(
+  forecast: Forecast = forecastFixture,
+  range: Range = '24h',
+  view: Partial<View> = {},
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ThemeProvider theme={createDcamTheme('dark')}>
       <QueryClientProvider client={client}>
-        <ViewContext.Provider value={{ ...DEFAULT_PAGE_VIEW, range }}>
+        <ViewContext.Provider value={{ ...DEFAULT_PAGE_VIEW, range, ...view }}>
           <Params initial={{ tab: 'forecast' }}>
             <CapacityPage
               api={capacityApi(undefined, forecast)}
@@ -187,6 +192,17 @@ describe('S-04 forecast tab (HM-010, FR-BOTL-05)', () => {
     const p = await panel('Pool demand forecast');
     expect(rowOf(p, 'acme_etl')).toHaveTextContent(/24.*30.*6 Nov, 02:15.*30 min/);
     expect(rowOf(p, 'default_pool')).toHaveTextContent(/128.*No data.*No data.*No data/);
+  });
+
+  it('FR-UI-01: the pool table names the zone of its peak times, as every other time column does', async () => {
+    const local = timeFormat('local', 'America/New_York');
+    renderForecast(forecastFixture, '24h', { tz: 'local', time: local });
+    const p = await panel('Pool demand forecast');
+    const peakAt = forecastFixture.pools[0]?.peak_at ?? '';
+    expect(
+      within(p).getByRole('columnheader', { name: `Peak at (${local.zoneName(peakAt)})` }),
+    ).toBeInTheDocument();
+    expect(rowOf(p, 'acme_etl')).toHaveTextContent(local.dayClock(peakAt));
   });
 
   it('FR-UI-07: without history the forecast says why and what happens next', async () => {
