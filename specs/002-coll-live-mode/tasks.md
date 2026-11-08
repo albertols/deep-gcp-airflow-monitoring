@@ -41,5 +41,9 @@ Test tasks come before the code they cover. `[P]` = can run in parallel.
 
 ## Done
 
-- [ ] T-190 Live mode end to end against the emulator; browser validation; code review; `pnpm check`; CI green;
-      README "Run against your environment" and CLAUDE.md updated
+- [x] T-190 Live mode end to end against the emulator; browser validation; code review; `pnpm check`; CI green;
+      README "Run against your environment" and CLAUDE.md updated. Live against the emulator since 2026-11-07:
+      every collector OK within the request budget; after the emulator's web server was killed for memory, DCAM
+      recovered by itself twice; a data folder from an earlier build upgraded in place. Browser check of the
+      context bar in live mode and of the M2/M3 pages in demo mode; code review of the merged web work, its
+      findings fixed. The 24-hour budget run of the M1 exit criterion was interrupted by the emulator crashes.
