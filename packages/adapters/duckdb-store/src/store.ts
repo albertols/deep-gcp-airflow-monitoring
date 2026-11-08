@@ -429,6 +429,16 @@ export class DuckDbStore implements Store, CollectionStore, RetentionStore {
     return deletedBefore === null ? earliest : Math.max(earliest, deletedBefore);
   }
 
+  async readThrough(envId: string): Promise<number | null> {
+    const [row] = await this.rows(
+      `SELECT (SELECT value_ms FROM meta.watermarks WHERE env_id = $1 AND collector_id = 'af.facts') AS facts,
+              (SELECT epoch_ms(max(taken_at))::DOUBLE FROM fact.live_snapshot WHERE env_id = $1) AS live`,
+      [envId],
+    );
+    const known = [num(row?.['facts']), num(row?.['live'])].filter((t): t is number => t !== null);
+    return known.length === 0 ? null : Math.min(...known);
+  }
+
   async countTaskTries(envId: string): Promise<number> {
     const [row] = await this.rows(`SELECT count(*)::INTEGER AS n FROM fact.task_instance WHERE env_id = $1`, [
       envId,

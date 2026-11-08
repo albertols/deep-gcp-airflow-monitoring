@@ -163,6 +163,24 @@ describe('CollectionStore round trips (migrations 0004 and 0005)', { timeout: 60
     store.close();
   });
 
+  it('FR-UI-01, FR-COLL-03: the store reads through the older of the af.facts watermark and the newest live snapshot', async () => {
+    const store = await openStore({ path: ':memory:' });
+    expect(await store.readThrough(ENV)).toBeNull();
+    // Running tries are as fresh as the newest snapshot; before af.facts commits, they are all there is.
+    await store.saveSnapshot(ENV, snapshot(T0 + 30_000));
+    expect(await store.readThrough(ENV)).toBe(T0 + 30_000);
+    // Finished tries are read up to the watermark: the older of the two is how far every try is read.
+    await store.commitFacts(ENV, 'af.facts', [tryRow()], T0 + 60_007);
+    expect(await store.readThrough(ENV)).toBe(T0 + 30_000);
+    await store.saveSnapshot(ENV, snapshot(T0 + 90_000));
+    expect(await store.readThrough(ENV)).toBe(T0 + 60_007);
+    // Another collector's watermark says nothing about the task tries.
+    await store.commitFacts(ENV, 'af.other', [], T0 + 500_000);
+    expect(await store.readThrough(ENV)).toBe(T0 + 60_007);
+    expect(await store.readThrough('acme-dev')).toBeNull();
+    store.close();
+  });
+
   it('FR-COLL-03: commitFacts refuses tries of another environment', async () => {
     const store = await openStore({ path: ':memory:' });
     await expect(store.commitFacts(ENV, 'af.facts', [tryRow({ envId: 'acme-dev' })], T0)).rejects.toThrow(

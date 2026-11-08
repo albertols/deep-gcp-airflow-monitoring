@@ -96,6 +96,13 @@ export interface TaskInstanceStore {
    * callers take the earliest of the environment's tries they read.
    */
   historyStart?(envId: string): Promise<number | null>;
+  /**
+   * How far the store has read the environment's task tries: the older of the `af.facts` watermark
+   * (finished tries, FR-COLL-03) and the newest live snapshot (running tries), counting those that exist;
+   * `null` before either. Pages say "data as of" this time, so a stalled collection never reads as fresh
+   * (FR-UI-01, §12.10). Optional: a store nothing collects into (demo) is complete up to now.
+   */
+  readThrough?(envId: string): Promise<number | null>;
 }
 
 /**
