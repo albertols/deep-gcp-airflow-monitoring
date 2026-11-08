@@ -32,3 +32,4 @@ export * from './critical-path';
 export * from './capacity';
 export * from './dag-load';
 export * from './forecast';
+export * from './run-comparison';
