@@ -13,6 +13,7 @@ export type FindingRef = Schemas['FindingRef'];
 export type DagLeague = Schemas['DagLeague'];
 export type DagLeagueRow = Schemas['DagLeagueRow'];
 export type DagDetail = Schemas['DagDetail'];
+export type DagIndex = Schemas['DagIndex'];
 export type DurationDistribution = Schemas['DurationDistribution'];
 export type DurationRegression = Schemas['DurationRegression'];
 export type TaskReliability = Schemas['TaskReliability'];

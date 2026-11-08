@@ -222,6 +222,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/environments/{env_id}/dag-index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The environment's DAG IDs, for the command palette (FR-UI-03)
+         * @description Every DAG of the environment's inventory with its team and paused flag, sorted by DAG ID (code point
+         *     order). Reads the inventory only, never task history, so it stays small and fast at 5,000 DAGs. Not
+         *     under /dags/, where it would shadow a DAG ID.
+         */
+        get: operations["getDagIndex"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/environments/{env_id}/findings": {
         parameters: {
             query?: never;
@@ -464,6 +486,16 @@ export interface components {
             /** @description Wait to start, ready → start: all waiting before a try runs (HM-006). From live snapshots, so history older than collection has no samples. */
             ready_wait_p95: components["schemas"]["Quantile"];
             open_findings: number;
+        };
+        /** @description The DAGs of one environment's inventory, for the command palette (FR-UI-03). */
+        DagIndex: {
+            env_id: string;
+            dags: {
+                dag_id: string;
+                /** @description From the team-mapping rules (FR-DAGX-08). */
+                team: string;
+                paused: boolean;
+            }[];
         };
         DagDetail: {
             env_id: string;
@@ -2318,6 +2350,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Forecast"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getDagIndex: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                env_id: components["parameters"]["EnvId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The DAGs known in the environment; empty before the first inventory collection. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DagIndex"];
                 };
             };
             404: components["responses"]["NotFound"];

@@ -11,6 +11,7 @@ import {
   type Bottlenecks,
   type Collection,
   type DagDetail,
+  type DagIndex,
   type DagLeague,
   type EnvironmentOverview,
   type Findings,
@@ -28,6 +29,11 @@ export interface DcamApi {
   getOverview(envId: string, range: Range): Promise<EnvironmentOverview>;
   getDagLeague(envId: string, range: Range): Promise<DagLeague>;
   getDagDetail(envId: string, dagId: string, range: Range, runId?: string): Promise<DagDetail>;
+  /**
+   * The environment's DAG IDs for the command palette (FR-UI-03). Optional: page tests' fakes leave it
+   * out, and the palette then lists no DAGs.
+   */
+  getDagIndex?(envId: string): Promise<DagIndex>;
   getBottlenecks(envId: string, range: Range): Promise<Bottlenecks>;
   /** Schedule intelligence (S-17, FR-BOTL-03). */
   getSchedule(envId: string, range: Range): Promise<Schedule>;
@@ -107,6 +113,12 @@ export function createDcamApi(baseUrl = ''): DcamApi {
           },
         }),
         'the DAG',
+      );
+    },
+    async getDagIndex(envId) {
+      return unwrap(
+        await client.GET('/api/v1/environments/{env_id}/dag-index', { params: { path: env(envId) } }),
+        'the DAG list',
       );
     },
     async getBottlenecks(envId, range) {

@@ -1,13 +1,14 @@
 /**
  * GET /api/v1/environments/{env_id}/dags, /dags/{dag_id} and /dags/{dag_id}/runs/compare: the DAG league table,
- * one DAG in detail (with its concurrency and impact) and two of its runs compared.
+ * one DAG in detail (with its concurrency and impact) and two of its runs compared; GET …/dag-index: the
+ * inventory's DAG IDs for the command palette, without task history.
  *
  * @implements FR-DAGX-01, FR-DAGX-02, FR-DAGX-03, FR-DAGD-01, FR-DAGD-02, FR-DAGD-03, FR-DAGD-04, FR-DAGD-05,
- *   FR-DAGD-06, FR-DAGD-09
+ *   FR-DAGD-06, FR-DAGD-09, FR-UI-03
  */
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { FindingRef } from '@dcam/contracts';
-import { getDagDetail, getDagLeague, getRunComparison } from '@dcam/application';
+import { getDagDetail, getDagIndex, getDagLeague, getRunComparison } from '@dcam/application';
 import type { Memo } from '../cache';
 import type { Workspace } from '../workspace';
 import { findEnvironment, notFound, parseRange, problem, sourcesFor } from '../http';
@@ -61,6 +62,12 @@ export function registerDagRoutes(
       );
     },
   );
+
+  app.get<{ Params: { env_id: string } }>('/api/v1/environments/:env_id/dag-index', async (req, reply) => {
+    const env = findEnvironment(ws, reply, req.params.env_id);
+    if (!env) return reply;
+    return memo(`dag-index:${env.env_id}`, () => getDagIndex(ws, { envId: env.env_id }));
+  });
 
   app.get<{ Params: { env_id: string; dag_id: string }; Querystring: { range?: string; run_id?: string } }>(
     '/api/v1/environments/:env_id/dags/:dag_id',

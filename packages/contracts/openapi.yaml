@@ -223,6 +223,23 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Forecast' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/environments/{env_id}/dag-index:
+    get:
+      operationId: getDagIndex
+      summary: The environment's DAG IDs, for the command palette (FR-UI-03)
+      description: |
+        Every DAG of the environment's inventory with its team and paused flag, sorted by DAG ID (code point
+        order). Reads the inventory only, never task history, so it stays small and fast at 5,000 DAGs. Not
+        under /dags/, where it would shadow a DAG ID.
+      parameters:
+        - $ref: '#/components/parameters/EnvId'
+      responses:
+        '200':
+          description: The DAGs known in the environment; empty before the first inventory collection.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DagIndex' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/environments/{env_id}/findings:
     get:
       operationId: getFindings
@@ -609,6 +626,23 @@ components:
           allOf: [{ $ref: '#/components/schemas/Quantile' }]
           description: 'Wait to start, ready → start: all waiting before a try runs (HM-006). From live snapshots, so history older than collection has no samples.'
         open_findings: { type: integer, minimum: 0 }
+    DagIndex:
+      type: object
+      additionalProperties: false
+      description: The DAGs of one environment's inventory, for the command palette (FR-UI-03).
+      required: [env_id, dags]
+      properties:
+        env_id: { type: string }
+        dags:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [dag_id, team, paused]
+            properties:
+              dag_id: { type: string }
+              team: { type: string, description: 'From the team-mapping rules (FR-DAGX-08).' }
+              paused: { type: boolean }
     DagDetail:
       type: object
       additionalProperties: false
