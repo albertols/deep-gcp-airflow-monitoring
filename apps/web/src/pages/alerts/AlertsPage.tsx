@@ -2,10 +2,10 @@
  * S-24 "Alerts": the default alert pack evaluated locally while DCAM runs, firing and pending first,
  * with fire counts, mean time to resolve and the 24 h history. Read-only: nothing is sent anywhere.
  *
- * @implements FR-ALRT-01, FR-ALRT-02, FR-ALRT-06, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements FR-ALRT-01, FR-ALRT-02, FR-ALRT-06, FR-UI-01, FR-UI-02, FR-UI-05, FR-UI-07, FR-UI-08
  */
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState, type ComponentType } from 'react';
+import { useMemo, type ComponentType } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Link from '@mui/material/Link';
@@ -31,6 +31,7 @@ import WarningAmberOutlined from '@mui/icons-material/WarningAmberOutlined';
 import type { AlertEvent, AlertRule, AlertState, Severity } from '@dcam/contracts';
 import { formatDuration, formatInt } from '../../components/format';
 import { PageHeader } from '../../components/PageHeader';
+import { usePageParam, useRefresh, useTimeFormat } from '../../components/view';
 import { Kpi, KpiRow, Panel, ProvenanceFooter, QueryState } from '../../components/Panel';
 import type { PageProps } from '../types';
 import { RUNBOOK_WIKI_PAGES } from '../wiki/content/slugs';
@@ -64,6 +65,7 @@ const SEVERITY_ICON: Readonly<Record<Severity, { icon: Icon; tone: Tone }>> = {
 };
 const DAY_MS = 86_400_000;
 const ALL = 'all';
+const EVENT_KINDS: readonly string[] = ['fired', 'resolved'];
 const mono = { fontFamily: '"Roboto Mono", ui-monospace, monospace' };
 
 /** An icon with its label: state and severity never rely on colour alone (spec §12.5). */
@@ -107,14 +109,23 @@ function formatValue(value: number | null, unit: string): string {
 
 export function AlertsPage({ api, envId, linkTo }: PageProps) {
   // `null` follows the environment selected in the top bar.
-  const [choice, setChoice] = useState<string | null>(null);
-  const [stateFilter, setStateFilter] = useState<AlertState | typeof ALL>(ALL);
-  const [eventFilter, setEventFilter] = useState<AlertEvent['kind'] | typeof ALL>(ALL);
-  const scope = choice ?? envId;
+  // The scope and filters are in the URL (FR-UI-02); no scope follows the environment in the top bar.
+  const [choice, setChoice] = usePageParam('scope');
+  const [stateParam, setStateFilter] = usePageParam('state', ALL);
+  const [eventParam, setEventFilter] = usePageParam('event', ALL);
+  const stateFilter: AlertState | typeof ALL = (STATES as readonly string[]).includes(stateParam)
+    ? (stateParam as AlertState)
+    : ALL;
+  const eventFilter: AlertEvent['kind'] | typeof ALL = EVENT_KINDS.includes(eventParam)
+    ? (eventParam as AlertEvent['kind'])
+    : ALL;
+  const time = useTimeFormat();
+  const scope = choice || envId;
   const filterEnv = scope === ALL ? undefined : scope;
 
   const meta = useQuery({ queryKey: ['meta'], queryFn: () => api.getMeta() });
   const q = useQuery({
+    ...useRefresh(),
     queryKey: ['alerts', scope],
     queryFn: () => api.getAlerts(filterEnv),
   });
@@ -318,7 +329,7 @@ export function AlertsPage({ api, envId, linkTo }: PageProps) {
                     {events.map((e) => (
                       <TableRow key={e.id}>
                         <TableCell sx={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
-                          {formatTime(e.at, a.data_as_of)}
+                          {formatTime(e.at, a.data_as_of, time)}
                         </TableCell>
                         <TableCell>
                           {e.kind === 'fired' ? (
@@ -355,6 +366,7 @@ export function AlertsPage({ api, envId, linkTo }: PageProps) {
 }
 
 function RuleRow({ rule: r, asOf, linkTo }: { rule: AlertRule; asOf: string; linkTo: PageProps['linkTo'] }) {
+  const time = useTimeFormat();
   return (
     <TableRow hover>
       <TableCell>
@@ -389,7 +401,7 @@ function RuleRow({ rule: r, asOf, linkTo }: { rule: AlertRule; asOf: string; lin
           </Typography>
         )}
       </TableCell>
-      <TableCell sx={{ whiteSpace: 'nowrap' }}>{r.since ? formatTime(r.since, asOf) : '—'}</TableCell>
+      <TableCell sx={{ whiteSpace: 'nowrap' }}>{r.since ? formatTime(r.since, asOf, time) : '—'}</TableCell>
       <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
         {formatInt(r.fired_count_24h)}
       </TableCell>

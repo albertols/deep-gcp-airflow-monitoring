@@ -1,32 +1,10 @@
-/** UTC time labels for the DAG pages (storage and the provenance footer are UTC, spec §8.9). */
-import type { Range } from '@dcam/contracts';
+/**
+ * Time labels for the DAG pages, in the context bar's time zone (FR-UI-01); UTC where a caller passes
+ * none. Storage and Airflow timestamps are UTC (spec §8.9).
+ */
+import { UTC_TIME, type TimeFormat } from '../../components/time';
 
-const clock = new Intl.DateTimeFormat('en-GB', {
-  hour: '2-digit',
-  minute: '2-digit',
-  hourCycle: 'h23',
-  timeZone: 'UTC',
-});
-const dayClock = new Intl.DateTimeFormat('en-GB', {
-  day: 'numeric',
-  month: 'short',
-  hour: '2-digit',
-  minute: '2-digit',
-  hourCycle: 'h23',
-  timeZone: 'UTC',
-});
-
-/** `11:02` (UTC). */
-export const formatClock = (ms: number) => clock.format(ms);
+/** `11:02`. */
+export const formatClock = (ms: number, time: TimeFormat = UTC_TIME) => time.clock(ms);
 /** `5 Nov, 11:02 UTC`. */
-export const formatUtc = (iso: string | number) => `${dayClock.format(new Date(iso))} UTC`;
-
-export const RANGE_LABEL: Record<Range, string> = {
-  '15m': '15 min',
-  '1h': '1 h',
-  '6h': '6 h',
-  '24h': '24 h',
-  '7d': '7 days',
-  '30d': '30 days',
-  '90d': '90 days',
-};
+export const formatDateTime = (at: string | number, time: TimeFormat = UTC_TIME) => time.dateTime(at);

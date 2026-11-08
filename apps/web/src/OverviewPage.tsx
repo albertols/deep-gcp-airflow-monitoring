@@ -1,7 +1,8 @@
 /**
- * Capacity overview (M0): the first slice of the DAG league table (spec §12.4 S-05, FR-DAGX-02/03).
+ * Capacity overview (M0): the first slice of the DAG league table (spec §12.4 S-05, FR-DAGX-02/03), over
+ * the context bar's range.
  *
- * @implements HM-003, HM-011, FR-DAGX-03, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements HM-003, HM-011, FR-DAGX-03, FR-UI-01, FR-UI-05, FR-UI-07, FR-UI-08
  */
 import { useQuery } from '@tanstack/react-query';
 import Alert from '@mui/material/Alert';
@@ -15,14 +16,14 @@ import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
 import { InfoPopover } from '@dcam/ui-kit';
-import { useState } from 'react';
-import type { DcamApi, OverviewRange } from './api';
+import type { DcamApi } from './api';
 import { clause } from './components/format';
+import { CoverageNote, PageHeader } from './components/PageHeader';
 import { ProvenanceFooter } from './components/Panel';
+import { RANGE_PRESETS, loadingText } from './components/range';
+import { useRefresh, useView } from './components/view';
 import { EXPLANATIONS, type ExplanationId } from './explanations';
 
 /** Every panel on this page; a test checks each has an explanation (FR-UI-05). */
@@ -66,31 +67,20 @@ function Kpi({ id, value, unit }: { id: ExplanationId; value: string; unit?: str
 }
 
 export function OverviewPage({ api, envId }: { api: DcamApi; envId: string }) {
-  const [range, setRange] = useState<OverviewRange>('24h');
+  const { range, time } = useView();
   const overview = useQuery({
     queryKey: ['overview', envId, range],
     queryFn: () => api.getOverview(envId, range),
+    ...useRefresh(),
   });
 
   return (
     <Stack spacing={4}>
-      <Stack
-        direction="row"
-        sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}
-      >
-        <Typography variant="h1">Capacity overview</Typography>
-        <ToggleButtonGroup
-          size="small"
-          exclusive
-          value={range}
-          aria-label="Time range"
-          onChange={(_e, value: OverviewRange | null) => value && setRange(value)}
-        >
-          <ToggleButton value="1h">1 h</ToggleButton>
-          <ToggleButton value="6h">6 h</ToggleButton>
-          <ToggleButton value="24h">24 h</ToggleButton>
-        </ToggleButtonGroup>
-      </Stack>
+      <PageHeader
+        title="Capacity overview"
+        subtitle={`${RANGE_PRESETS[range].label}. Executor slot-hours and peak concurrency, and the DAGs that use most.`}
+      />
+      {overview.data && <CoverageNote coverage={overview.data.coverage} range={range} />}
 
       {overview.isError && (
         <Alert severity="error">
@@ -99,7 +89,9 @@ export function OverviewPage({ api, envId }: { api: DcamApi; envId: string }) {
         </Alert>
       )}
 
-      {overview.isPending && <Skeleton variant="rounded" height={120} aria-label="Loading overview" />}
+      {overview.isPending && (
+        <Skeleton variant="rounded" height={120} aria-label={loadingText('overview', range)} />
+      )}
 
       {overview.data && (
         <>
@@ -160,7 +152,11 @@ export function OverviewPage({ api, envId }: { api: DcamApi; envId: string }) {
             </Table>
           </Paper>
 
-          <ProvenanceFooter dataAsOf={overview.data.data_as_of} sources={overview.data.sources} />
+          <ProvenanceFooter
+            dataAsOf={overview.data.data_as_of}
+            sources={overview.data.sources}
+            note={`Range ${time.dateTime(overview.data.range.from)} to ${time.dateTime(overview.data.range.to)}`}
+          />
         </>
       )}
     </Stack>

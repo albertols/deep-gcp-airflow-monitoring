@@ -19,13 +19,18 @@ import type { DcamApi } from '../api';
  */
 export const COLLECTION_POLL_MS = 10_000;
 
-export function useCollection(api: DcamApi, { enabled = true }: { enabled?: boolean } = {}) {
+export function useCollection(
+  api: DcamApi,
+  { enabled = true, paused = false }: { enabled?: boolean; paused?: boolean } = {},
+) {
   return useQuery({
     queryKey: ['collection'],
     queryFn: () => api.getCollection(),
     enabled,
-    // Demo data has no collectors and never changes; live status changes every cycle.
-    refetchInterval: (query) => (query.state.data?.mode === 'live' ? COLLECTION_POLL_MS : false),
+    // Demo data has no collectors and never changes; live status changes every cycle. Paused updates
+    // (the context bar, FR-UI-01) stop this polling too.
+    refetchInterval: (query) => (!paused && query.state.data?.mode === 'live' ? COLLECTION_POLL_MS : false),
+    ...(paused ? { refetchOnWindowFocus: false, refetchOnReconnect: false } : {}),
   });
 }
 

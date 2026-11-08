@@ -10,6 +10,7 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import type { Finding } from '@dcam/contracts';
 import { PageHeader } from '../../components/PageHeader';
+import { useRefresh } from '../../components/view';
 import { Panel, ProvenanceFooter, QueryState } from '../../components/Panel';
 import type { PageProps } from '../types';
 import { ADVISOR_EXPLANATIONS as X } from './explanations';
@@ -39,7 +40,11 @@ function FindingList({
 }
 
 export function AdvisorPage({ api, envId, linkTo }: PageProps) {
-  const q = useQuery({ queryKey: ['findings', envId], queryFn: () => api.getFindings(envId) });
+  const q = useQuery({
+    queryKey: ['findings', envId],
+    queryFn: () => api.getFindings(envId),
+    ...useRefresh(),
+  });
   const data = q.data;
   const top = data?.findings.slice(0, TOP_ACTIONS) ?? [];
   const rest = data?.findings.slice(TOP_ACTIONS) ?? [];

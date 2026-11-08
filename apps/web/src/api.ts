@@ -20,7 +20,6 @@ import {
   type Schedule,
 } from '@dcam/contracts';
 
-export type OverviewRange = Range;
 export type { Range };
 
 /** The narrow API surface the UI uses; tests pass a fake (spec §19). */

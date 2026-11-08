@@ -5,7 +5,6 @@
  *
  * @implements FR-ENV-08, FR-UI-05, FR-UI-07, FR-UI-08
  */
-import { useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Link from '@mui/material/Link';
@@ -18,7 +17,9 @@ import Typography from '@mui/material/Typography';
 import { useTheme } from '@mui/material/styles';
 import type { Bottlenecks } from '@dcam/contracts';
 import { formatInt, formatShare } from '../../components/format';
+import { bucketLabels } from '../../components/charts';
 import { Panel, ProvenanceFooter } from '../../components/Panel';
+import { usePageParam, useTimeFormat } from '../../components/view';
 import type { PageProps } from '../types';
 import { DEPTH_EXPLANATIONS as X } from './explanations-depth';
 
@@ -65,7 +66,10 @@ function Starvation({ pool, bucketSeconds }: { pool: Pool; bucketSeconds: number
 }
 
 export function PoolsPanel({ b, linkTo }: { b: Bottlenecks; linkTo: PageProps['linkTo'] }) {
-  const [asTable, setAsTable] = useState(false);
+  const [view, setView] = usePageParam('starvation', 'bars');
+  const asTable = view === 'table';
+  const time = useTimeFormat();
+  const labels = bucketLabels(time, b.series.length, b.bucket_seconds * 1000);
   const withSeries = b.pools.filter((p) => p.starved_series !== undefined);
 
   return (
@@ -73,7 +77,7 @@ export function PoolsPanel({ b, linkTo }: { b: Bottlenecks; linkTo: PageProps['l
       explanation={X['botl-pools-activity']}
       actions={
         withSeries.length > 0 ? (
-          <Button size="small" onClick={() => setAsTable((v) => !v)}>
+          <Button size="small" onClick={() => setView(asTable ? 'bars' : 'table')}>
             {asTable ? 'View starvation as bars' : 'View starvation as a table'}
           </Button>
         ) : undefined
@@ -143,7 +147,7 @@ export function PoolsPanel({ b, linkTo }: { b: Bottlenecks; linkTo: PageProps['l
           <Table size="small" stickyHeader aria-label="Starved minutes per bucket">
             <TableHead>
               <TableRow>
-                <TableCell>Bucket (UTC)</TableCell>
+                <TableCell>{`Bucket start (${time.zoneName(b.series[0]?.start)})`}</TableCell>
                 {withSeries.map((p) => (
                   <TableCell key={p.name} align="right" sx={MONO}>
                     {p.name}
@@ -154,7 +158,7 @@ export function PoolsPanel({ b, linkTo }: { b: Bottlenecks; linkTo: PageProps['l
             <TableBody>
               {b.series.map((bucket, i) => (
                 <TableRow key={bucket.start}>
-                  <TableCell>{bucket.start.slice(11, 16)}</TableCell>
+                  <TableCell>{labels.tick(Date.parse(bucket.start))}</TableCell>
                   {withSeries.map((p) => {
                     const m = p.starved_series?.[i];
                     return (

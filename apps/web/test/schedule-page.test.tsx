@@ -144,7 +144,7 @@ const panel = (title: string) => screen.findByRole('region', { name: title });
 
 describe('S-17 schedule intelligence (FR-BOTL-03, HM-009)', () => {
   it('S-17: the page has its own route and a navigation entry', async () => {
-    expect(parseLocation('/schedule', '?env=acme-prod')).toEqual({
+    expect(parseLocation('/schedule', '?env=acme-prod')).toMatchObject({
       route: { page: 'schedule' },
       envId: 'acme-prod',
     });

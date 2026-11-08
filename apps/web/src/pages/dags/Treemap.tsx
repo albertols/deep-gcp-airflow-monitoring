@@ -3,9 +3,9 @@
  * on the design tokens, with a legend, an accessible description and a table view. A team click filters
  * to that team; a DAG tile opens the DAG.
  *
- * @implements FR-DAGX-04
+ * @implements FR-DAGX-04, FR-UI-02
  */
-import { useId, useMemo, useState, type KeyboardEvent } from 'react';
+import { useId, useMemo, type KeyboardEvent } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
@@ -20,6 +20,7 @@ import { useTheme } from '@mui/material/styles';
 import type { DagLeagueRow } from '@dcam/contracts';
 import { tokens } from '@dcam/ui-kit';
 import { formatInt, formatQuantile, formatShare, formatSlotHours } from '../../components/format';
+import { usePageParam } from '../../components/view';
 import type { Route } from '../../router';
 import {
   QUEUE_WAIT_BANDS,
@@ -80,7 +81,8 @@ export function Treemap({
   const t = tokens[mode];
   const colours = bandColours(mode);
   const descId = useId();
-  const [asTable, setAsTable] = useState(false);
+  const [view, setView] = usePageParam('treemap', 'chart');
+  const asTable = view === 'table';
   const groups = useMemo(
     () =>
       treemapLayout(
@@ -147,7 +149,7 @@ export function Treemap({
               Show all teams
             </Button>
           )}
-          <Button size="small" variant="outlined" onClick={() => setAsTable((v) => !v)}>
+          <Button size="small" variant="outlined" onClick={() => setView(asTable ? 'chart' : 'table')}>
             {asTable ? 'View treemap as chart' : 'View treemap as table'}
           </Button>
         </Stack>

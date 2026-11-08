@@ -1,12 +1,13 @@
 /**
- * Application shell (spec §12.2): top context bar with the live or demo indicator and the selected
- * environment's collection badges, left navigation, demo banner, routed content. Pages are separate
- * chunks loaded on first visit (NFR-PERF-05).
+ * Application shell (spec §12.2): the global context bar (environment, time range, time zone, live or
+ * paused, freshness), the live or demo indicator and the selected environment's collection badges, left
+ * navigation, demo banner, routed content. The URL holds the bar's state and each page's own state
+ * (FR-UI-02). Pages are separate chunks loaded on first visit (NFR-PERF-05).
  *
- * @implements FR-UI-06, FR-EMU-01, FR-SELF-01, FR-SETUP-02, FR-COLL-11, FR-COLL-06
+ * @implements FR-UI-01, FR-UI-02, FR-UI-06, FR-EMU-01, FR-SELF-01, FR-SETUP-02, FR-COLL-11, FR-COLL-06
  */
-import { useQuery } from '@tanstack/react-query';
-import { Suspense, lazy, useCallback, type ComponentType } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Suspense, lazy, useCallback, useMemo, useSyncExternalStore, type ComponentType } from 'react';
 import Alert from '@mui/material/Alert';
 import AppBar from '@mui/material/AppBar';
 import Box from '@mui/material/Box';
@@ -14,18 +15,32 @@ import Chip from '@mui/material/Chip';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemText from '@mui/material/ListItemText';
-import MenuItem from '@mui/material/MenuItem';
 import Skeleton from '@mui/material/Skeleton';
-import Stack from '@mui/material/Stack';
-import TextField from '@mui/material/TextField';
 import Toolbar from '@mui/material/Toolbar';
 import Typography from '@mui/material/Typography';
 import type { DcamApi } from './api';
 import { CollectionBadges, LiveChip, useCollection } from './components/collection';
+import { ContextBar, freshnessOf, type RangeScope } from './components/ContextBar';
 import { PageErrorBoundary } from './components/PageErrorBoundary';
+import { localTimeZone as browserTimeZone, timeFormat } from './components/time';
+import {
+  PageParamsContext,
+  ViewContext,
+  refreshOptions,
+  type PageParamsValue,
+  type View,
+} from './components/view';
 import { OverviewPage } from './OverviewPage';
 import type { PageProps } from './pages/types';
-import { linkTo, useLocation, type Page, type Route } from './router';
+import {
+  currentLocation,
+  linkTo,
+  useLocation,
+  type Page,
+  type PageParams,
+  type Route,
+  type ViewState,
+} from './router';
 
 const named = <K extends string>(load: () => Promise<Record<K, ComponentType<PageProps>>>, name: K) =>
   lazy(async () => ({ default: (await load())[name] }));
@@ -66,27 +81,96 @@ const NAV: ReadonlyArray<{ label: string; route: Route; hint: string; matches: r
 
 const NAV_WIDTH = 232;
 
-export function App({ api }: { api: DcamApi }) {
-  const meta = useQuery({ queryKey: ['meta'], queryFn: () => api.getMeta() });
+/** Which pages follow the selected range; the others say so in the bar (FR-UI-01). */
+const RANGE_SCOPE: Readonly<Record<Page, RangeScope>> = {
+  overview: 'range',
+  dags: 'range',
+  dag: 'range',
+  bottlenecks: 'range',
+  schedule: 'range',
+  fleet: 'fixed-24h',
+  advisor: 'fixed-24h',
+  alerts: 'fixed-24h',
+  health: 'none',
+  wiki: 'none',
+};
+
+/** Page state that belongs to one range or environment: a selected run is not in another one. */
+const SELECTION_PARAMS: readonly string[] = ['run'];
+const withoutSelection = (params: PageParams): PageParams =>
+  Object.fromEntries(Object.entries(params).filter(([k]) => !SELECTION_PARAMS.includes(k)));
+
+/**
+ * The oldest "data as of" among the queries the page shows: every panel on the page is at least this
+ * fresh (FR-UI-01 freshness indicator).
+ */
+function usePageDataAsOf(): string | null {
+  const cache = useQueryClient().getQueryCache();
+  const subscribe = useCallback((onChange: () => void) => cache.subscribe(onChange), [cache]);
+  const read = useCallback(() => {
+    let oldest: string | null = null;
+    for (const q of cache.findAll({ type: 'active' })) {
+      const at = (q.state.data as { data_as_of?: unknown } | undefined)?.data_as_of;
+      if (typeof at === 'string' && (oldest === null || Date.parse(at) < Date.parse(oldest))) oldest = at;
+    }
+    return oldest;
+  }, [cache]);
+  return useSyncExternalStore(subscribe, read, read);
+}
+
+export function App({ api, localTimeZone }: { api: DcamApi; localTimeZone?: string }) {
   const [location, go] = useLocation();
+  const { route, view, params } = location;
+  const queryClient = useQueryClient();
+  const meta = useQuery({ queryKey: ['meta'], queryFn: () => api.getMeta(), ...refreshOptions(view.paused) });
   const environments = meta.data?.environments ?? [];
   const envId =
     environments.find((e) => e.env_id === location.envId)?.env_id ?? environments[0]?.env_id ?? null;
-  const link = useCallback((route: Route) => linkTo(route, envId), [envId]);
-  const navigate = useCallback((route: Route) => go(linkTo(route, envId)), [go, envId]);
-  const { route } = location;
+  const local = localTimeZone ?? browserTimeZone();
+  const time = timeFormat(view.tz, local);
+  const pageView = useMemo<View>(() => ({ ...view, time }), [view, time]);
+  // Links to other pages keep the context bar's state, not this page's filters.
+  const link = useCallback((r: Route) => linkTo(r, envId, view), [envId, view]);
+  const navigate = useCallback((r: Route) => go(linkTo(r, envId, view)), [go, envId, view]);
+
+  const setView = (patch: Partial<ViewState>) => {
+    const next = { ...view, ...patch };
+    const rangeChanged = next.range !== view.range;
+    // A new range is a new view (back returns to the old one); the zone and pausing are toggles.
+    go(linkTo(route, envId, next, rangeChanged ? withoutSelection(params) : params), {
+      replace: !rangeChanged,
+    });
+    // Resuming loads the latest data at once instead of at the next poll.
+    if (view.paused && !next.paused) void queryClient.invalidateQueries();
+  };
+
+  // Page parameters merge with the address bar as it is now, so several changes in one event all stay.
+  const setParams = useCallback(
+    (patch: Readonly<Record<string, string | null>>) => {
+      const next: Record<string, string> = { ...currentLocation().params };
+      for (const [key, value] of Object.entries(patch)) {
+        if (value === null || value === '') delete next[key];
+        else next[key] = value;
+      }
+      go(linkTo(route, envId, view, next), { replace: true });
+    },
+    [go, route, envId, view],
+  );
+  const pageParams = useMemo<PageParamsValue>(() => ({ params, set: setParams }), [params, setParams]);
+
   // Setup mode (FR-SETUP-02): no environment is configured, so only the setup page applies.
   const setup = meta.data?.setup;
   // Only live mode has collectors; the badges poll their status (FR-COLL-11).
   const live = meta.data?.mode === 'live' && !setup;
-  const collection = useCollection(api, { enabled: live });
+  const collection = useCollection(api, { enabled: live, paused: view.paused });
   const envCollection = live ? collection.data?.environments.find((e) => e.env_id === envId) : undefined;
+  const dataAsOf = usePageDataAsOf();
   const PageComponent = route.page === 'overview' ? null : PAGES[route.page];
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: 'background.default' }}>
       <AppBar position="static" elevation={0}>
-        <Toolbar sx={{ gap: 4, minHeight: { xs: 64 }, py: 2 }}>
+        <Toolbar sx={{ gap: 4, minHeight: { xs: 64 }, py: 2, flexWrap: 'wrap' }}>
           <Typography component="div" sx={{ fontWeight: 500, fontSize: '1.125rem' }}>
             DCAM
             <Typography
@@ -98,24 +182,20 @@ export function App({ api }: { api: DcamApi }) {
               deep-gcp-airflow-monitoring
             </Typography>
           </Typography>
-          {envId && (
-            <Stack direction="row" sx={{ alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-              <TextField
-                select
-                size="small"
-                label="Environment"
-                value={envId}
-                onChange={(e) => go(linkTo(route, e.target.value))}
-                sx={{ minWidth: 200 }}
-              >
-                {environments.map((e) => (
-                  <MenuItem key={e.env_id} value={e.env_id}>
-                    {e.display_name} · {e.tier}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <CollectionBadges env={envCollection} href={link({ page: 'health' })} />
-            </Stack>
+          {envId && !setup && (
+            <ContextBar
+              environments={environments}
+              envId={envId}
+              onEnvironment={(next) => go(linkTo(route, next, view, withoutSelection(params)))}
+              view={view}
+              onView={setView}
+              rangeScope={RANGE_SCOPE[route.page]}
+              time={time}
+              localZoneName={timeFormat('local', local).zoneName()}
+              dataAsOf={dataAsOf}
+              freshness={live ? freshnessOf(envCollection) : null}
+              badges={<CollectionBadges env={envCollection} href={link({ page: 'health' })} />}
+            />
           )}
           <Box sx={{ flex: 1 }} />
           {meta.data?.mode === 'demo' && (
@@ -186,14 +266,24 @@ export function App({ api }: { api: DcamApi }) {
                 Couldn't reach the DCAM server. Check that it is still running, then reload the page.
               </Alert>
             )}
-            <PageErrorBoundary resetKey={linkTo(route, envId)}>
-              {envId && route.page === 'overview' && <OverviewPage api={api} envId={envId} />}
-              {envId && PageComponent && (
-                <Suspense fallback={LOADING}>
-                  <PageComponent api={api} envId={envId} route={route} linkTo={link} navigate={navigate} />
-                </Suspense>
-              )}
-            </PageErrorBoundary>
+            <ViewContext.Provider value={pageView}>
+              <PageParamsContext.Provider value={pageParams}>
+                <PageErrorBoundary resetKey={linkTo(route, envId, view)}>
+                  {envId && route.page === 'overview' && <OverviewPage api={api} envId={envId} />}
+                  {envId && PageComponent && (
+                    <Suspense fallback={LOADING}>
+                      <PageComponent
+                        api={api}
+                        envId={envId}
+                        route={route}
+                        linkTo={link}
+                        navigate={navigate}
+                      />
+                    </Suspense>
+                  )}
+                </PageErrorBoundary>
+              </PageParamsContext.Provider>
+            </ViewContext.Provider>
           </Box>
         </Box>
       )}

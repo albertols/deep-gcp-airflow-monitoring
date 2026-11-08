@@ -1,12 +1,14 @@
 /**
  * S-16 "Why is work waiting?": waiting task-time attributed to the limit that binds (HM-006), with
- * worker capacity, top contributors, noisy neighbours, pools, priority fairness and sensor waste.
+ * worker capacity, top contributors, noisy neighbours, pools, priority fairness and sensor waste, over the
+ * context bar's range. The chart's bucket keeps it at 360 bars or fewer and is named in the chart; chart or
+ * table view is in the URL.
  *
  * @implements FR-BOTL-01, FR-BOTL-02, FR-BOTL-06, FR-BOTL-07, FR-BOTL-09, FR-ENV-08, HM-017, HM-023,
- *   FR-UI-05, FR-UI-07, FR-UI-08
+ *   FR-UI-01, FR-UI-02, FR-UI-05, FR-UI-07, FR-UI-08, NFR-PERF-06
  */
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -19,13 +21,15 @@ import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
-import type { Bottlenecks, Range, WaitReasonId } from '@dcam/contracts';
+import type { Bottlenecks, WaitReasonId } from '@dcam/contracts';
 import { InfoPopover } from '@dcam/ui-kit';
 import { HistoryNote } from '../../components/backfill';
-import { Legend, StackedBars, ValueBars } from '../../components/charts';
+import { Legend, StackedBars, ValueBars, bucketLabels } from '../../components/charts';
 import { formatCadence, formatDuration, formatInt, formatShare } from '../../components/format';
 import { PageHeader } from '../../components/PageHeader';
 import { Kpi, KpiRow, Panel, ProvenanceFooter, QueryState } from '../../components/Panel';
+import { RANGE_PRESETS } from '../../components/range';
+import { usePageParam, useRefresh, useView } from '../../components/view';
 import type { PageProps } from '../types';
 import { BOTTLENECK_EXPLANATIONS as X } from './explanations';
 import { NoisyNeighboursPanel } from './NoisyNeighboursPanel';
@@ -56,8 +60,13 @@ function capacityMinutes(b: Bottlenecks, minutes: number | null) {
   };
 }
 
-/** "15-minute" for 900 s. */
-const bucketName = (seconds: number) => (seconds % 60 === 0 ? `${seconds / 60}-minute` : `${seconds}-second`);
+/** "15-minute" for 900 s, "3-hour" for 10,800 s: the chart's bucket, named in its description. */
+export const bucketName = (seconds: number) =>
+  seconds % 3600 === 0
+    ? `${seconds / 3600}-hour`
+    : seconds % 60 === 0
+      ? `${seconds / 60}-minute`
+      : `${seconds}-second`;
 
 /** Waiting task-minutes per chart series for each bucket. */
 function seriesBuckets(b: Bottlenecks) {
@@ -72,26 +81,27 @@ function seriesBuckets(b: Bottlenecks) {
 }
 
 export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
-  const [range, setRange] = useState<Range>('24h');
-  const [asTable, setAsTable] = useState(false);
+  const { range, time } = useView();
+  const [view, setView] = usePageParam('waiting', 'chart');
+  const asTable = view === 'table';
   const q = useQuery({
     queryKey: ['bottlenecks', envId, range],
     queryFn: () => api.getBottlenecks(envId, range),
+    ...useRefresh(),
   });
   const b = q.data;
   const buckets = useMemo(() => (b ? seriesBuckets(b) : []), [b]);
   const present = CHART_SERIES.filter((s) => buckets.some((x) => (x.values[s.key] ?? 0) > 0));
   const bucketLabel = b ? bucketName(b.bucket_seconds) : '';
+  const labels = bucketLabels(time, buckets.length, (b?.bucket_seconds ?? 60) * 1000);
 
   return (
     <Stack spacing={4}>
       <PageHeader
         title="Bottlenecks"
-        subtitle="Why ready work is not running: waiting attributed to the limit that binds."
-        range={range}
-        onRangeChange={setRange}
+        subtitle={`${RANGE_PRESETS[range].label}. Why ready work is not running: waiting attributed to the limit that binds.`}
       />
-      <QueryState isPending={q.isPending} error={q.error} what="the bottleneck analysis" />
+      <QueryState isPending={q.isPending} error={q.error} what="the bottleneck analysis" range={range} />
       {b && (
         <>
           {b.answer.reason ? (
@@ -151,19 +161,22 @@ export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
           <Panel
             explanation={X['botl-waiting-chart']}
             actions={
-              <Button size="small" onClick={() => setAsTable((v) => !v)}>
+              <Button size="small" onClick={() => setView(asTable ? 'chart' : 'table')}>
                 {asTable ? 'View waiting as a chart' : 'View waiting as a table'}
               </Button>
             }
           >
             <Stack spacing={2}>
               <Legend series={present} label="Legend: waiting by reason" />
+              <Typography variant="caption" color="text.secondary">
+                Each bar is one {bucketLabel} bucket of the {RANGE_PRESETS[range].span}, in task-minutes.
+              </Typography>
               {asTable ? (
                 <Box sx={{ maxHeight: 360, overflow: 'auto' }}>
                   <Table size="small" stickyHeader aria-label="Waiting task-minutes per bucket">
                     <TableHead>
                       <TableRow>
-                        <TableCell>Bucket (UTC)</TableCell>
+                        <TableCell>{`Bucket start (${time.zoneName(buckets[0]?.start)})`}</TableCell>
                         {present.map((s) => (
                           <TableCell key={s.key} align="right">
                             {s.label}
@@ -174,7 +187,7 @@ export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
                     <TableBody>
                       {buckets.map((x) => (
                         <TableRow key={x.start}>
-                          <TableCell>{new Date(x.start).toISOString().slice(11, 16)}</TableCell>
+                          <TableCell>{labels.tick(x.start)}</TableCell>
                           {present.map((s) => (
                             <TableCell key={s.key} align="right">
                               {formatInt(Math.round(x.values[s.key] ?? 0))}

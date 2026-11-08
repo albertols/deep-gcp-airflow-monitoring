@@ -1,12 +1,13 @@
 /**
  * One DAG in detail (spec §12.4 S-12): header with every limit that can throttle it, KPIs, a runs
  * timeline, the Gantt chart of one run with its critical path, per-task statistics, durations against
- * their baseline, and failures, retries and flakiness.
+ * their baseline, and failures, retries and flakiness. The range comes from the context bar; the run shown
+ * in the Gantt chart is in the URL (`run`), so a shared link opens the same run.
  *
  * @implements FR-DAGD-01, FR-DAGD-02, FR-DAGD-03, FR-DAGD-04, FR-TASK-01, HM-005, HM-007, HM-015, HM-016,
- *   FR-UI-05, FR-UI-07, FR-UI-08
+ *   FR-UI-01, FR-UI-02, FR-UI-05, FR-UI-07, FR-UI-08
  */
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
@@ -24,7 +25,7 @@ import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import type { DagDetail, Range } from '@dcam/contracts';
+import type { DagDetail } from '@dcam/contracts';
 import { InfoPopover } from '@dcam/ui-kit';
 import { PageHeader } from '../../components/PageHeader';
 import { Kpi, KpiRow, Panel, ProvenanceFooter } from '../../components/Panel';
@@ -38,6 +39,8 @@ import {
   formatShare,
   formatSlotHours,
 } from '../../components/format';
+import { RANGE_PRESETS, loadingText } from '../../components/range';
+import { usePageParam, useRefresh, useView } from '../../components/view';
 import type { PageProps } from '../types';
 import { CriticalPathSummary } from './CriticalPathSummary';
 import { DurationPanel } from './DurationPanel';
@@ -45,7 +48,6 @@ import { DAG_EXPLANATIONS as E, type DagExplanationId } from './explanations';
 import { ReliabilityPanel } from './ReliabilityPanel';
 import { RunGantt } from './RunGantt';
 import { RunsTimeline, STATE_LABEL } from './RunsTimeline';
-import { RANGE_LABEL, formatUtc } from './time';
 
 const MONO = '"Roboto Mono", ui-monospace, monospace';
 
@@ -270,10 +272,11 @@ function Tasks({ tasks }: { tasks: DagDetail['tasks'] }) {
 
 export function DagDetailPage({ api, envId, route, linkTo }: PageProps) {
   const dagId = route.page === 'dag' ? route.dagId : '';
-  const [range, setRange] = useState<Range>('24h');
-  // The picked run belongs to one DAG and range; another DAG or range starts at its latest run.
-  const [picked, setPicked] = useState<{ dagId: string; range: Range; runId: string } | null>(null);
-  const runId = picked?.dagId === dagId && picked.range === range ? picked.runId : undefined;
+  const { range, time } = useView();
+  // The picked run is in the URL; the shell drops it when the range or environment changes, because a
+  // run belongs to one range. Without one, the page shows the latest run.
+  const [run, setRun] = usePageParam('run');
+  const runId = run === '' ? undefined : run;
   const detail = useQuery({
     queryKey: ['dag-detail', envId, dagId, range, runId ?? null],
     queryFn: () => api.getDagDetail(envId, dagId, range, runId),
@@ -282,9 +285,11 @@ export function DagDetailPage({ api, envId, route, linkTo }: PageProps) {
       query?.queryKey[1] === envId && query.queryKey[2] === dagId && query.queryKey[3] === range
         ? previous
         : undefined,
+    ...useRefresh(),
   });
   const d = detail.data;
-  const select = (id: string) => setPicked({ dagId, range, runId: id });
+  const select = (id: string) => setRun(id);
+  const rangeLabel = RANGE_PRESETS[range].label;
   const latestFirst = d ? [...d.runs].reverse() : [];
 
   return (
@@ -294,9 +299,7 @@ export function DagDetailPage({ api, envId, route, linkTo }: PageProps) {
       </Link>
       <PageHeader
         title={dagId}
-        subtitle={d ? `Team ${d.meta.team} · last ${RANGE_LABEL[range]}` : `Last ${RANGE_LABEL[range]}`}
-        range={range}
-        onRangeChange={setRange}
+        subtitle={d ? `Team ${d.meta.team} · ${rangeLabel.toLowerCase()}` : rangeLabel}
       />
 
       {detail.error && (
@@ -312,7 +315,9 @@ export function DagDetailPage({ api, envId, route, linkTo }: PageProps) {
           league table.
         </Alert>
       )}
-      {detail.isPending && <Skeleton variant="rounded" height={240} aria-label="Loading the DAG" />}
+      {detail.isPending && (
+        <Skeleton variant="rounded" height={240} aria-label={loadingText('the DAG', range)} />
+      )}
 
       {d && (
         <>
@@ -353,7 +358,7 @@ export function DagDetailPage({ api, envId, route, linkTo }: PageProps) {
                 >
                   {latestFirst.map((r) => (
                     <MenuItem key={r.run_id} value={r.run_id}>
-                      {formatUtc(r.start)} · {STATE_LABEL[r.state]}
+                      {time.dateTime(r.start)} · {STATE_LABEL[r.state]}
                     </MenuItem>
                   ))}
                 </TextField>
@@ -375,7 +380,7 @@ export function DagDetailPage({ api, envId, route, linkTo }: PageProps) {
           <ProvenanceFooter
             dataAsOf={d.data_as_of}
             sources={d.sources}
-            note={`Range ${formatUtc(d.range.from)} to ${formatUtc(d.range.to)}`}
+            note={`Range ${time.dateTime(d.range.from)} to ${time.dateTime(d.range.to)}`}
           />
         </>
       )}

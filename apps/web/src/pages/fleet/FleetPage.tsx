@@ -1,7 +1,7 @@
 /**
  * S-02 fleet: every environment at a glance with an explainable health score.
  *
- * @implements FR-FLEET-01, FR-FLEET-02, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements FR-FLEET-01, FR-FLEET-02, FR-UI-01, FR-UI-05, FR-UI-07, FR-UI-08
  */
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -26,6 +26,7 @@ import { InfoPopover, type Explanation } from '@dcam/ui-kit';
 import { formatInt, formatSlotHours } from '../../components/format';
 import { PageHeader } from '../../components/PageHeader';
 import { PanelTitle, ProvenanceFooter, QueryState } from '../../components/Panel';
+import { useRefresh, useView } from '../../components/view';
 import { linkTo as hrefFor } from '../../router';
 import { REASONS } from '../bottlenecks/reasons';
 import type { PageProps } from '../types';
@@ -88,9 +89,10 @@ function Metric({
 
 function EnvironmentCard({ env }: { env: FleetCard }) {
   const [open, setOpen] = useState(false);
+  const view = useView();
   const status = LABEL[env.health.label];
   const link = (page: 'bottlenecks' | 'dags' | 'advisor' | 'alerts' | 'overview') =>
-    hrefFor({ page }, env.env_id);
+    hrefFor({ page }, env.env_id, view);
   const headingId = `fleet-${env.env_id}`;
 
   return (
@@ -234,7 +236,7 @@ function EnvironmentCard({ env }: { env: FleetCard }) {
           </Link>
         </Stack>
         <Typography variant="caption" color="text.secondary">
-          Data as of {new Date(env.data_as_of).toUTCString()}
+          Data as of {view.time.full(env.data_as_of)}
         </Typography>
       </Stack>
     </Paper>
@@ -242,7 +244,7 @@ function EnvironmentCard({ env }: { env: FleetCard }) {
 }
 
 export function FleetPage({ api }: PageProps) {
-  const q = useQuery({ queryKey: ['fleet'], queryFn: () => api.getFleet() });
+  const q = useQuery({ queryKey: ['fleet'], queryFn: () => api.getFleet(), ...useRefresh() });
   return (
     <Stack spacing={4}>
       <PageHeader

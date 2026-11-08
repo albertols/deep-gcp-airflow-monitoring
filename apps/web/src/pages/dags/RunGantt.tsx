@@ -4,9 +4,9 @@
  * a legend, a text summary and a table view. Tries on the critical path (HM-007, estimated from timing)
  * have a dashed outline, a legend entry and a table column.
  *
- * @implements FR-DAGD-03, HM-007
+ * @implements FR-DAGD-03, HM-007, FR-UI-01, FR-UI-02
  */
-import { useId, useState } from 'react';
+import { useId } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
@@ -21,7 +21,7 @@ import { useTheme } from '@mui/material/styles';
 import type { DagDetail } from '@dcam/contracts';
 import { tokens } from '@dcam/ui-kit';
 import { formatDuration, formatInt } from '../../components/format';
-import { formatClock } from './time';
+import { usePageParam, useTimeFormat } from '../../components/view';
 
 type GanttRow = DagDetail['gantt']['rows'][number];
 type Segment = 'pre-queue' | 'queued' | 'running';
@@ -68,7 +68,10 @@ export function RunGantt({ gantt, dataAsOf }: { gantt: DagDetail['gantt']; dataA
   const hatch = `gantt-hatch-${uid}`;
   const dots = `gantt-dots-${uid}`;
   const descId = `gantt-desc-${uid}`;
-  const [asTable, setAsTable] = useState(false);
+  const time = useTimeFormat();
+  const [view, setView] = usePageParam('gantt', 'chart');
+  const asTable = view === 'table';
+  const setAsTable = (next: (v: boolean) => boolean) => setView(next(asTable) ? 'table' : 'chart');
   const now = Date.parse(dataAsOf);
 
   if (gantt.run_id === null || gantt.rows.length === 0)
@@ -211,7 +214,9 @@ export function RunGantt({ gantt, dataAsOf }: { gantt: DagDetail['gantt']; dataA
                     <TableCell sx={{ fontFamily: MONO }}>{r.task_id}</TableCell>
                     <TableCell align="right">{r.try_number}</TableCell>
                     <TableCell>{r.state ?? '—'}</TableCell>
-                    <TableCell>{ready === null ? '—' : `${formatClock(ready)} UTC`}</TableCell>
+                    <TableCell>
+                      {ready === null ? '—' : `${time.clock(ready)} ${time.zoneName(ready)}`}
+                    </TableCell>
                     <TableCell align="right">
                       {formatDuration(seconds(b.find((s) => s.kind === 'pre-queue')))}
                     </TableCell>
@@ -241,7 +246,7 @@ export function RunGantt({ gantt, dataAsOf }: { gantt: DagDetail['gantt']; dataA
               <line x1={x(v)} x2={x(v)} y1={0} y2={height - AXIS_H} stroke={t.borderSubtle} />
               <text x={x(v)} y={height - 8} fontSize={11} textAnchor="middle" fill={t.textSecondary}>
                 {/* The time zone sits on the first tick: a label at the end collided with the last one. */}
-                {i === 0 ? `${formatClock(v)} UTC` : formatClock(v)}
+                {i === 0 ? `${time.clock(v)} ${time.zoneName(v)}` : time.clock(v)}
               </text>
             </g>
           ))}
@@ -293,7 +298,7 @@ export function RunGantt({ gantt, dataAsOf }: { gantt: DagDetail['gantt']; dataA
                           : b.kind === 'queued'
                             ? 'queued'
                             : (r.state ?? 'running')
-                      } for ${formatDuration((b.to - b.from) / 1000)}, from ${formatClock(b.from)} UTC`}
+                      } for ${formatDuration((b.to - b.from) / 1000)}, from ${time.clock(b.from)} ${time.zoneName(b.from)}`}
                     </title>
                   </rect>
                 ))}

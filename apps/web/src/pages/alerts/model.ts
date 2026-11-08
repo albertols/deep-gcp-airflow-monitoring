@@ -5,6 +5,7 @@
  * @implements FR-ALRT-01, FR-ALRT-06
  */
 import type { AlertEvent, AlertRule, AlertState, Severity } from '@dcam/contracts';
+import { UTC_TIME, type TimeFormat } from '../../components/time';
 
 export const STATES: readonly AlertState[] = ['firing', 'pending', 'resolved', 'inactive', 'unknown'];
 
@@ -118,10 +119,8 @@ export function firingPeriods(
   return out.sort((a, b) => a.start - b.start);
 }
 
-/** "11:40 UTC", with the date when it is not the reference day. */
-export function formatTime(iso: string, reference: string): string {
-  const time = `${iso.slice(11, 16)} UTC`;
-  if (iso.slice(0, 10) === reference.slice(0, 10)) return time;
-  const d = new Date(iso);
-  return `${d.getUTCDate()} ${d.toLocaleString('en-GB', { month: 'short', timeZone: 'UTC' })} ${time}`;
+/** "11:40 UTC", with the date when it is not the reference day, in the context bar's zone (FR-UI-01). */
+export function formatTime(iso: string, reference: string, time: TimeFormat = UTC_TIME): string {
+  const clock = `${time.clock(iso)} ${time.zoneName(iso)}`;
+  return time.day(iso) === time.day(reference) ? clock : `${time.day(iso)} ${clock}`;
 }

@@ -8,6 +8,7 @@ import { createDcamTheme } from '@dcam/ui-kit';
 import type { DcamApi } from '../src/api';
 import { linkTo } from '../src/router';
 import { COLLECTION_POLL_MS as POLL_MS } from '../src/components/collection';
+import { UTC_TIME } from '../src/components/time';
 import { HealthPage } from '../src/pages/health/HealthPage';
 import {
   BACKFILL_COLUMNS,
@@ -276,7 +277,9 @@ describe('DCAM health page (FR-SELF-01, FR-COLL-11, HM-030)', () => {
     const time = within(row).getByText('1h 30m ago');
     expect(time.closest('time')).toHaveAttribute('dateTime', at(5_400));
     await userEvent.hover(time);
-    expect(await screen.findByRole('tooltip')).toHaveTextContent(new Date(at(5_400)).toUTCString());
+    // In the context bar's time zone, UTC without the shell (FR-UI-01).
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(UTC_TIME.full(at(5_400)));
+    expect(UTC_TIME.full(at(5_400))).toMatch(/^\w{3}, \d{1,2} \w{3} 2026, \d{2}:\d{2}:\d{2} UTC$/);
   });
 
   it('FR-COLL-11: shows when each collector runs next, relative to the status time', async () => {
@@ -495,9 +498,9 @@ describe('DCAM health page: local store (FR-STORE-02, FR-STORE-07)', () => {
     );
     const store = await screen.findByRole('region', { name: 'Local store' });
     expect(store).toHaveTextContent(
-      `To stay within its disk budget, DCAM thinned live snapshots older than ${new Date(day(1)).toUTCString()}`,
+      `To stay within its disk budget, DCAM thinned live snapshots older than ${UTC_TIME.full(day(1))}`,
     );
-    expect(store).toHaveTextContent(`and deleted data older than ${new Date(day(8)).toUTCString()}`);
+    expect(store).toHaveTextContent(`and deleted data older than ${UTC_TIME.full(day(8))}`);
     expect(store).toHaveTextContent(/waiting before then is an estimate/);
     const full = within(store).getByText('Disk budget too small').closest('[role="alert"]');
     expect(full).toHaveTextContent(/only the last 8 days are left/);

@@ -1,5 +1,6 @@
 /**
- * Panels and KPIs with the (i) explanation pattern (FR-UI-05) and a provenance footer (FR-UI-08).
+ * Panels and KPIs with the (i) explanation pattern (FR-UI-05) and a provenance footer (FR-UI-08) whose
+ * time follows the context bar's time zone (FR-UI-01).
  */
 import type { ReactNode } from 'react';
 import Alert from '@mui/material/Alert';
@@ -7,9 +8,11 @@ import Paper from '@mui/material/Paper';
 import Skeleton from '@mui/material/Skeleton';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import type { SourceId } from '@dcam/contracts';
+import type { Range, SourceId } from '@dcam/contracts';
 import { InfoPopover, type Explanation } from '@dcam/ui-kit';
 import { clause } from './format';
+import { loadingText } from './range';
+import { useTimeFormat } from './view';
 
 export function PanelTitle({
   explanation,
@@ -95,11 +98,14 @@ export function QueryState({
   isPending,
   error,
   what,
+  range,
   height = 160,
 }: {
   isPending: boolean;
   error: Error | null;
   what: string;
+  /** The range being loaded: long ones say that they take a while. */
+  range?: Range;
   height?: number;
 }) {
   if (error)
@@ -108,7 +114,7 @@ export function QueryState({
         Couldn't load {what}: {clause(error.message)}. Check that DCAM is still running, then reload the page.
       </Alert>
     );
-  if (isPending) return <Skeleton variant="rounded" height={height} aria-label={`Loading ${what}`} />;
+  if (isPending) return <Skeleton variant="rounded" height={height} aria-label={loadingText(what, range)} />;
   return null;
 }
 
@@ -134,10 +140,11 @@ export function ProvenanceFooter({
   /** `p` inside a panel, so that only the page footer is a `contentinfo` landmark. */
   as?: 'footer' | 'p';
 }) {
+  const time = useTimeFormat();
   return (
     <Typography variant="caption" color="text.secondary" component={as}>
-      {dataAsOf === null ? 'No data collected yet' : `Data as of ${new Date(dataAsOf).toUTCString()}`} ·
-      Source: {sources.length ? sources.map((s) => SOURCE_NAMES[s]).join(', ') : 'none yet'}
+      {dataAsOf === null ? 'No data collected yet' : `Data as of ${time.full(dataAsOf)}`} · Source:{' '}
+      {sources.length ? sources.map((s) => SOURCE_NAMES[s]).join(', ') : 'none yet'}
       {note ? ` · ${note}` : ''}
     </Typography>
   );

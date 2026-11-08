@@ -1,11 +1,13 @@
 /**
  * DAG league table (spec §12.4 S-11): every DAG ranked by its share of executor slot-seconds, with
  * concentration KPIs, filters, presets, a virtualised sortable table, a team → DAG treemap and CSV
- * export of the filtered rows.
+ * export of the filtered rows. The range comes from the context bar; search, team, tag, preset and sort
+ * are in the URL, so a shared link opens the same table.
  *
- * @implements FR-DAGX-01, FR-DAGX-02, FR-DAGX-03, FR-DAGX-04, FR-DAGX-07, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements FR-DAGX-01, FR-DAGX-02, FR-DAGX-03, FR-DAGX-04, FR-DAGX-07, FR-UI-01, FR-UI-02, FR-UI-05,
+ *   FR-UI-07, FR-UI-08
  */
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useDeferredValue, useMemo } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
@@ -15,12 +17,14 @@ import TextField from '@mui/material/TextField';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
-import type { DagLeague, DagLeagueRow, Range } from '@dcam/contracts';
+import type { DagLeague, DagLeagueRow } from '@dcam/contracts';
 import { InfoPopover } from '@dcam/ui-kit';
 import { HistoryNote } from '../../components/backfill';
-import { PageHeader } from '../../components/PageHeader';
+import { CoverageNote, PageHeader } from '../../components/PageHeader';
 import { Kpi, KpiRow, Panel, ProvenanceFooter, QueryState } from '../../components/Panel';
 import { formatInt, formatSlotHours } from '../../components/format';
+import { RANGE_PRESETS } from '../../components/range';
+import { usePageParams, useRefresh, useView } from '../../components/view';
 import type { PageProps } from '../types';
 import { DAG_EXPLANATIONS as E } from './explanations';
 import {
@@ -29,12 +33,13 @@ import {
   facetValues,
   filterRows,
   leagueCsv,
+  parsePreset,
+  parseSort,
+  sortParam,
   sortRows,
   type PresetId,
-  type SortState,
 } from './league';
 import { LeagueTable, nextSort } from './LeagueTable';
-import { RANGE_LABEL, formatUtc } from './time';
 import { Treemap } from './Treemap';
 
 const NO_ROWS: readonly DagLeagueRow[] = [];
@@ -81,21 +86,34 @@ function Kpis({ data }: { data: DagLeague }) {
   );
 }
 
+/** A select's options, with a value from a shared link even when this environment does not have it. */
+const withValue = (values: readonly string[], value: string | null) =>
+  value === null || values.includes(value) ? values : [...values, value];
+
 export function DagsPage({ api, envId, linkTo }: PageProps) {
-  const [range, setRange] = useState<Range>('24h');
+  const { range, time } = useView();
   const league = useQuery({
     queryKey: ['dag-league', envId, range],
     queryFn: () => api.getDagLeague(envId, range),
     // Keep the table while another range loads, but never show one environment's data for another.
     placeholderData: (previous, query) =>
       query?.queryKey[1] === envId ? keepPreviousData(previous) : undefined,
+    ...useRefresh(),
   });
-  const [search, setSearch] = useState('');
+  // Filters and sort live in the URL (FR-UI-02).
+  const { params, set } = usePageParams();
+  const search = params['q'] ?? '';
   const deferredSearch = useDeferredValue(search);
-  const [team, setTeam] = useState<string | null>(null);
-  const [tag, setTag] = useState<string | null>(null);
-  const [preset, setPreset] = useState<PresetId>('all');
-  const [sort, setSort] = useState<SortState>(DEFAULT_SORT);
+  const team = params['team'] ?? null;
+  const tag = params['tag'] ?? null;
+  const preset = parsePreset(params['preset']);
+  const sort = parseSort(params['sort']);
+  const setSearch = (q: string) => set({ q });
+  const setTeam = (next: string | null) => set({ team: next });
+  const setTag = (next: string | null) => set({ tag: next });
+  const setPreset = (next: PresetId) => set({ preset: next === 'all' ? null : next });
+  const setSort = (next: typeof sort) =>
+    set({ sort: sortParam(next) === sortParam(DEFAULT_SORT) ? null : sortParam(next) });
 
   const data = league.data;
   const rows = data?.rows ?? NO_ROWS;
@@ -106,23 +124,22 @@ export function DagsPage({ api, envId, linkTo }: PageProps) {
   );
   const sorted = useMemo(() => sortRows(filtered, sort), [filtered, sort]);
   const filtering = search !== '' || team !== null || tag !== null || preset !== 'all';
-  const clear = () => {
-    setSearch('');
-    setTeam(null);
-    setTag(null);
-    setPreset('all');
-  };
-  const label = RANGE_LABEL[range];
+  const clear = () => set({ q: null, team: null, tag: null, preset: null });
+  const rangeText = RANGE_PRESETS[range];
 
   return (
     <Stack spacing={4}>
       <PageHeader
         title="DAG league table"
-        subtitle={`Last ${label}, compared with the previous ${label}. Ranked by share of executor slot-hours.`}
-        range={range}
-        onRangeChange={setRange}
+        subtitle={`${rangeText.label}, compared with the previous ${rangeText.span}. Ranked by share of executor slot-hours.`}
       />
-      <QueryState isPending={league.isPending} error={league.error} what="the DAG league table" />
+      <QueryState
+        isPending={league.isPending}
+        error={league.error}
+        what="the DAG league table"
+        range={range}
+      />
+      {data && <CoverageNote coverage={data.coverage} range={range} />}
 
       {data && (
         <>
@@ -170,7 +187,7 @@ export function DagsPage({ api, envId, linkTo }: PageProps) {
                     sx={{ minWidth: 160 }}
                   >
                     <MenuItem value="">All teams</MenuItem>
-                    {facets.teams.map((t) => (
+                    {withValue(facets.teams, team).map((t) => (
                       <MenuItem key={t} value={t}>
                         {t}
                       </MenuItem>
@@ -185,7 +202,7 @@ export function DagsPage({ api, envId, linkTo }: PageProps) {
                     sx={{ minWidth: 160 }}
                   >
                     <MenuItem value="">All tags</MenuItem>
-                    {facets.tags.map((t) => (
+                    {withValue(facets.tags, tag).map((t) => (
                       <MenuItem key={t} value={t}>
                         {t}
                       </MenuItem>
@@ -226,7 +243,7 @@ export function DagsPage({ api, envId, linkTo }: PageProps) {
                   <LeagueTable
                     rows={sorted}
                     sort={sort}
-                    onSort={(key) => setSort((s) => nextSort(s, key))}
+                    onSort={(key) => setSort(nextSort(sort, key))}
                     linkTo={linkTo}
                     resetKey={JSON.stringify([sort, deferredSearch, team, tag, preset])}
                     previousCoverage={data.previous_coverage}
@@ -255,7 +272,7 @@ export function DagsPage({ api, envId, linkTo }: PageProps) {
           <ProvenanceFooter
             dataAsOf={data.data_as_of}
             sources={data.sources}
-            note={`Range ${formatUtc(data.range.from)} to ${formatUtc(data.range.to)}, compared with ${formatUtc(data.previous_range.from)} to ${formatUtc(data.previous_range.to)}`}
+            note={`Range ${time.dateTime(data.range.from)} to ${time.dateTime(data.range.to)}, compared with ${time.dateTime(data.previous_range.from)} to ${time.dateTime(data.previous_range.to)}`}
           />
         </>
       )}

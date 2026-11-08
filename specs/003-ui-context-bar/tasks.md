@@ -14,13 +14,13 @@ Test tasks come before the code they cover.
 
 ## Context bar and URL
 
-- [ ] T-310 Test + code: router view state and page params, defaults left out, invalid values fall back (FR-UI-02)
-- [ ] T-311 Test + code: context bar with environment, range presets, UTC or local, pause or resume, data as of
+- [x] T-310 Test + code: router view state and page params, defaults left out, invalid values fall back (FR-UI-02)
+- [x] T-311 Test + code: context bar with environment, range presets, UTC or local, pause or resume, data as of
       with §12.10 stale colours in live mode (FR-UI-01)
-- [ ] T-312 Test + code: pages read the range from the bar; a range change refetches every panel (FR-UI-01)
-- [ ] T-313 Test + code: paused stops page and collection polling; resume refetches (FR-UI-01)
-- [ ] T-314 Test + code: time zone toggle changes every rendered time (FR-UI-01)
-- [ ] T-315 Test + code: page filters, sort, selected run and table views in the URL; a link restores them (FR-UI-02)
+- [x] T-312 Test + code: pages read the range from the bar; a range change refetches every panel (FR-UI-01)
+- [x] T-313 Test + code: paused stops page and collection polling; resume refetches (FR-UI-01)
+- [x] T-314 Test + code: time zone toggle changes every rendered time (FR-UI-01)
+- [x] T-315 Test + code: page filters, sort, selected run and table views in the URL; a link restores them (FR-UI-02)
 
 ## Done
 

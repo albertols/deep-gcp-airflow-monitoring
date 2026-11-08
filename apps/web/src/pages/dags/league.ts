@@ -89,6 +89,34 @@ export interface SortState {
 
 export const DEFAULT_SORT: SortState = { key: 'share', direction: 'desc' };
 
+const SORT_KEYS: ReadonlySet<string> = new Set<SortKey>([
+  'dag_id',
+  'team',
+  'runs',
+  'success_rate',
+  'run_duration_p95',
+  'executor_slot_seconds',
+  'share',
+  'queue_wait_p95',
+  'ready_wait_p95',
+  'peak_concurrency',
+  'open_findings',
+]);
+
+/** The sort as a URL value (FR-UI-02): `share.desc`. */
+export const sortParam = (s: SortState): string => `${s.key}.${s.direction}`;
+
+/** A sort from a URL value; anything a link cannot mean is the default sort. */
+export function parseSort(value: string | undefined): SortState {
+  const [key = '', direction = ''] = (value ?? '').split('.');
+  if (!SORT_KEYS.has(key) || (direction !== 'asc' && direction !== 'desc')) return DEFAULT_SORT;
+  return { key: key as SortKey, direction };
+}
+
+/** A preset from a URL value; unknown presets show every DAG. */
+export const parsePreset = (value: string | undefined): PresetId =>
+  PRESETS.find((p) => p.id === value)?.id ?? 'all';
+
 function sortValue(r: DagLeagueRow, key: SortKey): string | number | null {
   const value = r[key];
   if (typeof value === 'object' && value !== null) return value.value_seconds;

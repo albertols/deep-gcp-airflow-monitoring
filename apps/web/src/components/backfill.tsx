@@ -12,6 +12,8 @@ import type { BackfillStatus } from '@dcam/contracts';
 import type { DcamApi } from '../api';
 import { useCollection } from './collection';
 import { formatDuration } from './format';
+import type { TimeFormat } from './time';
+import { useTimeFormat, useView } from './view';
 
 const DAY_S = 86_400;
 const oneDecimal = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
@@ -65,10 +67,10 @@ export function fillingIn(
   });
 }
 
-function sentence(b: BackfillStatus): string {
+function sentence(b: BackfillStatus, time: TimeFormat): string {
   if (b.state === 'waiting')
     return `History is filling in: DCAM reads the last ${b.days} days of ${WHAT[b.kind]} in the background once its first collection cycle is done. Until then this range shows only what DCAM collected since it started.`;
-  const covered = b.covered_from === null ? '' : new Date(b.covered_from).toUTCString();
+  const covered = b.covered_from === null ? '' : time.full(b.covered_from);
   const left =
     b.eta_seconds === null ? 'time left not known yet' : `about ${formatLongDuration(b.eta_seconds)} left`;
   return `History is filling in: ${formatDays(daysRead(b))} of ${b.days} days of ${WHAT[b.kind]} read, ${left}. Before ${covered} this range has none yet: that part is missing, not zero.`;
@@ -91,14 +93,16 @@ export function HistoryNote({
   kinds: readonly BackfillStatus['kind'][];
   healthHref: string;
 }) {
-  const q = useCollection(api);
+  const { paused } = useView();
+  const time = useTimeFormat();
+  const q = useCollection(api, { paused });
   const env = q.data?.mode === 'live' ? q.data.environments.find((e) => e.env_id === envId) : undefined;
   const open = fillingIn(env?.backfill, kinds, rangeFrom);
   if (open.length === 0) return null;
   return (
     <Alert severity="info" variant="outlined" sx={{ py: 0 }} data-testid="history-note">
       {open.map((b) => (
-        <span key={b.collector_id}>{sentence(b)} </span>
+        <span key={b.collector_id}>{sentence(b, time)} </span>
       ))}
       <Link href={healthHref}>See the progress on the DCAM health page</Link>.
     </Alert>

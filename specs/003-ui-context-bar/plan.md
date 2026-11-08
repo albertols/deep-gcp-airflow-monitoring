@@ -49,3 +49,23 @@ No port changes: the application reads slices through the existing `TaskInstance
 - Server: every preset conforms to the contract; bucket sizes and counts; the 400 problem lists the presets.
 - Web: router round trip; the context bar refetches every panel with the new range; paused stops polling;
   the time zone toggle changes rendered times; opening a link restores range, zone, paused, filters and run.
+
+## Measured (NFR-PERF-01)
+
+`pnpm --filter @dcam/application test:perf` (add `DCAM_PERF_LONG=1` for 30 and 90 days): synthetic store in
+memory, 2,000 DAGs, about 20,000 tries a day, the maintainer's Intel Mac with other work running (load ≈ 7).
+First call, no memo.
+
+| Range   | Tries generated (both windows) | DAG league | Bottlenecks |
+| ------- | ------------------------------ | ---------- | ----------- |
+| 7 days  | 288,000                        | 1.0 s      | 1.1 s       |
+| 30 days | 1.24 million                   | 4.6 s      | 3.3 s       |
+| 90 days | 3.7 million                    | 35 s       | 12 s        |
+
+7 days meets the 2 s target. 30 days works and holds one day of tries at a time, but takes seconds: the page
+says so while it loads. 90 days is slow. Not profiled yet; the likely causes are the per-run and
+per-task-instance totals of 90 days (about 600,000 runs and 1.8 million task instances here) and garbage
+collection, since in this benchmark the whole synthetic history sits in the same heap (1.6 GB at the end).
+Rollups (FR-STORE-02, M2) or aggregation in the store are the fix; both need the DuckDB adapter, which this
+feature does not change. Demo mode (48 h of data, in-memory DuckDB): 90-day league 1.7 s, mostly the cost of
+180 one-day queries.

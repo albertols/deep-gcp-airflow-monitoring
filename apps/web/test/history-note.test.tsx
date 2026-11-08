@@ -6,6 +6,7 @@ import type { BackfillStatus, Collection } from '@dcam/contracts';
 import { createDcamTheme } from '@dcam/ui-kit';
 import type { DcamApi } from '../src/api';
 import { HistoryNote, fillingIn } from '../src/components/backfill';
+import { UTC_TIME } from '../src/components/time';
 
 const NOW = Date.UTC(2026, 10, 5, 12, 0, 0);
 const DAY = 86_400_000;
@@ -83,9 +84,7 @@ describe('FR-COLL-04 the "history is filling in" note (NFR-DATA-03)', () => {
     expect(note).toHaveTextContent(
       'History is filling in: 2.4 of 7 days of task instances read, about 6h left.',
     );
-    expect(note).toHaveTextContent(
-      `Before ${new Date(NOW - 2.4 * DAY).toUTCString()} this range has none yet`,
-    );
+    expect(note).toHaveTextContent(`Before ${UTC_TIME.full(NOW - 2.4 * DAY)} this range has none yet`);
     expect(note).toHaveTextContent('missing, not zero');
     expect(screen.getByRole('link', { name: 'See the progress on the DCAM health page' })).toHaveAttribute(
       'href',

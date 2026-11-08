@@ -1,10 +1,10 @@
 /**
  * The wiki index: every page grouped by section (spec §15.1), with a client-side search over titles
- * and text. Results are announced through a status region.
+ * and text. Results are announced through a status region; the search is in the URL (FR-UI-02).
  *
- * @implements FR-WIKI-01, FR-WIKI-08
+ * @implements FR-WIKI-01, FR-WIKI-08, FR-UI-02
  */
-import { useId, useMemo, useState } from 'react';
+import { useId, useMemo } from 'react';
 import Box from '@mui/material/Box';
 import Link from '@mui/material/Link';
 import Paper from '@mui/material/Paper';
@@ -12,6 +12,7 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { PageHeader } from '../../components/PageHeader';
+import { usePageParam } from '../../components/view';
 import type { WikiHref } from './Blocks';
 import { WIKI_PAGES, WIKI_SECTIONS, type WikiPage, type WikiSection } from './content';
 import { searchWiki } from './search';
@@ -54,7 +55,7 @@ function Section({ section, href }: { section: WikiSection; href: WikiHref }) {
 }
 
 export function WikiIndex({ href }: { href: WikiHref }) {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = usePageParam('q');
   const trimmed = query.trim();
   const hits = useMemo(() => searchWiki(WIKI_PAGES, trimmed), [trimmed]);
   const resultsId = useId();

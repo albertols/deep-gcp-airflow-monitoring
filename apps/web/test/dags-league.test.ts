@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_SORT,
   facetValues,
   filterRows,
   leagueCsv,
+  parsePreset,
+  parseSort,
   shareChangePoints,
+  sortParam,
   sortRows,
   type PresetId,
 } from '../src/pages/dags/league';
@@ -41,6 +45,19 @@ describe('FR-DAGX-01 filter and sort', () => {
     ]);
     expect(facetValues(ROWS).teams).toEqual(['analytics', 'customer', 'finance-data', 'ml-platform']);
     expect(facetValues(ROWS).tags).toContain('partner_api');
+  });
+});
+
+describe('FR-UI-02 league state in the URL', () => {
+  it('FR-UI-02: sort and preset round-trip through URL values; unknown values fall back to the defaults', () => {
+    expect(sortParam({ key: 'runs', direction: 'asc' })).toBe('runs.asc');
+    expect(parseSort('runs.asc')).toEqual({ key: 'runs', direction: 'asc' });
+    expect(parseSort(sortParam(DEFAULT_SORT))).toEqual(DEFAULT_SORT);
+    for (const bad of [undefined, '', 'runs', 'nope.asc', 'runs.up', '__proto__.desc'])
+      expect(parseSort(bad)).toEqual(DEFAULT_SORT);
+    expect(parsePreset('flaky')).toBe('flaky');
+    expect(parsePreset('nope')).toBe('all');
+    expect(parsePreset(undefined)).toBe('all');
   });
 });
 

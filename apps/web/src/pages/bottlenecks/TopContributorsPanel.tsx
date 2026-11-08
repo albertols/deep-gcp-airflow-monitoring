@@ -4,7 +4,6 @@
  *
  * @implements FR-BOTL-01, HM-006, FR-UI-05, FR-UI-07, FR-UI-08
  */
-import { useState } from 'react';
 import Box from '@mui/material/Box';
 import LinearProgress from '@mui/material/LinearProgress';
 import Link from '@mui/material/Link';
@@ -23,6 +22,7 @@ import { Panel, ProvenanceFooter } from '../../components/Panel';
 import type { PageProps } from '../types';
 import { DEPTH_EXPLANATIONS as X } from './explanations-depth';
 import { REASONS } from './reasons';
+import { usePageParam } from '../../components/view';
 
 const MONO = { fontFamily: '"Roboto Mono", ui-monospace, monospace' } as const;
 const taskHours = (seconds: number) =>
@@ -43,7 +43,7 @@ function ShareCell({ share, label }: { share: number; label: string }) {
 
 export function TopContributorsPanel({ b, linkTo }: { b: Bottlenecks; linkTo: PageProps['linkTo'] }) {
   const withWaiting = b.reasons.filter((r) => r.evaluated && r.waiting_task_seconds > 0);
-  const [picked, setPicked] = useState<WaitReasonId | null>(null);
+  const [picked, setPicked] = usePageParam('reason');
   const selected =
     withWaiting.find((r) => r.id === picked) ??
     withWaiting.find((r) => r.id === b.answer.reason) ??

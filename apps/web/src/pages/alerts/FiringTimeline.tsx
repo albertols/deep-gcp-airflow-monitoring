@@ -3,20 +3,20 @@
  * environment, a bar per firing period. Bars carry a text title and the row names the rule, so colour
  * is never the only cue (spec §12.8). The history table below is its table view.
  *
- * @implements FR-ALRT-06
+ * @implements FR-ALRT-06, FR-UI-01
  */
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import { useTheme } from '@mui/material/styles';
 import type { Severity } from '@dcam/contracts';
 import { useWidth } from '../../components/charts';
+import { useTimeFormat } from '../../components/view';
 import { SEVERITY_LABEL, type FiringPeriod } from './model';
 
 const LABEL_W = 156;
 const ROW_H = 22;
 const AXIS_H = 20;
 const RIGHT = 8;
-const hhmm = (ms: number) => `${new Date(ms).toISOString().slice(11, 16)}`;
 
 export function FiringTimeline({
   periods,
@@ -30,6 +30,9 @@ export function FiringTimeline({
   showEnvironment: boolean;
 }) {
   const theme = useTheme();
+  const time = useTimeFormat();
+  const hhmm = (ms: number) => time.clock(ms);
+  const zone = (ms: number) => time.zoneName(ms);
   const [ref, width] = useWidth<HTMLDivElement>();
   const colour: Record<Severity, string> = {
     critical: theme.palette.error.main,
@@ -74,7 +77,7 @@ export function FiringTimeline({
               // The last label ends at the axis end, so it is never clipped by the chart edge.
               textAnchor={i === ticks.length - 1 ? 'end' : 'middle'}
             >
-              {i === 0 ? `${hhmm(t)} UTC` : hhmm(t)}
+              {i === 0 ? `${hhmm(t)} ${zone(t)}` : hhmm(t)}
             </text>
           </g>
         ))}
@@ -99,8 +102,8 @@ export function FiringTimeline({
                     fill={colour[p.severity]}
                   >
                     <title>
-                      {`${ruleId} ${envId} · ${SEVERITY_LABEL[p.severity]} · fired ${hhmm(p.start)} UTC, ${
-                        p.open ? 'still firing' : `resolved ${hhmm(p.end)} UTC`
+                      {`${ruleId} ${envId} · ${SEVERITY_LABEL[p.severity]} · fired ${hhmm(p.start)} ${zone(p.start)}, ${
+                        p.open ? 'still firing' : `resolved ${hhmm(p.end)} ${zone(p.end)}`
                       }`}
                     </title>
                   </rect>

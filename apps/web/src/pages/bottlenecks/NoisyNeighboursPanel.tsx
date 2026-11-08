@@ -18,6 +18,8 @@ import Typography from '@mui/material/Typography';
 import type { Bottlenecks, NoisyNeighbours } from '@dcam/contracts';
 import { formatDuration, formatInt, formatShare } from '../../components/format';
 import { Panel, ProvenanceFooter } from '../../components/Panel';
+import type { TimeFormat } from '../../components/time';
+import { useTimeFormat } from '../../components/view';
 import type { PageProps } from '../types';
 import { DEPTH_EXPLANATIONS as X } from './explanations-depth';
 
@@ -34,10 +36,16 @@ const CONFIDENCE: Readonly<Record<Confidence, { label: string; color: 'success' 
 const signed = (seconds: number) => `${seconds < 0 ? '−' : '+'}${formatDuration(Math.abs(seconds))}`;
 const unsigned = (seconds: number) =>
   seconds < 0 ? `−${formatDuration(-seconds)}` : formatDuration(seconds);
-const hhmm = (iso: string) => iso.slice(11, 16);
 const oneDecimal = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
 
+/** An overlap window as `5 Nov, 01:00–01:30 UTC` in the context bar's zone. */
+function windowText(w: { from: string; to: string }, time: TimeFormat): string {
+  const end = time.day(w.from) === time.day(w.to) ? time.clock(w.to) : time.dayClock(w.to);
+  return `${time.dayClock(w.from)}–${end} ${time.zoneName(w.from)}`;
+}
+
 function Body({ n, linkTo }: { n: NoisyNeighbours; linkTo: PageProps['linkTo'] }) {
+  const time = useTimeFormat();
   if (!n.evaluated)
     return (
       <Alert severity="info" variant="outlined">
@@ -111,7 +119,7 @@ function Body({ n, linkTo }: { n: NoisyNeighbours; linkTo: PageProps['linkTo'] }
                     ? '—'
                     : x.overlap_windows
                         .slice(0, 3)
-                        .map((w) => `${hhmm(w.from)}–${hhmm(w.to)}`)
+                        .map((w) => windowText(w, time))
                         .join(', ')}
                 </TableCell>
               </TableRow>

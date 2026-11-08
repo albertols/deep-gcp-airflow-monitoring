@@ -50,6 +50,7 @@ import {
 import { COLLECTION_POLL_MS, useCollection } from '../../components/collection';
 import { clause, formatBytes, formatDuration, formatInt, formatShare } from '../../components/format';
 import { PageHeader } from '../../components/PageHeader';
+import { refreshOptions, useTimeFormat, useView } from '../../components/view';
 import { PanelTitle, QueryState, SOURCE_NAMES } from '../../components/Panel';
 import { SnippetBlock } from '../advisor/SnippetBlock';
 import type { PageProps } from '../types';
@@ -96,8 +97,9 @@ const numeric = { fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' } as 
  * status, not the browser clock, so a late refresh never shows a wrong age.
  */
 function RelativeTime({ iso, label }: { iso: string; label: string }) {
+  const time = useTimeFormat();
   return (
-    <Tooltip title={new Date(iso).toUTCString()} describeChild>
+    <Tooltip title={time.full(iso)} describeChild>
       <Box component="time" dateTime={iso} tabIndex={0} sx={{ whiteSpace: 'nowrap' }}>
         {label}
       </Box>
@@ -383,10 +385,10 @@ function Retention({ env }: { env: CollectionEnvironment }) {
   );
 }
 
-const utc = (iso: string) => new Date(iso).toUTCString();
-
 /** What the disk budget made DCAM thin or delete since it started, and what it means for the pages. */
 function BudgetAction({ action }: { action: NonNullable<CollectionStorage['budget_action']> }) {
+  const time = useTimeFormat();
+  const utc = (iso: string) => time.full(iso);
   const { thinned_before: thinned, deleted_before: deleted } = action;
   const done = [
     thinned === null ? null : `thinned live snapshots older than ${utc(thinned)}`,
@@ -405,6 +407,8 @@ function BudgetAction({ action }: { action: NonNullable<CollectionStorage['budge
 
 /** The local store against its disk budget, and what maintenance did (FR-STORE-07, FR-STORE-02). */
 function StorePanel({ storage, reference }: { storage: CollectionStorage; reference: number }) {
+  const time = useTimeFormat();
+  const utc = (iso: string) => time.full(iso);
   const { used_bytes: used, file_bytes: file, budget_bytes: budget, last_run: run } = storage;
   const action = storage.budget_action;
   const share = used === null ? null : used / budget;
@@ -587,8 +591,9 @@ const selectedFirst = (environments: readonly CollectionEnvironment[], envId: st
 ];
 
 export function HealthPage({ api, envId }: PageProps) {
-  const meta = useQuery({ queryKey: ['meta'], queryFn: () => api.getMeta() });
-  const q = useCollection(api);
+  const { paused, time } = useView();
+  const meta = useQuery({ queryKey: ['meta'], queryFn: () => api.getMeta(), ...refreshOptions(paused) });
+  const q = useCollection(api, { paused });
   const names = new Map(meta.data?.environments.map((e) => [e.env_id, e.display_name]));
   const c = q.data;
 
@@ -620,8 +625,8 @@ export function HealthPage({ api, envId }: PageProps) {
             ))
           )}
           <Typography variant="caption" color="text.secondary" component="footer">
-            Status as of {new Date(c.generated_at).toUTCString()} · Source: DCAM&apos;s own request log ·
-            Refreshed every {COLLECTION_POLL_MS / 1000} s
+            Status as of {time.full(c.generated_at)} · Source: DCAM&apos;s own request log ·{' '}
+            {paused ? 'Updates paused' : `Refreshed every ${COLLECTION_POLL_MS / 1000} s`}
           </Typography>
         </>
       )}

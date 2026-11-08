@@ -6,9 +6,9 @@
  * Start delay (HM-002) is measured from the end of the data interval where DCAM can derive it; any
  * other basis is named next to the value.
  *
- * @implements FR-DAGD-02, HM-002
+ * @implements FR-DAGD-02, HM-002, FR-UI-01, FR-UI-02
  */
-import { useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useId, useRef, type KeyboardEvent } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
@@ -23,7 +23,7 @@ import { useTheme } from '@mui/material/styles';
 import type { DagDetail } from '@dcam/contracts';
 import { tokens } from '@dcam/ui-kit';
 import { formatDuration, formatInt } from '../../components/format';
-import { formatClock, formatUtc } from './time';
+import { usePageParam, useTimeFormat } from '../../components/view';
 
 type Run = DagDetail['runs'][number];
 
@@ -79,7 +79,10 @@ export function RunsTimeline({
   const t = tokens[theme.palette.mode];
   const descId = useId();
   const bars = useRef<Array<SVGRectElement | null>>([]);
-  const [asTable, setAsTable] = useState(false);
+  const time = useTimeFormat();
+  const [view, setView] = usePageParam('runs', 'chart');
+  const asTable = view === 'table';
+  const setAsTable = (next: (v: boolean) => boolean) => setView(next(asTable) ? 'table' : 'chart');
   const from = Date.parse(range.from);
   const to = Date.parse(range.to);
   const now = Date.parse(dataAsOf);
@@ -102,7 +105,7 @@ export function RunsTimeline({
     runs.findIndex((r) => r.run_id === selectedRunId),
   );
   const label = (r: Run) =>
-    `${formatUtc(r.start)}: ${STATE_LABEL[r.state].toLowerCase()}, ${
+    `${time.dateTime(r.start)}: ${STATE_LABEL[r.state].toLowerCase()}, ${
       r.duration_seconds === null
         ? `running for ${formatDuration(seconds(r))}`
         : formatDuration(r.duration_seconds)
@@ -142,6 +145,8 @@ export function RunsTimeline({
     );
 
   const timeTicks = Array.from({ length: 5 }, (_, i) => from + ((to - from) * i) / 4);
+  // Ranges over a day need the date on the axis, not only the time.
+  const tick = (ms: number) => (to - from > 86_400_000 ? time.dayClock(ms) : time.clock(ms));
   const durationTicks = Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step);
 
   return (
@@ -199,7 +204,7 @@ export function RunsTimeline({
             <TableBody>
               {[...runs].reverse().map((r) => (
                 <TableRow key={r.run_id} selected={r.run_id === selectedRunId}>
-                  <TableCell title={r.run_id}>{formatUtc(r.start)}</TableCell>
+                  <TableCell title={r.run_id}>{time.dateTime(r.start)}</TableCell>
                   <TableCell>{STATE_LABEL[r.state]}</TableCell>
                   <TableCell align="right">{formatDuration(r.duration_seconds)}</TableCell>
                   <TableCell align="right" title={START_DELAY_BASIS[r.start_delay_basis]}>
@@ -245,7 +250,7 @@ export function RunsTimeline({
               fill={t.textSecondary}
             >
               {/* The time zone sits on the first tick: a label at the end collided with the last one. */}
-              {i === 0 ? `${formatClock(ms)} UTC` : formatClock(ms)}
+              {i === 0 ? `${tick(ms)} ${time.zoneName(ms)}` : tick(ms)}
             </text>
           ))}
           <g role="radiogroup" aria-label="Runs">

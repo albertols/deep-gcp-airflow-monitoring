@@ -1,11 +1,13 @@
 /**
  * S-17 schedule intelligence: where planned and actual DAG run starts fall in the day (UTC), how strongly
- * they collide (HM-009), the minutes and schedules that collide most, and the REC-SCHED-01 findings.
+ * they collide (HM-009), the minutes and schedules that collide most, and the REC-SCHED-01 findings. Actual
+ * starts follow the context bar's range; the heatmap view and table view are in the URL. The heatmaps stay
+ * in UTC whatever the time zone toggle says: they are hours of the day of UTC cron schedules.
  *
- * @implements FR-BOTL-03, HM-009, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements FR-BOTL-03, HM-009, FR-UI-01, FR-UI-02, FR-UI-05, FR-UI-07, FR-UI-08
  */
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -19,17 +21,16 @@ import TableRow from '@mui/material/TableRow';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
-import type { Range, Schedule } from '@dcam/contracts';
+import type { Schedule } from '@dcam/contracts';
 import { formatInt, formatShare } from '../../components/format';
 import { PageHeader } from '../../components/PageHeader';
 import { Kpi, KpiRow, Panel, ProvenanceFooter, QueryState } from '../../components/Panel';
-import { formatUtc } from '../dags/time';
+import { RANGE_PRESETS } from '../../components/range';
+import { usePageParam, useRefresh, useTimeFormat, useView } from '../../components/view';
 import type { PageProps } from '../types';
 import { SCHEDULE_EXPLANATIONS as X } from './explanations';
 import { Heatmap, cellTime, type HeatCell } from './Heatmap';
 
-/** Actual starts over the last 24 h; the shared time range of the context bar replaces this. */
-const RANGE: Range = '24h';
 const MONO = { fontFamily: '"Roboto Mono", ui-monospace, monospace' } as const;
 const perDay = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -37,8 +38,11 @@ const pad = (n: number) => String(n).padStart(2, '0');
 type View = 'planned' | 'actual';
 
 function HeatmapPanel({ s }: { s: Schedule }) {
-  const [view, setView] = useState<View>('planned');
-  const [asTable, setAsTable] = useState(false);
+  const [viewParam, setView] = usePageParam('heatmap', 'planned');
+  const view: View = viewParam === 'actual' ? 'actual' : 'planned';
+  const [cellsView, setCellsView] = usePageParam('cells', 'chart');
+  const asTable = cellsView === 'table';
+  const time = useTimeFormat();
   const cells: HeatCell[] = useMemo(
     () =>
       view === 'planned'
@@ -76,7 +80,7 @@ function HeatmapPanel({ s }: { s: Schedule }) {
             <ToggleButton value="planned">Planned</ToggleButton>
             <ToggleButton value="actual">Actual</ToggleButton>
           </ToggleButtonGroup>
-          <Button size="small" onClick={() => setAsTable((v) => !v)}>
+          <Button size="small" onClick={() => setCellsView(asTable ? 'chart' : 'table')}>
             {asTable ? 'View as a heatmap' : 'View as a table'}
           </Button>
         </Stack>
@@ -114,7 +118,7 @@ function HeatmapPanel({ s }: { s: Schedule }) {
       )}
       {partial && (
         <Typography variant="caption" color="text.secondary">
-          No history before {formatUtc(historyFrom)}: earlier hours are missing, not zero.
+          No history before {time.dateTime(historyFrom)}: earlier hours are missing, not zero.
         </Typography>
       )}
     </Panel>
@@ -229,7 +233,11 @@ function FindingsPanel({
   s,
   linkTo,
 }: Pick<PageProps, 'api' | 'envId' | 'linkTo'> & { s: Schedule }) {
-  const f = useQuery({ queryKey: ['findings', envId], queryFn: () => api.getFindings(envId) });
+  const f = useQuery({
+    queryKey: ['findings', envId],
+    queryFn: () => api.getFindings(envId),
+    ...useRefresh(),
+  });
   const list = (f.data?.findings ?? []).filter((x) => x.rule_id === 'REC-SCHED-01');
   return (
     <Panel explanation={X['sched-findings']}>
@@ -265,7 +273,12 @@ function FindingsPanel({
 }
 
 export function SchedulePage({ api, envId, linkTo }: PageProps) {
-  const q = useQuery({ queryKey: ['schedule', envId, RANGE], queryFn: () => api.getSchedule(envId, RANGE) });
+  const { range } = useView();
+  const q = useQuery({
+    queryKey: ['schedule', envId, range],
+    queryFn: () => api.getSchedule(envId, range),
+    ...useRefresh(),
+  });
   const s = q.data;
   const busiest = s?.top_minutes.find((m) => m.minute === s.collision.busiest_minute);
 
@@ -273,9 +286,9 @@ export function SchedulePage({ api, envId, linkTo }: PageProps) {
     <Stack spacing={4}>
       <PageHeader
         title="Schedule intelligence"
-        subtitle="When DAG runs are planned to start and when they started, by hour and minute (UTC). Runs that start in the same minute compete for worker slots and pools."
+        subtitle={`${RANGE_PRESETS[range].label} for actual starts. When DAG runs are planned to start and when they started, by hour and minute (UTC). Runs that start in the same minute compete for worker slots and pools.`}
       />
-      <QueryState isPending={q.isPending} error={q.error} what="schedule intelligence" />
+      <QueryState isPending={q.isPending} error={q.error} what="schedule intelligence" range={range} />
       {s && (
         <>
           <KpiRow>
@@ -301,7 +314,7 @@ export function SchedulePage({ api, envId, linkTo }: PageProps) {
             <Kpi
               explanation={X['sched-runs']}
               value={formatInt(s.actual.runs)}
-              hint={`in the last ${perDay.format(s.actual.days * 24)} h, by first task start`}
+              hint={`in the last ${RANGE_PRESETS[range].span}, by first task start`}
             />
           </KpiRow>
           <HeatmapPanel s={s} />

@@ -1,7 +1,8 @@
 /**
  * Small SVG charts on the design tokens (spec §12.8): one y-axis, recessive grid, thin marks with a
  * 2 px surface gap between stacked segments, a hover tooltip per bucket, gaps never drawn as zero.
- * Callers give each chart an accessible description and offer a table view.
+ * Callers give each chart an accessible description and offer a table view. Times follow the context
+ * bar's time zone; charts longer than a day label their axis with dates (FR-UI-01).
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -9,6 +10,8 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { useTheme } from '@mui/material/styles';
+import type { TimeFormat } from './time';
+import { useTimeFormat } from './view';
 
 const M = { top: 8, right: 8, bottom: 22, left: 68 };
 
@@ -33,7 +36,17 @@ export function niceMax(v: number): number {
   return ([1, 2, 5, 10].find((m) => m * p >= v) ?? 10) * p;
 }
 
-const hhmm = (ms: number) => new Date(ms).toISOString().slice(11, 16);
+const DAY_MS = 86_400_000;
+
+/** Axis and tooltip labels for buckets: clock times within a day, dates with times beyond. */
+export function bucketLabels(time: TimeFormat, bucketCount: number, bucketMs: number) {
+  const long = bucketCount * bucketMs > DAY_MS;
+  const tick = (ms: number) => (long ? time.dayClock(ms) : time.clock(ms));
+  return {
+    tick,
+    range: (start: number) => `${tick(start)}–${tick(start + bucketMs)} ${time.zoneName(start)}`,
+  };
+}
 
 export interface Series {
   readonly key: string;
@@ -139,6 +152,7 @@ export function StackedBars({
   height?: number;
 }) {
   const theme = useTheme();
+  const labels = bucketLabels(useTimeFormat(), buckets.length, bucketMs);
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const innerW = width - M.left - M.right;
@@ -150,7 +164,7 @@ export function StackedBars({
   const ticks = buckets
     .map((b, i) => ({ i, b }))
     .filter(({ i }) => i % step === 0)
-    .map(({ i, b }) => ({ x: M.left + band * (i + 0.5), label: hhmm(b.start) }));
+    .map(({ i, b }) => ({ x: M.left + band * (i + 0.5), label: labels.tick(b.start) }));
   const hovered = hover === null ? undefined : buckets[hover];
 
   return (
@@ -196,7 +210,7 @@ export function StackedBars({
       {hovered && hover !== null && (
         <Tooltip x={M.left + band * hover} width={width}>
           <Typography variant="caption" component="p" sx={{ fontWeight: 500 }}>
-            {hhmm(hovered.start)}–{hhmm(hovered.start + bucketMs)} UTC · {format(total(hovered))}
+            {labels.range(hovered.start)} · {format(total(hovered))}
           </Typography>
           <Stack spacing={0.5} sx={{ mt: 1 }}>
             {series
@@ -240,6 +254,7 @@ export function ValueBars({
   detail?: (i: number) => string;
   height?: number;
 }) {
+  const labels = bucketLabels(useTimeFormat(), buckets.length, bucketMs);
   const [ref, width] = useWidth<HTMLDivElement>();
   const [hover, setHover] = useState<number | null>(null);
   const innerW = width - M.left - M.right;
@@ -249,7 +264,7 @@ export function ValueBars({
   const ticks = buckets
     .map((b, i) => ({ i, b }))
     .filter(({ i }) => i % step === 0)
-    .map(({ i, b }) => ({ x: M.left + band * (i + 0.5), label: hhmm(b.start) }));
+    .map(({ i, b }) => ({ x: M.left + band * (i + 0.5), label: labels.tick(b.start) }));
   const hovered = hover === null ? undefined : buckets[hover];
 
   return (
@@ -285,7 +300,7 @@ export function ValueBars({
       {hovered && hover !== null && (
         <Tooltip x={M.left + band * hover} width={width}>
           <Typography variant="caption" component="p" sx={{ fontWeight: 500 }}>
-            {hhmm(hovered.start)}–{hhmm(hovered.start + bucketMs)} UTC
+            {labels.range(hovered.start)}
           </Typography>
           <Typography variant="caption" component="p">
             {hovered.value === null ? 'No data' : format(hovered.value)}

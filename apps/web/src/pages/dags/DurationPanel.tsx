@@ -27,7 +27,7 @@ import { Panel, ProvenanceFooter } from '../../components/Panel';
 import { formatDuration, formatInt } from '../../components/format';
 import { DEPTH_EXPLANATIONS as E, type DepthExplanationId } from './depth-explanations';
 import { TaskHistoryFreshness } from './TaskHistoryFreshness';
-import { formatUtc } from './time';
+import { useTimeFormat } from '../../components/view';
 
 const MONO = '"Roboto Mono", ui-monospace, monospace';
 const BASELINE_DAYS = 28;
@@ -141,6 +141,7 @@ function runSentence(v: DurationRegression): string {
 }
 
 function BaselineNote({ baseline }: { baseline: NonNullable<DagDetail['baseline']> }) {
+  const time = useTimeFormat();
   if (baseline.coverage <= 0)
     return (
       <Alert severity="info" variant="outlined" sx={{ py: 0 }}>
@@ -151,13 +152,14 @@ function BaselineNote({ baseline }: { baseline: NonNullable<DagDetail['baseline'
   if (baseline.coverage >= 1)
     return (
       <Typography variant="caption" color="text.secondary">
-        Baseline: {formatUtc(baseline.from)} to {formatUtc(baseline.to)}, the 28 days before this range.
+        Baseline: {time.dateTime(baseline.from)} to {time.dateTime(baseline.to)}, the 28 days before this
+        range.
       </Typography>
     );
   return (
     <Typography variant="caption" color="text.secondary">
       Partial baseline: DCAM has history for {days.format(baseline.coverage * BASELINE_DAYS)} of its 28 days
-      {baseline.history_from ? ` (since ${formatUtc(baseline.history_from)})` : ''}. Verdicts compare with
+      {baseline.history_from ? ` (since ${time.dateTime(baseline.history_from)})` : ''}. Verdicts compare with
       that part only.
     </Typography>
   );
@@ -241,6 +243,7 @@ export function DurationPanel({
   envId: string;
   healthHref: string;
 }) {
+  const time = useTimeFormat();
   const { baseline, regression } = detail;
   const rows = ordered(detail.tasks);
   return (
@@ -278,7 +281,7 @@ export function DurationPanel({
           <ProvenanceFooter
             dataAsOf={detail.data_as_of}
             sources={detail.sources}
-            note={`Successful tries only · range ${formatUtc(detail.range.from)} to ${formatUtc(detail.range.to)}`}
+            note={`Successful tries only · range ${time.dateTime(detail.range.from)} to ${time.dateTime(detail.range.to)}`}
           />
         </Stack>
       )}
