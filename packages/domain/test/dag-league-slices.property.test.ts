@@ -39,6 +39,20 @@ const arbTry = fc.record({
 const query = (tries: readonly DagTaskTry[], from: number, to: number) =>
   tries.filter((t) => t.startAt !== null && t.startAt < to && (t.endAt === null || t.endAt > from));
 
+/**
+ * The tries a window holds, the reference the slices are compared with: those overlapping [from, to), still
+ * running, or of zero length at or after `from` (a point inside the window). The store's overlap query misses
+ * a zero-length try on `from` itself, which is why every slice is read 1 ms early (application `sliceTries`);
+ * a try ending exactly on `from` is outside the window either way.
+ */
+const within = (tries: readonly DagTaskTry[], from: number, to: number) =>
+  tries.filter(
+    (t) =>
+      t.startAt !== null &&
+      t.startAt < to &&
+      (t.endAt === null || t.endAt > from || (t.endAt === t.startAt && t.startAt >= from)),
+  );
+
 /** Cuts [from, to) at the given minute offsets. */
 function slices(from: number, to: number, cuts: readonly number[]) {
   const points = [...new Set(cuts.map((c) => from + c * M).filter((p) => p > from && p < to))].sort(
@@ -104,7 +118,7 @@ function sameLeague(
   const dagIds = ['a', 'e'];
 
   const expected = dagLeague({
-    tries: query(tries, previousWindow.from, now),
+    tries: within(tries, previousWindow.from, now),
     window,
     previousWindow,
     dagIds,
@@ -124,6 +138,28 @@ function sameLeague(
 const cuts = fc.array(fc.integer({ min: 1, max: 59 }), { maxLength: 4 });
 
 describe('NFR-PERF-01 the league from slices equals the league from one query', () => {
+  it('NFR-PERF-01 / FR-DAGX-02: on the first millisecond of the previous window a zero-length try counts, a try ending there does not', () => {
+    const spec = (start: number, length: number, taskId: string, tryNumber: number): TrySpec => ({
+      dagId: 'a',
+      runId: 'r1',
+      taskId,
+      mapIndex: -1,
+      tryNumber,
+      start,
+      length,
+      running: false,
+      state: 'success',
+      wait: 0,
+      ready: null,
+    });
+    // Found by CI (seed -578230905): the run starts with t1 at minute 20, so it lasts 60 min.
+    const started = sameLeague([spec(20, 0, 't1', 1), spec(80, 0, 't2', 1)], [], [], null);
+    expect(started.rows.find((r) => r.dagId === 'a')?.runDurationP50.value).toBe(3_600);
+    // Try 1 ends on minute 20, outside the window: try 2 is a retry whose first try DCAM did not see.
+    const ended = sameLeague([spec(8, 12, 't1', 1), spec(80, 0, 't1', 2)], [], [], null);
+    expect(ended.rows.find((r) => r.dagId === 'a')?.flakyInferred).toBe(1);
+  });
+
   it('NFR-PERF-01 / FR-DAGX-02: any slicing of both windows gives the same league as all tries at once', () => {
     fc.assert(
       fc.property(
@@ -252,7 +288,7 @@ describe('NFR-PERF-01 the league from slices equals the league from one query', 
             }),
           );
           const window = windowOf(80, 140);
-          const all = query(tries, window.from, window.to);
+          const all = within(tries, window.from, window.to);
           const seconds = slotSeconds(all, window);
           const peak = (occupancySeries(all, window).get(TOTAL_KEY) ?? []).reduce(
             (m, b) => Math.max(m, b.max),
