@@ -449,4 +449,29 @@ describe('Airflow base URL (FR-COLL-01)', () => {
       'acme-composer-prod https://acme-composer-prod.composer.example.test',
     ]);
   });
+
+  it('FR-UI-04: the engine reports the Airflow web server URL for the "Open in" links once it knows it', async () => {
+    const { time, engine } = setup({
+      environments: [composerEnv('acme-composer-prod', 'live'), airflowEnv('acme-emulator', 'live')],
+      collectors: [
+        collector(manifest({ id: 'composer.config' }), async (ctx) => {
+          const env = await ctx.composer!.environment({
+            projectId: 'acme-prod-123',
+            location: 'europe-west1',
+            environment: 'acme-composer-prod',
+          });
+          ctx.shared.airflowBaseUrl = env.airflowUri;
+          return { dataAsOf: ctx.now() };
+        }),
+      ],
+    });
+    // Before composer.config has run, Composer's airflowUri is not known; the configured URL is.
+    expect(engine.airflowUri('acme-composer-prod')).toBeNull();
+    expect(engine.airflowUri('acme-emulator')).toBe('http://127.0.0.1:8080/api/v1');
+    expect(engine.airflowUri('acme-unknown')).toBeNull();
+    engine.start();
+    await time.advance(1_000);
+    expect(engine.airflowUri('acme-composer-prod')).toBe('https://acme-composer-prod.composer.example.test');
+    await time.settle(engine.stop());
+  });
 });

@@ -213,10 +213,67 @@ describe('live workspace (FR-SETUP-02, FR-COLL-11, HM-030, FR-STORE-01)', () => 
     expect(ws.setup).toBeUndefined();
     const meta = await get<Meta>(ws, '/api/v1/meta');
     expect(meta.mode).toBe('live');
-    expect(meta.environments).toEqual([{ env_id: 'acme-emulator', display_name: 'Emulator', tier: 'dev' }]);
+    // A self-managed Airflow: its UI is at the configured address, and it has no Cloud console pages.
+    expect(meta.environments).toEqual([
+      {
+        env_id: 'acme-emulator',
+        display_name: 'Emulator',
+        tier: 'dev',
+        airflow_uri: 'http://127.0.0.1:8080',
+      },
+    ]);
     const collection = await get<Collection>(ws, '/api/v1/collection');
     expect(collection.mode).toBe('live');
     expect(collection.environments.map((e) => e.env_id)).toEqual(['acme-emulator']);
+  });
+
+  it('FR-UI-04: meta says where a Composer environment lives: the file, then the airflowUri Composer reports', async () => {
+    await writeFile(join(dir, 'dcam.config.yaml'), COMPOSER_CONFIG(join(dir, 'data')));
+    // Stands in for composer.config: it learns the web server URL without calling anything.
+    const learns: Collector = {
+      manifest: {
+        id: 'composer.config',
+        source: 'SRC-COMPOSER',
+        api: 'composer',
+        cadence: 'composer',
+        priority: 'standard',
+        maxRequestsPerCycle: 1,
+        outputs: ['config'],
+        sourceKinds: ['composer'],
+      },
+      async collect(ctx) {
+        ctx.shared.airflowBaseUrl = 'https://acme-composer-prod.airflow.example';
+        return { dataAsOf: null };
+      },
+    };
+    const opened = await openConfiguredWorkspace({
+      env: {},
+      cwd: dir,
+      homeDir: dir,
+      now: () => NOW,
+      tokens,
+      collectors: [learns],
+    });
+    const ws = (workspace = opened.workspace);
+    const before = await get<Meta>(ws, '/api/v1/meta');
+    expect(conforms('Meta', before)).toBe(true);
+    expect(before.environments).toEqual([
+      expect.objectContaining({
+        env_id: 'acme-composer-prod',
+        composer: {
+          project_id: 'acme-prod-123',
+          location: 'europe-west1',
+          environment: 'acme-composer-prod',
+        },
+        airflow_uri: null,
+      }),
+    ]);
+    ws.start();
+    await expect
+      .poll(async () => (await get<Meta>(ws, '/api/v1/meta')).environments[0]?.airflow_uri, {
+        timeout: 5_000,
+      })
+      .toBe('https://acme-composer-prod.airflow.example');
   });
 
   it('FR-STORE-01: the DuckDB file lives in the configured data directory', async () => {

@@ -13,7 +13,7 @@ Test tasks come before the code they cover.
 
 - [x] T-1102 Test + code: contract `EnvironmentSummary.composer` and `.airflow_uri`; demo meta with fictitious
       places (FR-UI-04, FR-EMU-01)
-- [ ] T-1103 Test + code: engine `airflowUri`; live meta with the Composer place from the file and the Airflow
+- [x] T-1103 Test + code: engine `airflowUri`; live meta with the Composer place from the file and the Airflow
       address from the Composer API or the configured `baseUrl` (FR-UI-04)
 
 ## UI

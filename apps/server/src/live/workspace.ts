@@ -10,7 +10,8 @@
  * The store maintenance job (retention and the disk budget) starts with the collectors and is stopped with
  * them, before the store closes; its status joins the collection status (FR-STORE-02, FR-STORE-07).
  *
- * @implements FR-SETUP-02, FR-COLL-01, FR-COLL-11, FR-STORE-01, FR-STORE-02, FR-STORE-07, FR-AUTH-07, HM-030
+ * @implements FR-SETUP-02, FR-COLL-01, FR-COLL-11, FR-STORE-01, FR-STORE-02, FR-STORE-07, FR-AUTH-07, HM-030,
+ *   FR-UI-04
  */
 import {
   createCollectionEngine,
@@ -157,11 +158,24 @@ export async function createLiveWorkspace(options: LiveWorkspaceOptions): Promis
       env_id: e.id,
       display_name: e.displayName,
       tier: e.tier,
+      // Where it lives, for the "Open in" links (FR-UI-04). Composer's airflowUri arrives with the first
+      // composer.config cycle, through `airflowUri` below.
+      ...(e.source.kind === 'composer'
+        ? {
+            composer: {
+              project_id: e.source.projectId,
+              location: e.source.location,
+              environment: e.source.environment,
+            },
+            airflow_uri: null,
+          }
+        : { airflow_uri: e.source.baseUrl }),
     })),
     store,
     model: store,
     clock,
     collection: () => withMaintenance(running.status(), maintenance),
+    airflowUri: (envId) => running.airflowUri(envId),
     start: () => {
       running.start();
       maintenance.start();

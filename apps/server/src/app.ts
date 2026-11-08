@@ -3,7 +3,7 @@
  * against DNS rebinding; sends a strict CSP (NFR-SEC-01, NFR-SEC-02). Handlers stay thin: logic
  * lives in @dcam/application (ARCH-EMB-01).
  *
- * @implements NFR-SEC-01, NFR-SEC-02, FR-SETUP-02
+ * @implements NFR-SEC-01, NFR-SEC-02, FR-SETUP-02, FR-UI-04
  */
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -77,11 +77,15 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
   app.get('/api/v1/health', async () => ({ status: 'ok' as const }));
 
+  const airflowUri = options.airflowUri;
   app.get('/api/v1/meta', async (): Promise<Meta> => ({
     name: 'DCAM',
     version: options.version,
     mode: options.mode,
-    environments: options.environments,
+    // The Airflow UI address as known now: Composer reports it after the first cycle (FR-UI-04).
+    environments: airflowUri
+      ? options.environments.map((e) => ({ ...e, airflow_uri: airflowUri(e.env_id) }))
+      : options.environments,
     ...(options.setup ? { setup: setupMeta(options.setup) } : {}),
   }));
 

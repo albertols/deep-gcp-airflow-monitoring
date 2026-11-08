@@ -42,8 +42,10 @@
  * Backfills (FR-COLL-04): a collector whose manifest declares `backfill` reports its progress through
  * `reportBackfill`; the status shows it, `waiting` (or `disabled` with 0 days) until the first report.
  *
+ * The Airflow web server URL the engine has learned is also what the "Open in" links use (`airflowUri`).
+ *
  * @implements FR-COLL-01, FR-COLL-02, FR-COLL-04, FR-COLL-06, FR-COLL-11, FR-AUTH-06, FR-SELF-01, HM-030,
- *   NFR-OBS-05, NFR-OBS-06
+ *   NFR-OBS-05, NFR-OBS-06, FR-UI-04
  */
 import type { Collection } from '@dcam/contracts';
 import {
@@ -121,6 +123,12 @@ export interface CollectionEngine {
    * collectors that failed with an error the user had to fix, now.
    */
   recheck(envId: string): void;
+  /**
+   * Base URL of the environment's Airflow web server as far as the engine knows it: Composer's
+   * `config.airflowUri` once `composer.config` has read it, or the configured URL of a self-managed Airflow;
+   * `null` before that, and for an environment that is not configured. For the "Open in" links (FR-UI-04).
+   */
+  airflowUri(envId: string): string | null;
 }
 
 /** A collector manifest the engine refuses (FR-COLL-01). */
@@ -594,6 +602,10 @@ export function createCollectionEngine(deps: CollectionEngineDeps): CollectionEn
 
     recordRequest(envId, api, request) {
       envs.get(envId)?.footprint[api]?.record(request);
+    },
+
+    airflowUri(envId) {
+      return envs.get(envId)?.shared.airflowBaseUrl ?? null;
     },
 
     recheck(envId) {
