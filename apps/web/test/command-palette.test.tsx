@@ -122,6 +122,19 @@ describe('FR-UI-03 command palette', { timeout: UI_TIMEOUT_MS }, () => {
     await waitFor(() => expect(window.location.hash).toBe('#/bottlenecks?env=acme-dev&range=7d'));
   });
 
+  it('FR-UI-02 / FR-UI-03: an environment from the palette drops the state that names the old one (picked DAGs, a finding)', async () => {
+    onPlatform('Linux x86_64');
+    await renderApp(
+      '#/advisor?env=acme-prod&range=7d&compare=acme_a,acme_b&finding=acme-prod:REC-DAG-01:dag:acme_a',
+    );
+    await userEvent.click(screen.getByRole('button', { name: /^Jump to/ }));
+    const dialog = await palette();
+    await userEvent.type(within(dialog).getByRole('combobox'), 'acme-dev');
+    await waitFor(() => expect(options(dialog)[0]).toHaveTextContent('acme-dev'));
+    await userEvent.keyboard('{Enter}');
+    await waitFor(() => expect(window.location.hash).toBe('#/advisor?env=acme-dev&range=7d'));
+  });
+
   it('FR-UI-03: Cmd+K on macOS, where Ctrl+K stays with the browser; Esc closes and focus returns', async () => {
     onPlatform('MacIntel');
     await renderApp();

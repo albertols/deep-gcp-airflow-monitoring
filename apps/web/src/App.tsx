@@ -111,8 +111,11 @@ const RANGE_SCOPE: Readonly<Record<Page, RangeScope>> = {
  * (`vs`), is not in another one.
  */
 const SELECTION_PARAMS: readonly string[] = ['run', 'vs'];
-/** Page state that names DAGs of one environment: the league's rows picked to compare. */
-const ENVIRONMENT_PARAMS: readonly string[] = [...SELECTION_PARAMS, 'compare'];
+/**
+ * Page state that names things of one environment: the league's rows picked to compare, and the advisor
+ * finding a link opened (finding IDs start with their environment).
+ */
+const ENVIRONMENT_PARAMS: readonly string[] = [...SELECTION_PARAMS, 'compare', 'finding'];
 const without =
   (keys: readonly string[]) =>
   (params: PageParams): PageParams =>
@@ -204,7 +207,8 @@ export function App({ api, localTimeZone }: { api: DcamApi; localTimeZone?: stri
   const keys = useMemo(() => shortcutLabel(isMacPlatform()), []);
   const choose = (action: PaletteAction) => {
     setPaletteOpen(false);
-    if (action.kind === 'environment') go(linkTo(route, action.envId, view, withoutSelection(params)));
+    // As the context bar's environment picker does: state that names the old environment goes.
+    if (action.kind === 'environment') go(linkTo(route, action.envId, view, withoutEnvironmentState(params)));
     else navigate(action.route);
   };
 
