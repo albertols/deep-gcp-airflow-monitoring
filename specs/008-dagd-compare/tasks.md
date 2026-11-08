@@ -28,10 +28,10 @@ Test tasks come before the code they cover.
 
 - [x] T-830 Test + code: API client for both comparisons; route `/compare/dags`; links that carry page parameters;
       the compare selection (2 to 4, `env:dag`) parsed and written back to the URL (FR-DAGD-08, FR-UI-02)
-- [ ] T-831 Test + code: concurrency panel: running, in flight and ready against `max_active_tasks` (default or
+- [x] T-831 Test + code: concurrency panel: running, in flight and ready against `max_active_tasks` (default or
       set), pool lines, time at the limit, self-throttling against the 10 % threshold, REC-DAG-01 link; gaps as gaps;
       table view (FR-DAGD-05, HM-005, HM-011, REC-DAG-01)
-- [ ] T-832 Test + code: impact panel: share of the environment's load and of its slots over time; the noisy-neighbour
+- [x] T-832 Test + code: impact panel: share of the environment's load and of its slots over time; the noisy-neighbour
       score with its interval and confidence, or the reason and minimums, never a zero (FR-DAGD-06, HM-003, HM-017)
 - [ ] T-833 Test + code: the DAG's findings on DAG detail, linked to the advisor, which opens the linked finding
       (FR-DAGD-01 findings, FR-ADV-02)

@@ -50,9 +50,11 @@ import {
 import { RANGE_PRESETS, loadingText } from '../../components/range';
 import { usePageParam, useRefresh, useView } from '../../components/view';
 import type { PageProps } from '../types';
+import { ConcurrencyPanel } from './ConcurrencyPanel';
 import { CriticalPathSummary } from './CriticalPathSummary';
 import { DurationPanel } from './DurationPanel';
 import { DAG_EXPLANATIONS as E, type DagExplanationId } from './explanations';
+import { ImpactPanel } from './ImpactPanel';
 import { ReliabilityPanel } from './ReliabilityPanel';
 import { RunGantt } from './RunGantt';
 import { RunsTimeline, STATE_LABEL } from './RunsTimeline';
@@ -497,6 +499,10 @@ export function DagDetailPage({ api, envId, route, linkTo }: PageProps) {
           <DurationPanel detail={d} api={api} envId={envId} healthHref={linkTo({ page: 'health' })} />
 
           <ReliabilityPanel detail={d} api={api} envId={envId} />
+
+          <ConcurrencyPanel detail={d} api={api} envId={envId} linkTo={linkTo} />
+
+          <ImpactPanel detail={d} api={api} envId={envId} linkTo={linkTo} />
 
           <ProvenanceFooter
             dataAsOf={d.data_as_of}

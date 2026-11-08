@@ -271,9 +271,9 @@ export const DAG_EXPLANATIONS = {
     id: 'dagd-self-throttled',
     title: 'Self-throttled',
     summary:
-      "Share of the DAG's active minutes in which its own max_active_tasks held back ready work (HM-005).",
+      "Share of the DAG's active time in which its own max_active_tasks held back ready work (HM-005), as the advisor computes it for REC-DAG-01.",
     formula:
-      'minutes with running + queued ≥ max_active_tasks and work waiting ÷ minutes with work in flight or waiting',
+      'time with running + queued ≥ max_active_tasks and own ready work ÷ time with work in flight or waiting; each live snapshot stands for the time to the next one, at most two cadences',
     howToRead:
       'Above 10 % the DAG is often its own bottleneck: raising max_active_tasks may shorten its runs.',
     sources: API,

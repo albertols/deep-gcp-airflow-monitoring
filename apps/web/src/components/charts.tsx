@@ -13,7 +13,9 @@ import { useTheme } from '@mui/material/styles';
 import type { TimeFormat } from './time';
 import { useTimeFormat } from './view';
 
-const M = { top: 8, right: 8, bottom: 22, left: 68 };
+/** Plot margins shared by every chart here and in `line-chart.tsx`. */
+export const CHART_MARGIN = { top: 8, right: 8, bottom: 22, left: 68 } as const;
+const M = CHART_MARGIN;
 
 /** Width of an element, following resizes (falls back to 720 px where ResizeObserver is missing). */
 export function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
@@ -73,7 +75,7 @@ export function Legend({ series, label }: { series: readonly Series[]; label: st
   );
 }
 
-function Tooltip({ x, width, children }: { x: number; width: number; children: ReactNode }) {
+export function Tooltip({ x, width, children }: { x: number; width: number; children: ReactNode }) {
   const left = Math.min(Math.max(0, x + 12), Math.max(0, width - 240));
   return (
     <Paper
@@ -86,7 +88,7 @@ function Tooltip({ x, width, children }: { x: number; width: number; children: R
   );
 }
 
-function Axes({
+export function Axes({
   width,
   height,
   max,
