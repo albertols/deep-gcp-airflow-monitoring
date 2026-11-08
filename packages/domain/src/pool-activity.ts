@@ -7,10 +7,13 @@
  * "Starved" means zero open slots while ready (`scheduled`) work waited for the pool, the rule REC-CONC-02
  * and the attribution use. Deferred slots are not part of DCAM's snapshots and are not reported.
  *
- * @implements FR-ENV-08
+ * The cadence is the raw snapshots' one and thinned snapshots stand for their stored span (FR-STORE-07),
+ * exactly as in the attribution. Snapshots can come in batches ({@link createPoolActivity}, NFR-PERF-01).
+ *
+ * @implements FR-ENV-08, FR-STORE-07, NFR-PERF-01
  */
 import type { EnvironmentConfig, LiveSnapshot } from './model';
-import { rawCadenceMs, snapshotSpans } from './snapshot-time';
+import { createSpanStream, rawCadenceMs } from './snapshot-time';
 
 export interface PoolActivityOptions {
   readonly from: number;
@@ -62,6 +65,20 @@ export function poolActivity(
   config: Pick<EnvironmentConfig, 'pools'>,
   opts: PoolActivityOptions,
 ): PoolActivity[] {
+  const inWindow = snapshots.filter((s) => s.at >= opts.from && s.at < opts.to);
+  const acc = createPoolActivity(config, { ...opts, cadenceMs: rawCadenceMs(inWindow) });
+  acc.add(inWindow);
+  return acc.result();
+}
+
+/**
+ * {@link poolActivity} over snapshots added in batches, oldest first (NFR-PERF-01). `cadenceMs` is the raw
+ * snapshots' cadence over the whole window ({@link rawCadenceMs}), `null` below two.
+ */
+export function createPoolActivity(
+  config: Pick<EnvironmentConfig, 'pools'>,
+  opts: PoolActivityOptions & { readonly cadenceMs: number | null },
+) {
   const bucketCount = Math.max(0, Math.ceil((opts.to - opts.from) / opts.bucketMs));
   const acc = new Map<string, Acc>(
     config.pools.map((p) => [
@@ -79,13 +96,7 @@ export function poolActivity(
       },
     ]),
   );
-  const inWindow = snapshots.filter((s) => s.at >= opts.from && s.at < opts.to);
-  // Thinned snapshots (FR-STORE-07) carry their own span and say nothing about the af.live cadence: five
-  // minutes between them would let a raw snapshot stand for up to ten (as in the HM-006 attribution).
-  const spans = snapshotSpans(inWindow, rawCadenceMs(inWindow) ?? opts.fallbackCadenceMs, opts.to);
-
-  inWindow.forEach((s, i) => {
-    const span = spans[i] ?? 0;
+  const observe = (s: LiveSnapshot, span: number) => {
     const bucket = Math.floor((s.at - opts.from) / opts.bucketMs);
     const ready = new Set<string>();
     for (const ti of s.scheduled) {
@@ -112,25 +123,39 @@ export function poolActivity(
       a.starvedMs += starved;
       if (bucket >= 0 && bucket < bucketCount) a.starved[bucket] = (a.starved[bucket] ?? 0) + starved;
     }
-  });
+  };
+  const spans = createSpanStream<LiveSnapshot>(opts.cadenceMs ?? opts.fallbackCadenceMs, opts.to, observe);
 
-  return config.pools.map((p) => {
-    const a = acc.get(p.name) as Acc;
-    const seen = a.observedMs > 0;
-    return {
-      name: p.name,
-      slots: p.slots,
-      observedMs: a.observedMs,
-      runningSlotsAvg: seen ? a.runningArea / a.observedMs : null,
-      runningSlotsPeak: seen ? a.peak : null,
-      queuedSlotsAvg: seen ? a.queuedArea / a.observedMs : null,
-      readyTaskMs: a.readyTaskMs,
-      queuedTaskMs: a.queuedTaskMs,
-      starvedMs: a.starvedMs,
-      starvedByBucket: a.starved,
-      topDags: [...a.dags]
-        .sort((x, y) => y[1] - x[1] || cmp(x[0], y[0]))
-        .map(([dagId, waitingMs]) => ({ dagId, waitingMs })),
-    };
-  });
+  const result = (): PoolActivity[] =>
+    config.pools.map((p) => {
+      const a = acc.get(p.name) as Acc;
+      const seen = a.observedMs > 0;
+      return {
+        name: p.name,
+        slots: p.slots,
+        observedMs: a.observedMs,
+        runningSlotsAvg: seen ? a.runningArea / a.observedMs : null,
+        runningSlotsPeak: seen ? a.peak : null,
+        queuedSlotsAvg: seen ? a.queuedArea / a.observedMs : null,
+        readyTaskMs: a.readyTaskMs,
+        queuedTaskMs: a.queuedTaskMs,
+        starvedMs: a.starvedMs,
+        starvedByBucket: a.starved,
+        topDags: [...a.dags]
+          .sort((x, y) => y[1] - x[1] || cmp(x[0], y[0]))
+          .map(([dagId, waitingMs]) => ({ dagId, waitingMs })),
+      };
+    });
+
+  return {
+    /** Adds snapshots, oldest first; snapshots outside the window are skipped. */
+    add(snapshots: readonly LiveSnapshot[]): void {
+      for (const s of snapshots) if (s.at >= opts.from && s.at < opts.to) spans.push(s);
+    },
+    /** Ends the window and returns every configured pool. */
+    result(): PoolActivity[] {
+      spans.end();
+      return result();
+    },
+  };
 }

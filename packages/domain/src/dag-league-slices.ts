@@ -31,7 +31,7 @@ import {
   type DagTaskTry,
   type RunOptions,
 } from './dag-runs';
-import { TOTAL_KEY, clippedInterval, occupancySeries, type SweepWindow } from './occupancy';
+import { TOTAL_KEY, clippedInterval, occupancySeries, type SweepWindow, type TaskTry } from './occupancy';
 import { quantile } from './stats';
 
 /** A part of a window, `[from, to)`, read from the store in one query. */
@@ -112,7 +112,18 @@ interface DagTotals {
   readonly runs: Map<string, RunTotals>;
 }
 
-const clippedSeconds = (t: DagTaskTry, w: SweepWindow) => {
+/**
+ * True when this slice counts the try: it started in the slice, or, for the first slice of a window, it
+ * started earlier and was still running when the slice began (the slice is read 1 ms early, so a try
+ * that ended exactly then also comes back and must not count).
+ */
+export function ownsTry(t: TaskTry, slice: Slice, first: boolean): boolean {
+  if (t.startAt === null || t.startAt >= slice.to) return false;
+  if (t.startAt >= slice.from) return true;
+  return first && (t.endAt === null || t.endAt > slice.from);
+}
+
+const clippedSeconds = (t: TaskTry, w: SweepWindow) => {
   const iv = clippedInterval(t, w);
   return iv === null || iv === 'rejected' ? 0 : (iv.to - iv.from) / 1000;
 };
@@ -240,9 +251,8 @@ export function createLeagueAccumulator(input: LeagueAccumulatorInput): LeagueAc
     addPrevious(tries, slice) {
       const first = slice.from <= p.from;
       for (const t of tries) {
-        if (t.startAt === null || t.startAt >= slice.to || t.startAt >= w.from) continue;
-        // Before the first slice: only tries still running at its start (the slice was read 1 ms early).
-        if (t.startAt < slice.from && !(first && (t.endAt === null || t.endAt > p.from))) continue;
+        if (t.startAt === null || t.startAt >= w.from) continue;
+        if (!ownsTry(t, slice, first)) continue;
         const previousSeconds = clippedSeconds(t, p);
         const currentSeconds = clippedSeconds(t, w);
         const known = dags.get(t.dagId);
@@ -309,6 +319,51 @@ export function createLeagueAccumulator(input: LeagueAccumulatorInput): LeagueAc
         });
       }
       return rankLeague(current, previous, dagIds);
+    },
+  };
+}
+
+export interface CapacityTotals {
+  /** HM-003: executor slot-seconds per DAG with a positive value. */
+  readonly byDag: ReadonlyMap<string, number>;
+  readonly totalExecutorSlotSeconds: number;
+  /** HM-011: most tries running at once in the window. */
+  readonly peakConcurrency: number;
+}
+
+/**
+ * Executor slot-seconds per DAG and the environment's peak concurrency over slices of one window
+ * (NFR-PERF-01), equal to {@link slotSeconds} and the {@link occupancySeries} peak over one query. Slices
+ * are read 1 ms early, as for {@link createLeagueAccumulator}, and may come in any order; the slice that
+ * starts at the window start is the first.
+ */
+export function createCapacityAccumulator(w: SweepWindow) {
+  const byDag = new Map<string, number>();
+  let totalMs = 0;
+  let peak = 0;
+  return {
+    add(tries: readonly TaskTry[], slice: Slice): void {
+      const from = Math.max(slice.from, w.from);
+      const to = Math.min(slice.to, w.to);
+      if (to > from) {
+        const series = occupancySeries(
+          tries,
+          { from, to, now: w.now },
+          { bucketMs: Math.max(1, Math.ceil(to - from)) },
+        );
+        for (const b of series.get(TOTAL_KEY) ?? []) peak = Math.max(peak, b.max);
+      }
+      const first = slice.from <= w.from;
+      for (const t of tries) {
+        if (!ownsTry(t, slice, first)) continue;
+        const iv = clippedInterval(t, w);
+        if (iv === null || iv === 'rejected') continue;
+        byDag.set(t.dagId, (byDag.get(t.dagId) ?? 0) + (iv.to - iv.from) / 1000);
+        totalMs += iv.to - iv.from;
+      }
+    },
+    result(): CapacityTotals {
+      return { byDag, totalExecutorSlotSeconds: totalMs / 1000, peakConcurrency: peak };
     },
   };
 }

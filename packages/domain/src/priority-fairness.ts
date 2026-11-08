@@ -14,7 +14,10 @@
  *
  * ⚠️ VERIFY (VC-14): that the weight the API reports per task instance is the effective weight (`weight_rule`).
  *
- * @implements HM-023
+ * Snapshots can come in batches ({@link createPriorityFairness}, NFR-PERF-01): only one record per waiting
+ * try is kept, not the snapshots.
+ *
+ * @implements HM-023, NFR-PERF-01
  */
 import type { LiveSnapshot, SnapshotTaskInstance } from './model';
 import { quantile, type Quantile } from './stats';
@@ -57,6 +60,13 @@ export function priorityFairness(
   snapshots: readonly LiveSnapshot[],
   window: { readonly from: number; readonly to: number },
 ): PoolPriority[] {
+  const acc = createPriorityFairness(window);
+  acc.add(snapshots);
+  return acc.result();
+}
+
+/** {@link priorityFairness} over snapshots added in batches, in any order. */
+export function createPriorityFairness(window: { readonly from: number; readonly to: number }) {
   // Nested maps (DAG → run → task → tries) instead of one string key per sighting: no string is built per
   // task instance, and each ID string is hashed once.
   const byDag = new Map<string, Map<string, Map<string, Seen[]>>>();
@@ -92,12 +102,17 @@ export function priorityFairness(
       if (at > seen.lastAt) seen.lastAt = at;
     }
   };
-  for (const s of snapshots) {
-    if (s.at < window.from || s.at >= window.to) continue;
-    for (const ti of s.scheduled) see(ti, s.at);
-    for (const ti of s.queued) see(ti, s.at);
-  }
+  const add = (snapshots: readonly LiveSnapshot[]) => {
+    for (const s of snapshots) {
+      if (s.at < window.from || s.at >= window.to) continue;
+      for (const ti of s.scheduled) see(ti, s.at);
+      for (const ti of s.queued) see(ti, s.at);
+    }
+  };
+  return { add, result: () => bands(all) };
+}
 
+function bands(all: readonly Seen[]): PoolPriority[] {
   const byPool = new Map<string, Seen[]>();
   for (const t of all) {
     const list = byPool.get(t.pool);

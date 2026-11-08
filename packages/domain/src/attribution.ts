@@ -6,17 +6,19 @@
  *
  * Top contributors per reason are kept per DAG and per pool (HM-006 output, spec L1088).
  *
- * @implements FR-BOTL-01, HM-006, HM-011, HM-012, FR-STORE-07
+ * Snapshots can come in batches ({@link createAttribution}): a long range is read a day at a time
+ * (NFR-PERF-01), and the result equals {@link attributeWaiting} over all of them at once.
+ *
+ * @implements FR-BOTL-01, HM-006, HM-011, HM-012, FR-STORE-07, NFR-PERF-01
  */
 import {
-  WAIT_REASONS,
   limitKnown,
   type EnvironmentConfig,
   type LiveSnapshot,
   type WaitReasonId,
   type WorkerSample,
 } from './model';
-import { rawCadenceMs, snapshotSpans } from './snapshot-time';
+import { createSpanStream, rawCadenceMs } from './snapshot-time';
 import { quantile, type Quantile } from './stats';
 import { classifySnapshot, type ClassifiedWait, type ClassifierContext } from './waiting';
 
@@ -66,43 +68,48 @@ export interface Attribution {
 
 const add = <K>(m: Map<K, number>, k: K, d: number) => m.set(k, (m.get(k) ?? 0) + d);
 
-/** The ordinal of each reason: the sums per waiting task instance index arrays instead of hashing the reason. */
-const REASON_INDEX: ReadonlyMap<WaitReasonId, number> = new Map(WAIT_REASONS.map((r, i) => [r, i]));
-
-/**
- * Sums per reason in an array, added in the same order as a `Map` would be, so each sum is the same number
- * to the last bit. {@link toMap} keeps the order the reasons were first added in: some consumers iterate
- * the result and sum it.
- */
-class ReasonSums {
-  private readonly ms = new Float64Array(WAIT_REASONS.length);
-  private readonly seen = new Uint8Array(WAIT_REASONS.length);
-  readonly order: number[] = [];
-
-  add(reason: number, d: number): void {
-    if (this.seen[reason] === 0) {
-      this.seen[reason] = 1;
-      this.order.push(reason);
-    }
-    this.ms[reason] = (this.ms[reason] as number) + d;
-  }
-
-  toMap(): Map<WaitReasonId, number> {
-    return new Map(this.order.map((r) => [WAIT_REASONS[r] as WaitReasonId, this.ms[r] as number]));
-  }
-}
-
 export function attributeWaiting(
   snapshots: readonly LiveSnapshot[],
   ctx: ClassifierContext,
   opts: AttributionOptions,
 ): Attribution {
+  const inWindow = snapshots.filter((s) => s.at >= opts.from && s.at < opts.to);
+  // Thinned snapshots (FR-STORE-07) carry their own span and say nothing about the af.live cadence.
+  const acc = createAttribution(ctx, { ...opts, cadenceMs: rawCadenceMs(inWindow) });
+  acc.add(inWindow);
+  return acc.result();
+}
+
+export interface SlicedAttributionOptions extends AttributionOptions {
+  /**
+   * The cadence of the raw snapshots over the whole window ({@link rawCadenceMs}); `null` below two raw
+   * snapshots. A caller reading slices reads the snapshot times (and spans) once before.
+   */
+  readonly cadenceMs: number | null;
+}
+
+/** {@link attributeWaiting} fed in batches, so a long window never holds every snapshot at once. */
+export interface AttributionAccumulator {
+  /** Adds snapshots, oldest first; batches follow each other in time. Snapshots outside the window are skipped. */
+  add(snapshots: readonly LiveSnapshot[]): void;
+  /** Ends the window (the last snapshot stands for one cadence, or its stored span) and returns the result. */
+  result(): Attribution;
+}
+
+/**
+ * Waiting attribution over snapshots added in batches (NFR-PERF-01). A raw snapshot stands for the gap to the
+ * next one, capped at two cadences, so it is attributed when the next one arrives; a thinned one stands for
+ * its stored span (`snapshot-time.ts`, {@link createSpanStream}).
+ */
+export function createAttribution(
+  ctx: ClassifierContext,
+  opts: SlicedAttributionOptions,
+): AttributionAccumulator {
   const { config } = ctx;
-  const totals = new ReasonSums();
-  // Per reason ordinal; a reason gets its maps when `totals` first adds it, so `totals.order` is their order.
-  const byReasonDag: Array<Map<string, number> | undefined> = [];
-  const byReasonPool: Array<Map<string, number> | undefined> = [];
-  const atMax = new ReasonSums();
+  const totals = new Map<WaitReasonId, number>();
+  const byReasonDag = new Map<WaitReasonId, Map<string, number>>();
+  const byReasonPool = new Map<WaitReasonId, Map<string, number>>();
+  const atMax = new Map<WaitReasonId, number>();
   const pools = new Map<string, { waitingMs: number; starvedMs: number; utilisation: number[] }>(
     config.pools.map((p) => [p.name, { waitingMs: 0, starvedMs: 0, utilisation: [] }]),
   );
@@ -111,35 +118,29 @@ export function attributeWaiting(
   const bucketCount = Math.max(0, Math.ceil((opts.to - opts.from) / opts.bucketMs));
   const buckets = Array.from({ length: bucketCount }, (_, i) => ({
     start: opts.from + i * opts.bucketMs,
-    byReason: new ReasonSums(),
+    byReason: new Map<WaitReasonId, number>(),
     workers: 0,
     slotsUsed: 0,
     n: 0,
   }));
   let latest: Attribution['latest'] = null;
-  const inWindow = snapshots.filter((s) => s.at >= opts.from && s.at < opts.to);
-  // Thinned snapshots (FR-STORE-07) carry their own span and say nothing about the af.live cadence.
-  const cadenceMs = rawCadenceMs(inWindow);
-  const spans = snapshotSpans(inWindow, cadenceMs ?? opts.fallbackCadenceMs, opts.to);
   let coveredMs = 0;
 
-  inWindow.forEach((s, i) => {
-    const span = spans[i] ?? 0;
+  const attribute = (s: LiveSnapshot, span: number) => {
     coveredMs += span;
     const classified = classifySnapshot(s, ctx);
     const bucket = buckets[Math.floor((s.at - opts.from) / opts.bucketMs)];
     const workersAtMax = s.workers.current >= config.maxWorkers;
     for (const c of classified) {
-      const r = REASON_INDEX.get(c.reason) as number;
-      totals.add(r, span);
-      if (bucket) bucket.byReason.add(r, span);
-      let dags = byReasonDag[r];
-      if (!dags) byReasonDag[r] = dags = new Map<string, number>();
+      add(totals, c.reason, span);
+      if (bucket) add(bucket.byReason, c.reason, span);
+      let dags = byReasonDag.get(c.reason);
+      if (!dags) byReasonDag.set(c.reason, (dags = new Map<string, number>()));
       add(dags, c.ti.dagId, span);
-      let byPool = byReasonPool[r];
-      if (!byPool) byReasonPool[r] = byPool = new Map<string, number>();
+      let byPool = byReasonPool.get(c.reason);
+      if (!byPool) byReasonPool.set(c.reason, (byPool = new Map<string, number>()));
       add(byPool, c.ti.pool, span);
-      if (workersAtMax) atMax.add(r, span);
+      if (workersAtMax) add(atMax, c.reason, span);
       if (c.reason === 'pool-exhausted') {
         const p = pools.get(c.ti.pool);
         if (p) p.waitingMs += span;
@@ -160,32 +161,35 @@ export function attributeWaiting(
       bucket.n++;
     }
     latest = { snapshot: s, classified };
-  });
+  };
+  const spans = createSpanStream<LiveSnapshot>(opts.cadenceMs ?? opts.fallbackCadenceMs, opts.to, attribute);
 
   const sortDesc = (m: Map<string, number>) =>
     new Map([...m].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)));
-  const byReason = (maps: Array<Map<string, number> | undefined>) =>
-    new Map(
-      totals.order.map((r) => [
-        WAIT_REASONS[r] as WaitReasonId,
-        sortDesc(maps[r] ?? new Map<string, number>()),
-      ]),
-    );
+
   return {
-    totals: totals.toMap(),
-    buckets: buckets.map((b) => ({
-      start: b.start,
-      byReason: b.byReason.toMap(),
-      workers: b.n ? b.workers / b.n : null,
-      slotsUsed: b.n && slotsKnown ? b.slotsUsed / b.n : null,
-    })),
-    byReasonDag: byReason(byReasonDag),
-    byReasonPool: byReason(byReasonPool),
-    pools,
-    atMaxWorkersMs: atMax.toMap(),
-    latest,
-    cadenceMs,
-    coveredMs,
+    add(snapshots) {
+      for (const s of snapshots) if (s.at >= opts.from && s.at < opts.to) spans.push(s);
+    },
+    result() {
+      spans.end();
+      return {
+        totals,
+        buckets: buckets.map((b) => ({
+          start: b.start,
+          byReason: b.byReason,
+          workers: b.n ? b.workers / b.n : null,
+          slotsUsed: b.n && slotsKnown ? b.slotsUsed / b.n : null,
+        })),
+        byReasonDag: new Map([...byReasonDag].map(([r, m]) => [r, sortDesc(m)])),
+        byReasonPool: new Map([...byReasonPool].map(([r, m]) => [r, sortDesc(m)])),
+        pools,
+        atMaxWorkersMs: atMax,
+        latest,
+        cadenceMs: opts.cadenceMs,
+        coveredMs,
+      };
+    },
   };
 }
 

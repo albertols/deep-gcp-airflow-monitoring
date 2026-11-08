@@ -49,3 +49,36 @@ export function snapshotSpans(snapshots: readonly TimedSnapshot[], cadenceMs: nu
     return Math.max(0, span);
   });
 }
+
+/**
+ * {@link snapshotSpans} for snapshots fed one by one, oldest first, possibly across batches (NFR-PERF-01):
+ * each snapshot is emitted with its span once the next one arrives, and the last when the stream ends. The
+ * spans are the same as {@link snapshotSpans} over all the snapshots at once.
+ */
+export function createSpanStream<T extends TimedSnapshot>(
+  cadenceMs: number,
+  to: number,
+  emit: (snapshot: T, spanMs: number) => void,
+) {
+  const cap = SNAPSHOT_GAP_CADENCES * cadenceMs;
+  let pending: T | null = null;
+  const thinned = (s: T) => Math.max(0, Math.min(s.spanMs as number, to - s.at));
+  return {
+    push(s: T): void {
+      if (pending)
+        emit(
+          pending,
+          pending.spanMs !== undefined ? thinned(pending) : Math.max(0, Math.min(s.at - pending.at, cap)),
+        );
+      pending = s;
+    },
+    end(): void {
+      if (pending)
+        emit(
+          pending,
+          pending.spanMs !== undefined ? thinned(pending) : Math.max(0, Math.min(cadenceMs, to - pending.at)),
+        );
+      pending = null;
+    },
+  };
+}

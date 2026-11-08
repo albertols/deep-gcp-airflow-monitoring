@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { LiveSnapshot, SnapshotTaskInstance } from '../src/index';
-import { dagRuns, logicalDateFromRunId, runGantt, selfThrottledRatio, taskStats } from '../src/index';
+import {
+  createSelfThrottle,
+  dagRuns,
+  logicalDateFromRunId,
+  runGantt,
+  selfThrottledRatio,
+  taskStats,
+} from '../src/index';
 import { M, T0, tryAt, windowOf } from './fixtures';
 
 const W = windowOf(60, 120);
@@ -152,5 +159,14 @@ describe('HM-005 DAG self-throttling', () => {
   it('HM-005: null without live snapshots or without active minutes', () => {
     expect(selfThrottledRatio([], 'dag_a', 4)).toBeNull();
     expect(selfThrottledRatio([snapshot(60, 0, false)], 'dag_a', 4)).toBeNull();
+  });
+
+  it('HM-005 / NFR-PERF-01: snapshots added in batches give the same ratio; a minute split across batches counts once', () => {
+    const counter = createSelfThrottle('dag_a', 4);
+    counter.add([snapshot(60, 4, true)]);
+    counter.add([snapshot(60.5, 4, true), snapshot(61, 4, false)]);
+    counter.add([snapshot(62, 2, true), snapshot(63, 0, false)]);
+    expect(counter.ratio()).toBeCloseTo(1 / 3, 12);
+    expect(createSelfThrottle('dag_a', 4).ratio()).toBeNull();
   });
 });

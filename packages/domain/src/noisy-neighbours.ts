@@ -142,27 +142,57 @@ export interface SlotsInput {
  * `worker_concurrency` is unknown (HM-032): slots are never guessed.
  */
 export function slotsPerMinute(input: SlotsInput): (number | null)[] {
-  const minutes = Math.max(0, Math.ceil((input.to - input.from) / MIN));
-  const out = new Array<number | null>(minutes).fill(null);
-  if (!limitKnown(input.config, 'workerConcurrency')) return out;
-  const concurrency = input.config.workerConcurrency;
-  const fromSample = new Array<boolean>(minutes).fill(false);
-  for (const s of input.samples) {
-    const k = Math.floor((s.at - input.from) / MIN);
-    if (k < 0 || k >= minutes) continue;
-    out[k] = s.workers * concurrency;
-    fromSample[k] = true;
-  }
-  for (const s of input.snapshots) {
-    const k = Math.floor((s.at - input.from) / MIN);
-    if (k < 0 || k >= minutes || fromSample[k]) continue;
-    out[k] = s.workers.current * concurrency;
-  }
-  return out;
+  const acc = createSlotsPerMinute(input);
+  acc.add(input.snapshots);
+  return acc.result();
 }
 
 /** From the most to the least reliable: a window is as reliable as its weakest minute. */
 const SOURCE_ORDER: readonly WorkerCountSource[] = ['monitoring', 'config', 'hostnames'];
+
+/**
+ * {@link slotsPerMinute} and {@link slotsSourceOf} with the snapshots added in batches, oldest first
+ * (NFR-PERF-01): the last snapshot of a minute counts, as when they come at once.
+ */
+export function createSlotsPerMinute(input: Omit<SlotsInput, 'snapshots'>) {
+  const minutes = Math.max(0, Math.ceil((input.to - input.from) / MIN));
+  const out = new Array<number | null>(minutes).fill(null);
+  const known = limitKnown(input.config, 'workerConcurrency');
+  const concurrency = input.config.workerConcurrency;
+  const fromSample = new Array<boolean>(minutes).fill(false);
+  const bySnapshot = new Array<WorkerCountSource | null>(minutes).fill(null);
+  if (known)
+    for (const s of input.samples) {
+      const k = Math.floor((s.at - input.from) / MIN);
+      if (k < 0 || k >= minutes) continue;
+      out[k] = s.workers * concurrency;
+      fromSample[k] = true;
+    }
+  return {
+    add(snapshots: readonly LiveSnapshot[]): void {
+      if (!known) return;
+      for (const s of snapshots) {
+        const k = Math.floor((s.at - input.from) / MIN);
+        if (k < 0 || k >= minutes || fromSample[k]) continue;
+        out[k] = s.workers.current * concurrency;
+        // The last snapshot of the minute sets its slots; a stored value outside the three says nothing.
+        const source = s.workers.source;
+        bySnapshot[k] = source !== undefined && SOURCE_ORDER.includes(source) ? source : null;
+      }
+    },
+    result: (): (number | null)[] => out,
+    /** {@link slotsSourceOf}: the weakest source over the minutes with slots. */
+    source(): WorkerCountSource | null {
+      if (!known) return null;
+      let weakest = -1;
+      for (let k = 0; k < minutes; k++) {
+        const source = fromSample[k] ? 'monitoring' : bySnapshot[k];
+        if (source) weakest = Math.max(weakest, SOURCE_ORDER.indexOf(source));
+      }
+      return weakest < 0 ? null : (SOURCE_ORDER[weakest] as WorkerCountSource);
+    },
+  };
+}
 
 /**
  * HM-011: where the worker counts behind {@link slotsPerMinute} came from, the weakest over the minutes with
@@ -170,27 +200,9 @@ const SOURCE_ORDER: readonly WorkerCountSource[] = ['monitoring', 'config', 'hos
  * minute has slots, or none of the snapshots used says where its count came from.
  */
 export function slotsSourceOf(input: SlotsInput): WorkerCountSource | null {
-  if (!limitKnown(input.config, 'workerConcurrency')) return null;
-  const minutes = Math.max(0, Math.ceil((input.to - input.from) / MIN));
-  const fromSample = new Array<boolean>(minutes).fill(false);
-  const bySnapshot = new Array<WorkerCountSource | null>(minutes).fill(null);
-  for (const s of input.samples) {
-    const k = Math.floor((s.at - input.from) / MIN);
-    if (k >= 0 && k < minutes) fromSample[k] = true;
-  }
-  for (const s of input.snapshots) {
-    const k = Math.floor((s.at - input.from) / MIN);
-    if (k < 0 || k >= minutes || fromSample[k]) continue;
-    // The last snapshot of the minute sets its slots; a stored value outside the three says nothing.
-    const source = s.workers.source;
-    bySnapshot[k] = source !== undefined && SOURCE_ORDER.includes(source) ? source : null;
-  }
-  let weakest = -1;
-  for (let k = 0; k < minutes; k++) {
-    const source = fromSample[k] ? 'monitoring' : bySnapshot[k];
-    if (source) weakest = Math.max(weakest, SOURCE_ORDER.indexOf(source));
-  }
-  return weakest < 0 ? null : (SOURCE_ORDER[weakest] as WorkerCountSource);
+  const acc = createSlotsPerMinute(input);
+  acc.add(input.snapshots);
+  return acc.source();
 }
 
 /** FNV-1a: a stable 32-bit seed from the DAG ID. */

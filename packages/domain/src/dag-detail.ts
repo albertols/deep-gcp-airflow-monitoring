@@ -228,14 +228,30 @@ export function selfThrottledRatio(
   dagId: string,
   maxActiveTasks: number,
 ): number | null {
+  const counter = createSelfThrottle(dagId, maxActiveTasks);
+  counter.add(snapshots);
+  return counter.ratio();
+}
+
+/**
+ * {@link selfThrottledRatio} over snapshots added in batches (NFR-PERF-01): a 30-day window is read in
+ * slices; only the active and throttled minutes are kept (at most 129,600 for 90 days).
+ */
+export function createSelfThrottle(dagId: string, maxActiveTasks: number) {
   const active = new Set<number>();
   const throttled = new Set<number>();
-  for (const s of snapshots) {
-    const minute = Math.floor(s.at / 60_000);
-    const inFlight = s.dagActive[dagId] ?? 0;
-    const ready = s.scheduled.some((ti) => ti.dagId === dagId);
-    if (inFlight > 0 || ready) active.add(minute);
-    if (ready && maxActiveTasks > 0 && inFlight >= maxActiveTasks) throttled.add(minute);
-  }
-  return active.size > 0 ? throttled.size / active.size : null;
+  return {
+    add(snapshots: readonly LiveSnapshot[]): void {
+      for (const s of snapshots) {
+        const minute = Math.floor(s.at / 60_000);
+        const inFlight = s.dagActive[dagId] ?? 0;
+        const ready = s.scheduled.some((ti) => ti.dagId === dagId);
+        if (inFlight > 0 || ready) active.add(minute);
+        if (ready && maxActiveTasks > 0 && inFlight >= maxActiveTasks) throttled.add(minute);
+      }
+    },
+    ratio(): number | null {
+      return active.size > 0 ? throttled.size / active.size : null;
+    },
+  };
 }

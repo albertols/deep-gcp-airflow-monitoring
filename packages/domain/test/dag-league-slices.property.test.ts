@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
-import { createLeagueAccumulator, dagLeague, type DagTaskTry, type DagLeagueResult } from '../src/index';
+import {
+  TOTAL_KEY,
+  createCapacityAccumulator,
+  createLeagueAccumulator,
+  dagLeague,
+  occupancySeries,
+  slotSeconds,
+  type DagTaskTry,
+  type DagLeagueResult,
+} from '../src/index';
 import { M, T0, tryAt, windowOf } from './fixtures';
 
 const arbTry = fc.record({
@@ -224,5 +233,43 @@ describe('NFR-PERF-01 the league from slices equals the league from one query', 
     expect(row?.peakConcurrency).toBe(1);
     expect(row?.previousShare).toBe(1);
     expect(row?.tries).toBe(0);
+  });
+
+  it('NFR-PERF-01 / HM-003 / HM-011: slot-seconds per DAG and peak concurrency from slices equal one query', () => {
+    fc.assert(
+      fc.property(
+        fc.array(arbTry, { maxLength: 40 }),
+        fc.array(fc.integer({ min: 1, max: 59 }), { maxLength: 4 }),
+        (specs, cuts) => {
+          const tries = specs.map((s) =>
+            tryAt({
+              dagId: s.dagId,
+              runId: s.runId,
+              taskId: s.taskId,
+              tryNumber: s.tryNumber,
+              start: s.start,
+              end: s.running ? null : s.start + s.length,
+            }),
+          );
+          const window = windowOf(80, 140);
+          const all = query(tries, window.from, window.to);
+          const seconds = slotSeconds(all, window);
+          const peak = (occupancySeries(all, window).get(TOTAL_KEY) ?? []).reduce(
+            (m, b) => Math.max(m, b.max),
+            0,
+          );
+
+          const acc = createCapacityAccumulator(window);
+          for (const s of slices(window.from, window.to, cuts)) acc.add(query(tries, s.from - 1, s.to), s);
+          const r = acc.result();
+          expect(r.peakConcurrency).toBe(peak);
+          expect(r.totalExecutorSlotSeconds).toBeCloseTo(seconds.totalExecutorSlotSeconds, 6);
+          expect([...r.byDag.keys()].sort()).toEqual([...seconds.byDag.keys()].sort());
+          for (const [dag, v] of seconds.byDag)
+            expect(r.byDag.get(dag)).toBeCloseTo(v.executorSlotSeconds, 6);
+        },
+      ),
+      { numRuns: 300 },
+    );
   });
 });
