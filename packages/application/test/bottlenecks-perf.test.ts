@@ -8,6 +8,7 @@ import type {
 } from '@dcam/domain';
 import type { EnvironmentModelSource, StoredTaskTry, TaskInstanceStore } from '@dcam/ports';
 import { bottlenecksInWindow } from '../src/index';
+import { measureCpu } from './cpu-time';
 
 const SEC = 1_000;
 const MIN = 60 * SEC;
@@ -202,20 +203,22 @@ describe('NFR-PERF: bottlenecks at the target scale', () => {
       { store, model },
       { envId: 'acme-prod', from: NOW - DAY, to: NOW, bucketMs: 15 * MIN, sources: ['DEMO'] },
     );
-    // CPU time of this process, not wall time: on a shared machine or CI runner other processes stretch
-    // the wall time, while the CPU time is what the analysis costs (and its wall time on an idle machine).
-    const started = process.cpuUsage();
-    const b = await bottlenecksInWindow(
-      { store, model },
-      { envId: 'acme-prod', from: FROM, to: NOW, bucketMs: H, sources: ['DEMO'] },
+    // CPU time of the analysis thread (cpu-time.ts).
+    const {
+      result: b,
+      cpuMs,
+      wallMs,
+    } = await measureCpu(() =>
+      bottlenecksInWindow(
+        { store, model },
+        { envId: 'acme-prod', from: FROM, to: NOW, bucketMs: H, sources: ['DEMO'] },
+      ),
     );
-    const used = process.cpuUsage(started);
-    const cpuMs = (used.user + used.system) / 1000;
     expect(b.series).toHaveLength(7 * 24);
     expect(b.waiting_task_seconds).toBeGreaterThan(0);
     expect(b.noisy_neighbours?.evaluated).toBe(true);
     expect(b.noisy_neighbours?.items[0]?.dag_id).toBe('acme_hog_hourly');
     expect(b.pools).toHaveLength(POOLS.length);
-    expect(cpuMs).toBeLessThan(2_000);
+    expect(cpuMs, `CPU ${cpuMs} ms, wall ${wallMs} ms`).toBeLessThan(2_000);
   }, 120_000);
 });

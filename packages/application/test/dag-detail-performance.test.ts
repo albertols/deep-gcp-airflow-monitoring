@@ -11,6 +11,7 @@ import {
 } from '@dcam/domain';
 import type { EnvironmentModelSource, StoredTaskTry, TaskInstanceStore } from '@dcam/ports';
 import { getDagDetail } from '../src/index';
+import { measureCpu } from './cpu-time';
 
 const S = 1_000;
 const M = 60 * S;
@@ -32,23 +33,6 @@ function rng(seed: number) {
 }
 
 const BIG = 'acme_feature_pipeline';
-
-/**
- * CPU time of this process (user + system, garbage collection included) and wall time of `run`. The test
- * asserts on CPU time: test files run in parallel and other work shares the machine, which stretches wall
- * time without the computation costing more.
- */
-async function measure<T>(run: () => Promise<T>) {
-  const cpu = process.cpuUsage();
-  const wall = performance.now();
-  const result = await run();
-  const used = process.cpuUsage(cpu);
-  return {
-    result,
-    cpuMs: Math.round((used.user + used.system) / 1000),
-    wallMs: Math.round(performance.now() - wall),
-  };
-}
 
 /**
  * `days` of history ending at NOW: the big DAG (50 tasks: 1 → 48 in parallel → 1) every 15 min (96 runs a
@@ -160,7 +144,7 @@ describe('NFR-PERF DAG detail at 50 tasks × 96 runs a day', () => {
 
   it('NFR-PERF / HM-016: answers with 7 days stored (34,000 tries of the DAG, 50,000 of others) in under 1 s', async () => {
     expect(rows.filter((t) => t.dagId === BIG).length).toBeGreaterThan(33_600);
-    const { result, cpuMs, wallMs } = await measure(() =>
+    const { result, cpuMs, wallMs } = await measureCpu(() =>
       getDagDetail(
         { store, model, clock: { now: () => NOW } },
         { envId: 'acme-prod', dagId: BIG, range: '24h', sources: ['DEMO'] },
@@ -176,7 +160,7 @@ describe('NFR-PERF DAG detail at 50 tasks × 96 runs a day', () => {
     const twoWeeks = history(14).filter((t) => t.dagId === BIG);
     const range = { from: NOW - 7 * D, to: NOW, now: NOW };
     const baseline = { from: range.from - 28 * D, to: range.from };
-    const { result, cpuMs, wallMs } = await measure(async () => {
+    const { result, cpuMs, wallMs } = await measureCpu(async () => {
       dagWindowStats(twoWeeks, range);
       dagRuns(twoWeeks, range);
       taskStats(twoWeeks, range);

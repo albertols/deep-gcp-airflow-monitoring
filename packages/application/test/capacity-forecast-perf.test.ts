@@ -8,6 +8,7 @@ import type {
 } from '@dcam/domain';
 import type { EnvironmentModelSource, StoredTaskTry, TaskInstanceStore } from '@dcam/ports';
 import { getCapacity, getForecast } from '../src/index';
+import { measureCpu } from './cpu-time';
 
 const SEC = 1_000;
 const MIN = 60 * SEC;
@@ -176,14 +177,6 @@ function deps(tries: StoredTaskTry[], live: ReturnType<typeof generateLive>) {
   return { store, model, clock: { now: () => NOW } };
 }
 
-/** CPU time of this process, not wall time: other processes on a shared machine stretch the wall time. */
-async function cpuMs<T>(work: () => Promise<T>): Promise<{ result: T; ms: number }> {
-  const started = process.cpuUsage();
-  const result = await work();
-  const used = process.cpuUsage(started);
-  return { result, ms: (used.user + used.system) / 1000 };
-}
-
 describe('NFR-PERF: capacity and forecast at the target scale', () => {
   it('NFR-PERF: capacity over 7 days at 2,000 DAGs answers in under 2 s of CPU in the application layer', async () => {
     const tries = generateTries(7);
@@ -193,14 +186,14 @@ describe('NFR-PERF: capacity and forecast at the target scale', () => {
     // The store and model reads are outside the application budget: read once, then measure the analysis.
     const store = await d.store.taskTries('acme-prod', NOW - 8 * DAY, NOW);
     const fast = { ...d, store: { ...d.store, taskTries: async () => store } };
-    const { result, ms } = await cpuMs(() =>
+    const { result, cpuMs, wallMs } = await measureCpu(() =>
       getCapacity(fast, { envId: 'acme-prod', range: '7d', sources: ['DEMO'] }),
     );
     expect(tries.length).toBeGreaterThan(7 * 19_000);
     expect(result.series).toHaveLength(7 * 24);
     expect(result.summary.observed_minutes).toBe(7 * 24 * 60);
     expect(result.dag_load.dags).toHaveLength(20);
-    expect(ms).toBeLessThan(2_000);
+    expect(cpuMs, `CPU ${cpuMs} ms, wall ${wallMs} ms`).toBeLessThan(2_000);
   }, 180_000);
 
   it('NFR-PERF: the forecast over 28 days of history at 2,000 DAGs answers in under 2 s of CPU', async () => {
@@ -214,13 +207,15 @@ describe('NFR-PERF: capacity and forecast at the target scale', () => {
         sources: ['DEMO'],
       },
     );
-    const { result, ms } = await cpuMs(() => getForecast(fast, { envId: 'acme-prod', sources: ['DEMO'] }));
+    const { result, cpuMs, wallMs } = await measureCpu(() =>
+      getForecast(fast, { envId: 'acme-prod', sources: ['DEMO'] }),
+    );
     expect(tries.length).toBeGreaterThan(28 * 19_000);
     expect(result.evaluated).toBe(true);
     expect(result.history.runs_profiled).toBeGreaterThan(28 * 17_000);
     expect(result.planned_runs).toBeGreaterThan(17_000);
     expect(result.confidence.level).toBe('normal');
     expect(result.baseline.method).toBe('hour-of-week');
-    expect(ms).toBeLessThan(2_000);
+    expect(cpuMs, `CPU ${cpuMs} ms, wall ${wallMs} ms`).toBeLessThan(2_000);
   }, 300_000);
 });
