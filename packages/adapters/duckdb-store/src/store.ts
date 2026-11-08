@@ -11,7 +11,7 @@
  * maintenance never holds collection up for longer than one batch.
  *
  * @implements FR-STORE-01, FR-STORE-02, FR-STORE-06, FR-STORE-07, FR-COLL-03, FR-COLL-04 (backfill progress),
- *   NFR-PORT-04, HM-003 (estimated ends), HM-006
+ *   NFR-PORT-04, HM-003 (estimated ends, environment load), HM-006, FR-DAGD-08
  */
 import { existsSync, statSync } from 'node:fs';
 import {
@@ -27,6 +27,7 @@ import {
   thinSnapshots,
   type DagMeta,
   type EnvironmentConfig,
+  type EnvironmentLoad,
   type PlatformHealth,
   type WorkerSample,
 } from '@dcam/domain';
@@ -415,6 +416,68 @@ export class DuckDbStore implements Store, CollectionStore, RetentionStore {
       dagId,
     ]);
     return rows.map(toTry);
+  }
+
+  /**
+   * HM-003 load of the environment, summed in DuckDB (FR-DAGD-08): the domain's `environmentLoad` on a grid of
+   * multiples of `bucketMs` since the epoch. Clipping is the domain's: no start, or an end before the start, is no
+   * load; a running try ends at `now`; nothing counts after `min(to, now)`. Times are whole ms, so the sums are
+   * exact.
+   */
+  async environmentLoad(
+    envId: string,
+    from: number,
+    to: number,
+    now: number,
+    bucketMs: number,
+  ): Promise<EnvironmentLoad> {
+    if (!Number.isInteger(bucketMs) || bucketMs <= 0)
+      throw new RangeError(`bucketMs must be a positive integer, not ${bucketMs}`);
+    const origin = Math.floor(from / bucketMs) * bucketMs;
+    const end = Math.min(to, Math.max(from, now));
+    const count = Math.max(0, Math.ceil((to - origin) / bucketMs));
+    // $1 env, $2 from and $3 end (ms), $4 now (ms), $5 from and $6 end (s); the buckets add $7 origin, $8 size (ms).
+    const clipped = `WITH t AS (
+        SELECT pool, pool_slots, epoch_ms(start_at) AS start_ms, coalesce(epoch_ms(end_at), $4::BIGINT) AS stop_ms
+        FROM fact.task_instance
+        WHERE env_id = $1 AND start_at IS NOT NULL AND start_at < to_timestamp($6)
+          AND (end_at IS NULL OR end_at > to_timestamp($5))
+      ), c AS (
+        SELECT pool, pool_slots, greatest(start_ms, $2::BIGINT) AS s, least(stop_ms, $3::BIGINT) AS e
+        FROM t WHERE stop_ms >= start_ms
+      )`;
+    // One scan: per bucket and pool, the executor (one slot per try) and pool (× pool_slots) milliseconds.
+    const rows = await this.rows(
+      `${clipped}
+       , d AS (SELECT pool, pool_slots, s, e, (s - $7::BIGINT) // $8::BIGINT AS k0, (e - 1 - $7::BIGINT) // $8::BIGINT AS k1
+               FROM c WHERE e > s)
+       , parts AS (
+         -- Most tries fall in one bucket; only the others are spread over theirs.
+         SELECT pool, pool_slots, k0 AS k, e - s AS overlap FROM d WHERE k0 = k1
+         UNION ALL
+         SELECT pool, pool_slots, k,
+                least(e, $7::BIGINT + (k + 1) * $8::BIGINT) - greatest(s, $7::BIGINT + k * $8::BIGINT) AS overlap
+         FROM (SELECT pool, pool_slots, s, e, unnest(range(k0, k1 + 1)) AS k FROM d WHERE k1 > k0))
+       SELECT k::INTEGER AS k, pool, sum(overlap)::DOUBLE AS executor_ms, sum(overlap * pool_slots)::DOUBLE AS pool_ms
+       FROM parts GROUP BY k, pool`,
+      [envId, from, end, now, seconds(from), seconds(end), origin, bucketMs],
+    );
+    const executorMs = new Array<number>(count).fill(0);
+    const poolMs = new Map<string, number>();
+    for (const r of rows) {
+      const k = Number(r['k']);
+      if (k >= 0 && k < count) executorMs[k] = (executorMs[k] as number) + Number(r['executor_ms']);
+      const pool = str(r['pool']);
+      poolMs.set(pool, (poolMs.get(pool) ?? 0) + Number(r['pool_ms']));
+    }
+    return {
+      origin,
+      bucketMs,
+      executorSlotSeconds: executorMs.map((ms) => ms / 1000),
+      poolSlotSeconds: new Map(
+        [...poolMs].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([pool, ms]) => [pool, ms / 1000]),
+      ),
+    };
   }
 
   async historyStart(envId: string): Promise<number | null> {
