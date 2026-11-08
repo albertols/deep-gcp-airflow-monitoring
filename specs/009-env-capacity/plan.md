@@ -32,8 +32,28 @@ other page is unchanged; the default stays `24h`. The forecast takes no paramete
 | `packages/application` | `getCapacity`, `getForecast`; perf test                                             |
 | `packages/contracts`   | Two paths, `CapacityRange` parameter, `Capacity` and `Forecast` schemas; `pnpm gen` |
 | `apps/server`          | `routes/capacity.ts`; `parseRange(reply, raw, allowed)`; route tests on the demo    |
+| `apps/web`             | `pages/capacity/` (S-04 tabs, heatmaps, forecast), route, navigation, API client    |
 
-No port changes, no collector or store changes, no web changes.
+No port changes, no collector or store changes. The web tasks (T-990a–g) use the merged contract unchanged.
+
+## Web (T-990a–g)
+
+```text
+apps/web/src/pages/capacity/
+  range.ts            global Range → CapacityRange and the note that says so
+  heat-scale.ts       viridis per theme (FR-UI-06), luminance helpers for the contrast test
+  explanations.ts     (i) entries for every panel (FR-UI-05)
+  CapacityPage.tsx    header, range note, tabs, partial and stale states, provenance footer
+  TimeChart.tsx       bucketed bars and step lines with highlighted buckets, gaps never zero
+  CapacityTab.tsx     answer, KPIs, slots chart, bound periods, workers and scale events, limits, workloads, pools
+  HourGrid.tsx        rows × 24 hours of cell buttons (selection in the URL), legend, unobserved cells outlined
+  SaturationPanel.tsx UTC day × hour heatmap; DagLoadPanel.tsx DAG × hour-of-day heatmap
+  ForecastTab.tsx     confidence, windows, demand band chart, DAGs, pools
+```
+
+Testing: Vitest and Testing Library on contract-typed fixtures (`test/capacity-fixtures.ts`, `acme_*` names), one
+test per acceptance criterion, named with its requirement ID; unit tests for the range mapping and the colour
+scale (luminance monotonic, the top of the scale ≥ 3:1 against the panel in both themes).
 
 ## Constitution check
 

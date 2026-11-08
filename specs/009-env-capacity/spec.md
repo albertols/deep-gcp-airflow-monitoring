@@ -87,6 +87,29 @@
 - **Pools** forecast from scheduled runs only (pool slots per try), p50.
 - **Capacity range.** `1h | 6h | 24h | 7d` (buckets 1 min, 5 min, 15 min, 1 h), aligned to UTC.
 
+## Web panels (T-990a–g)
+
+Screen S-04 (`#/capacity?env=…`, the hash router's form of `/env/{env}/capacity`), "Capacity" in the navigation.
+Three tabs in the URL (`tab`): capacity (FR-ENV-02), load by DAG (FR-DAGX-06) and forecast (HM-010, FR-BOTL-05).
+
+- **Range.** The context bar offers 15m to 90d; capacity takes 1h, 6h, 24h and 7d. The page asks for the nearest
+  supported range (15m → 1h; 30d and 90d → 7d) and says so: "Capacity covers the last 7 days: the longest range
+  it analyses". The forecast has no range: it is labelled "the next 24 hours from now", with the history it used.
+- **Answer first** (§12.1): capacity-bound minutes and the longest period, or that there were none, or why it
+  was not evaluated. Capacity-bound periods are shaded and hatched on the slots chart (not by colour alone,
+  §12.11), named in its accessible description, marked in its table view and listed in their own panel.
+- **Unknown is not zero** (NFR-DATA-03, HM-032): a null limit reads "Unknown" with its source; null buckets are
+  gaps; a null capacity-bound figure says why.
+- **Heatmaps** (FR-UI-06): viridis, a colour-blind-safe sequential scale whose lightness changes monotonically;
+  in the dark theme high values are bright, in the light theme dark, so the busiest cells stand out from the
+  panel in both. Unobserved cells are outlined and empty, not the lowest colour. Cells are buttons: the
+  selection (`cell`, `dagcell`) is in the URL and is dropped when the range or environment changes. Times are
+  UTC, as the contract's heatmaps are.
+- **States** (§12.10): skeletons while loading; empty states with a reason and a next step; a partial banner
+  listing what is missing (coverage, worker_concurrency, Cloud Monitoring samples, workload types) with a link
+  to DCAM health; the stale chip when the live snapshot or task collectors lag over 2 × their cadence; RFC 9457
+  errors as on the other pages. Every panel has an (i) entry and the page a provenance footer.
+
 ## Not wired
 
 - **REC-SCHED-03.** The catalog row is not a complete rule: it does not say whether "≥ 15 min" is one stretch or a
