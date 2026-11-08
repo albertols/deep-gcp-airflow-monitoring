@@ -32,6 +32,7 @@ import {
   rawCadenceMs,
   type LiveSnapshot,
   type NeighbourTry,
+  type Slice,
   type TimedSnapshot,
   type WaitReasonId,
 } from '@dcam/domain';
@@ -91,6 +92,15 @@ export async function getBottlenecks(deps: BottleneckDeps, q: BottleneckQuery): 
 }
 
 /** The bottleneck analysis over an explicit window (the range's `to` is the clock's now). */
+/** The times (and stored spans) of the snapshots of several slices, without keeping the snapshots. */
+async function snapshotTimes(model: EnvironmentModelSource, envId: string, slices: readonly Slice[]) {
+  const times: TimedSnapshot[] = [];
+  for (const slice of slices)
+    for (const s of await sliceSnapshots(model, envId, slice))
+      times.push(s.spanMs === undefined ? { at: s.at } : { at: s.at, spanMs: s.spanMs });
+  return times;
+}
+
 export async function bottlenecksInWindow(
   deps: Pick<BottleneckDeps, 'store' | 'model'>,
   q: BottleneckWindowQuery,
@@ -113,18 +123,9 @@ export async function bottlenecksInWindow(
 
   // The raw snapshots' cadence over the whole window comes first: a raw snapshot stands for the gap to the
   // next one, capped at two cadences; a thinned one for its stored span. One slice is read once and kept.
-  let kept: LiveSnapshot[] | null = null;
-  let timed: readonly TimedSnapshot[] = [];
-  if (slices.length === 1 && slices[0]) {
-    kept = await sliceSnapshots(deps.model, q.envId, slices[0]);
-    timed = kept;
-  } else {
-    const times: TimedSnapshot[] = [];
-    for (const slice of slices)
-      for (const s of await sliceSnapshots(deps.model, q.envId, slice))
-        times.push(s.spanMs === undefined ? { at: s.at } : { at: s.at, spanMs: s.spanMs });
-    timed = times;
-  }
+  const only = slices.length === 1 ? slices[0] : undefined;
+  const kept: LiveSnapshot[] | null = only ? await sliceSnapshots(deps.model, q.envId, only) : null;
+  const timed: readonly TimedSnapshot[] = kept ?? (await snapshotTimes(deps.model, q.envId, slices));
   const window = {
     from,
     to: now,
