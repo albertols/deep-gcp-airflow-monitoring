@@ -17,6 +17,7 @@ const overview: EnvironmentOverview = {
   total_executor_slot_seconds: 36_000,
   peak_concurrency: 4,
   dag_count: 3,
+  active_dag_count: 1,
   pareto_80_dag_count: 1,
   top_dags: [],
 };

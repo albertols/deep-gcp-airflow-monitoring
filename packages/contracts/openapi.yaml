@@ -328,6 +328,7 @@ components:
           total_executor_slot_seconds,
           peak_concurrency,
           dag_count,
+          active_dag_count,
           pareto_80_dag_count,
           top_dags,
         ]
@@ -341,7 +342,10 @@ components:
             maximum: 1,
             description: 'Share of the range with collected task history (from the earliest try read). Below 1, the range starts before DCAM collected, so totals cover less than the range; 0 means no data yet.',
           }
-        data_as_of: { type: string, format: date-time }
+        data_as_of:
+          type: ['string', 'null']
+          format: date-time
+          description: "How far DCAM has read the environment's task tries (the older of the af.facts watermark and the newest live snapshot), never after the range end; now in demo mode; null before anything was collected."
         sources:
           type: array
           items: { type: string, enum: [SRC-AF-API, SRC-MON, SRC-COMPOSER, DEMO] }
@@ -353,7 +357,9 @@ components:
             minimum: 0,
             description: 'Highest number of running tries in any minute (HM-011).',
           }
-        dag_count: { type: integer, minimum: 0 }
+        dag_count:
+          { type: integer, minimum: 0, description: 'DAGs known in the environment, as on the league.' }
+        active_dag_count: { type: integer, minimum: 0, description: 'DAGs with slot-seconds in the range.' }
         pareto_80_dag_count:
           {
             type: integer,
@@ -426,7 +432,10 @@ components:
             maximum: 1,
             description: 'Share of the previous range with collected task history (from the earliest stored try). Below 1, a DAG absent then may have run before DCAM collected; 0 means no data for the previous range.',
           }
-        data_as_of: { type: string, format: date-time }
+        data_as_of:
+          type: ['string', 'null']
+          format: date-time
+          description: "How far DCAM has read the environment's task tries (the older of the af.facts watermark and the newest live snapshot), never after the range end; now in demo mode; null before anything was collected."
         sources: { type: array, items: { $ref: '#/components/schemas/SourceId' } }
         total_executor_slot_seconds: { type: number, minimum: 0 }
         dag_count: { type: integer, minimum: 0, description: 'DAGs known in the environment.' }
@@ -528,7 +537,10 @@ components:
         env_id: { type: string }
         dag_id: { type: string }
         range: { $ref: '#/components/schemas/TimeRange' }
-        data_as_of: { type: string, format: date-time }
+        data_as_of:
+          type: ['string', 'null']
+          format: date-time
+          description: "How far DCAM has read the environment's task tries (the older of the af.facts watermark and the newest live snapshot), never after the range end; now in demo mode; null before anything was collected."
         sources: { type: array, items: { $ref: '#/components/schemas/SourceId' } }
         meta:
           type: object
@@ -922,7 +934,10 @@ components:
       properties:
         env_id: { type: string }
         range: { $ref: '#/components/schemas/TimeRange' }
-        data_as_of: { type: string, format: date-time }
+        data_as_of:
+          type: ['string', 'null']
+          format: date-time
+          description: 'Time of the newest live snapshot in the range; null when the range has none.'
         sources: { type: array, items: { $ref: '#/components/schemas/SourceId' } }
         bucket_seconds:
           type: integer

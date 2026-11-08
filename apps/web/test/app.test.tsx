@@ -28,6 +28,7 @@ const overview: EnvironmentOverview = {
   total_executor_slot_seconds: 36_000,
   peak_concurrency: 42,
   dag_count: 120,
+  active_dag_count: 64,
   pareto_80_dag_count: 23,
   top_dags: [{ dag_id: 'orders_daily', executor_slot_seconds: 7_200, share: 0.2 }],
 };

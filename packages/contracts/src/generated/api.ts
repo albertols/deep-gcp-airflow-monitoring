@@ -310,14 +310,20 @@ export interface components {
             range: components["schemas"]["TimeRange"];
             /** @description Share of the range with collected task history (from the earliest try read). Below 1, the range starts before DCAM collected, so totals cover less than the range; 0 means no data yet. */
             coverage?: number;
-            /** Format: date-time */
-            data_as_of: string;
+            /**
+             * Format: date-time
+             * @description How far DCAM has read the environment's task tries (the older of the af.facts watermark and the newest live snapshot), never after the range end; now in demo mode; null before anything was collected.
+             */
+            data_as_of: string | null;
             sources: ("SRC-AF-API" | "SRC-MON" | "SRC-COMPOSER" | "DEMO")[];
             approximate: boolean;
             total_executor_slot_seconds: number;
             /** @description Highest number of running tries in any minute (HM-011). */
             peak_concurrency: number;
+            /** @description DAGs known in the environment, as on the league. */
             dag_count: number;
+            /** @description DAGs with slot-seconds in the range. */
+            active_dag_count: number;
             /** @description How many DAGs account for 80 % of slot-seconds (FR-DAGX-03). */
             pareto_80_dag_count: number;
             top_dags: components["schemas"]["DagCapacity"][];
@@ -347,8 +353,11 @@ export interface components {
             coverage?: number;
             /** @description Share of the previous range with collected task history (from the earliest stored try). Below 1, a DAG absent then may have run before DCAM collected; 0 means no data for the previous range. */
             previous_coverage: number;
-            /** Format: date-time */
-            data_as_of: string;
+            /**
+             * Format: date-time
+             * @description How far DCAM has read the environment's task tries (the older of the af.facts watermark and the newest live snapshot), never after the range end; now in demo mode; null before anything was collected.
+             */
+            data_as_of: string | null;
             sources: components["schemas"]["SourceId"][];
             total_executor_slot_seconds: number;
             /** @description DAGs known in the environment. */
@@ -398,8 +407,11 @@ export interface components {
             env_id: string;
             dag_id: string;
             range: components["schemas"]["TimeRange"];
-            /** Format: date-time */
-            data_as_of: string;
+            /**
+             * Format: date-time
+             * @description How far DCAM has read the environment's task tries (the older of the af.facts watermark and the newest live snapshot), never after the range end; now in demo mode; null before anything was collected.
+             */
+            data_as_of: string | null;
             sources: components["schemas"]["SourceId"][];
             meta: {
                 fileloc: string;
@@ -612,8 +624,11 @@ export interface components {
         Bottlenecks: {
             env_id: string;
             range: components["schemas"]["TimeRange"];
-            /** Format: date-time */
-            data_as_of: string;
+            /**
+             * Format: date-time
+             * @description Time of the newest live snapshot in the range; null when the range has none.
+             */
+            data_as_of: string | null;
             sources: components["schemas"]["SourceId"][];
             /** @description Length of each series bucket: 60 s for 15m and 1h, 300 s for 6h, 900 s for 24h, 3,600 s for 7d, 10,800 s for 30d, 21,600 s for 90d (at most 360 buckets, NFR-PERF-06). */
             bucket_seconds: number;

@@ -173,7 +173,7 @@ describe('S-12 DAG detail in depth', { timeout: UI_TIMEOUT_MS }, () => {
   it('FR-UI-07: task history older than five collection cycles marks the panels stale', async () => {
     const collection: Collection = {
       mode: 'live',
-      generated_at: DETAIL.data_as_of,
+      generated_at: DETAIL.range.to,
       environments: [
         {
           env_id: 'acme-prod',
@@ -186,7 +186,7 @@ describe('S-12 DAG detail in depth', { timeout: UI_TIMEOUT_MS }, () => {
               source: 'SRC-AF-API',
               state: 'degraded',
               cadence_seconds: 60,
-              last_attempt_at: DETAIL.data_as_of,
+              last_attempt_at: DETAIL.range.to,
               last_success_at: '2026-11-05T11:48:00.000Z',
               next_run_at: null,
               lag_seconds: 720,

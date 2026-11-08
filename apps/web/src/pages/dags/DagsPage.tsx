@@ -155,7 +155,7 @@ export function DagsPage({ api, envId, linkTo }: PageProps) {
                 onClick={() =>
                   download(
                     leagueCsv(sorted),
-                    `dcam-dags-${data.env_id}-${range}-${data.data_as_of.slice(0, 16).replace(/:/g, '')}.csv`,
+                    `dcam-dags-${data.env_id}-${range}-${(data.data_as_of ?? data.range.to).slice(0, 16).replace(/:/g, '')}.csv`,
                   )
                 }
               >

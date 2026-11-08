@@ -65,13 +65,12 @@ export const STATE_LABEL: Record<Run['state'], string> = {
 export function RunsTimeline({
   runs,
   range,
-  dataAsOf,
   selectedRunId,
   onSelect,
 }: {
   runs: readonly Run[];
+  /** Its `to` is the server's "now": running runs are drawn up to it, as the server counts them. */
   range: DagDetail['range'];
-  dataAsOf: string;
   selectedRunId: string | null;
   onSelect: (runId: string) => void;
 }) {
@@ -85,7 +84,7 @@ export function RunsTimeline({
   const setAsTable = (next: (v: boolean) => boolean) => setView(next(asTable) ? 'table' : 'chart');
   const from = Date.parse(range.from);
   const to = Date.parse(range.to);
-  const now = Date.parse(dataAsOf);
+  const now = to;
   const plotW = W - M.left - M.right;
   const plotH = H - M.top - M.bottom;
   const x = (ms: number) => M.left + ((ms - from) / Math.max(1, to - from)) * plotW;

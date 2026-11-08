@@ -49,7 +49,7 @@ import {
 } from '@dcam/domain';
 import type { Clock, EnvironmentModelSource, StoredTaskTry, TaskInstanceStore } from '@dcam/ports';
 import { DEFAULT_SNAPSHOT_CADENCE_MS } from './bottlenecks';
-import { readHistoryStart } from './history';
+import { dataAsOf, readHistoryStart } from './history';
 import { paretoCount } from './overview';
 import { RANGE_MS } from './range';
 import { earliestOf, historyCoverage, sliceSnapshots, sliceTries, slicesOf } from './slices';
@@ -144,6 +144,7 @@ export async function getDagLeague(deps: DagsDeps, q: DagLeagueQuery): Promise<D
     acc.addPrevious(tries, slice);
   }
   const league = acc.result(dags.map((d) => d.dagId));
+  const asOf = await dataAsOf(deps.store, q.envId, now);
   const metaById = new Map(dags.map((d) => [d.dagId, d]));
   const rows = league.rows.map((r): DagLeague['rows'][number] => {
     const meta = metaById.get(r.dagId);
@@ -179,7 +180,7 @@ export async function getDagLeague(deps: DagsDeps, q: DagLeagueQuery): Promise<D
     previous_range: { from: iso(previous.from), to: iso(previous.to) },
     coverage: historyCoverage(earliest, current),
     previous_coverage: historyCoverage(earliest, previous),
-    data_as_of: iso(now),
+    data_as_of: asOf === null ? null : iso(asOf),
     sources: [...q.sources],
     total_executor_slot_seconds: league.totalExecutorSlotSeconds,
     dag_count: rows.length,
@@ -334,7 +335,10 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
   // Tries from the previous range too, so runs that began before the range are seen whole. The store is
   // read a day at a time: only this DAG's tries, the environment's slot-seconds and where the history
   // starts are kept. Older tries of this DAG for its baseline come through the per-DAG read.
-  const storedHistory = await readHistoryStart(deps.store, q.envId);
+  const [storedHistory, asOf] = await Promise.all([
+    readHistoryStart(deps.store, q.envId),
+    dataAsOf(deps.store, q.envId, now),
+  ]);
   const dagTries: StoredTaskTry[] = [];
   const environment = createCapacityAccumulator(current);
   let earliest = Infinity;
@@ -404,7 +408,7 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
       env_id: q.envId,
       dag_id: q.dagId,
       range: { from: iso(current.from), to: iso(current.to) },
-      data_as_of: iso(now),
+      data_as_of: asOf === null ? null : iso(asOf),
       sources: [...q.sources],
       meta: {
         fileloc: meta.fileloc,

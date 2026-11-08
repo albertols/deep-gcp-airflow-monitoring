@@ -6,7 +6,8 @@
  */
 import type { EnvironmentOverview, Range } from '@dcam/contracts';
 import { createCapacityAccumulator } from '@dcam/domain';
-import type { Clock, TaskInstanceStore } from '@dcam/ports';
+import type { Clock, EnvironmentModelSource, TaskInstanceStore } from '@dcam/ports';
+import { dataAsOf } from './history';
 import { RANGE_MS } from './range';
 import { earliestOf, historyCoverage, sliceTries, slicesOf } from './slices';
 
@@ -14,6 +15,8 @@ export type SourceId = EnvironmentOverview['sources'][number];
 
 export interface OverviewDeps {
   readonly store: TaskInstanceStore;
+  /** The DAGs known, so "X of N DAGs" counts out of the same N as the league (FR-DAGX-03). */
+  readonly model: Pick<EnvironmentModelSource, 'dags'>;
   readonly clock: Clock;
 }
 
@@ -50,6 +53,7 @@ export async function getEnvironmentOverview(
     capacity.add(tries, slice);
   }
   const seconds = capacity.result();
+  const [dags, asOf] = await Promise.all([deps.model.dags(q.envId), dataAsOf(deps.store, q.envId, now)]);
   const total = seconds.totalExecutorSlotSeconds;
   const ranked = [...seconds.byDag.entries()]
     .map(([dagId, s]) => ({ dag_id: dagId, executor_slot_seconds: s }))
@@ -59,12 +63,14 @@ export async function getEnvironmentOverview(
     env_id: q.envId,
     range: { from: new Date(window.from).toISOString(), to: new Date(window.to).toISOString() },
     coverage: historyCoverage(earliest, window),
-    data_as_of: new Date(now).toISOString(),
+    data_as_of: asOf === null ? null : new Date(asOf).toISOString(),
     sources: [...q.sources],
     approximate: false,
     total_executor_slot_seconds: total,
     peak_concurrency: seconds.peakConcurrency,
-    dag_count: ranked.length,
+    // A DAG with tries but no metadata (deleted since) counts too, as on the league.
+    dag_count: new Set([...dags.map((d) => d.dagId), ...ranked.map((d) => d.dag_id)]).size,
+    active_dag_count: ranked.length,
     pareto_80_dag_count: paretoCount(ranked.map((d) => d.executor_slot_seconds)),
     top_dags: ranked
       .slice(0, 10)

@@ -56,6 +56,7 @@ function overviewFor(envId: string, range: Range): EnvironmentOverview {
     total_executor_slot_seconds: 36_000 * days,
     peak_concurrency: 40 + days,
     dag_count: 120,
+    active_dag_count: 64,
     pareto_80_dag_count: 20 + days,
     top_dags: [
       {

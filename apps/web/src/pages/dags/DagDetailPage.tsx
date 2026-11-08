@@ -335,13 +335,7 @@ export function DagDetailPage({ api, envId, route, linkTo }: PageProps) {
           <Kpis stats={d.stats} />
 
           <Panel explanation={E['dagd-runs-timeline']}>
-            <RunsTimeline
-              runs={d.runs}
-              range={d.range}
-              dataAsOf={d.data_as_of}
-              selectedRunId={d.gantt.run_id}
-              onSelect={select}
-            />
+            <RunsTimeline runs={d.runs} range={d.range} selectedRunId={d.gantt.run_id} onSelect={select} />
           </Panel>
 
           <Panel
@@ -365,7 +359,7 @@ export function DagDetailPage({ api, envId, route, linkTo }: PageProps) {
               )
             }
           >
-            <RunGantt gantt={d.gantt} dataAsOf={d.data_as_of} />
+            <RunGantt gantt={d.gantt} now={d.range.to} />
             <CriticalPathSummary detail={d} />
           </Panel>
 

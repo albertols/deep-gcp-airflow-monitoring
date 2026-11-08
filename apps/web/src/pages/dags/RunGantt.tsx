@@ -42,7 +42,7 @@ interface Bar {
   readonly to: number;
 }
 
-/** The three phases of one try; open phases end at "now" (`dataAsOf`). */
+/** The three phases of one try; open phases end at "now" (`now`, the range end the server counted to). */
 function segments(r: GanttRow, now: number): Bar[] {
   const ready = ms(r.ready_at);
   const queued = ms(r.queued_at);
@@ -61,7 +61,7 @@ function rowLabel(r: GanttRow): string {
   return r.try_number > 1 ? `${r.task_id} · try ${r.try_number}` : r.task_id;
 }
 
-export function RunGantt({ gantt, dataAsOf }: { gantt: DagDetail['gantt']; dataAsOf: string }) {
+export function RunGantt({ gantt, now: nowIso }: { gantt: DagDetail['gantt']; now: string }) {
   const theme = useTheme();
   const t = tokens[theme.palette.mode];
   const uid = useId().replace(/:/g, '');
@@ -72,7 +72,7 @@ export function RunGantt({ gantt, dataAsOf }: { gantt: DagDetail['gantt']; dataA
   const [view, setView] = usePageParam('gantt', 'chart');
   const asTable = view === 'table';
   const setAsTable = (next: (v: boolean) => boolean) => setView(next(asTable) ? 'table' : 'chart');
-  const now = Date.parse(dataAsOf);
+  const now = Date.parse(nowIso);
 
   if (gantt.run_id === null || gantt.rows.length === 0)
     return (

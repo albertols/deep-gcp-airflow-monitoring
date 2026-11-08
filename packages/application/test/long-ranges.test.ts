@@ -106,7 +106,7 @@ describe('FR-UI-01 long ranges in the use cases', () => {
   it('FR-UI-01 / NFR-PERF-01: the 30-day overview covers 30 days, read a day at a time', async () => {
     const { store, calls } = storeOf(rows);
     const o = await getEnvironmentOverview(
-      { store, clock },
+      { store, model: modelOf().model, clock },
       { envId: 'acme-prod', range: '30d', sources: ['DEMO'] },
     );
     expect(o.range).toEqual({ from: iso(NOW - 30 * D), to: iso(NOW) });
@@ -120,7 +120,7 @@ describe('FR-UI-01 long ranges in the use cases', () => {
   it('FR-UI-01: the 15-minute overview covers 15 minutes', async () => {
     const { store } = storeOf([tryOf('light', NOW - 10 * M, 5)]);
     const o = await getEnvironmentOverview(
-      { store, clock },
+      { store, model: modelOf().model, clock },
       { envId: 'acme-prod', range: '15m', sources: ['DEMO'] },
     );
     expect(o.range.from).toBe(iso(NOW - 15 * M));
@@ -154,7 +154,7 @@ describe('FR-UI-01 long ranges in the use cases', () => {
     expect(league.coverage).toBeCloseTo(3 / 30, 9);
     expect(league.previous_coverage).toBe(0);
     const o = await getEnvironmentOverview(
-      { store, clock },
+      { store, model: modelOf().model, clock },
       { envId: 'acme-prod', range: '30d', sources: ['DEMO'] },
     );
     expect(o.coverage).toBeCloseTo(3 / 30, 9);

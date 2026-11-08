@@ -170,6 +170,8 @@ describe('getBottlenecks use case (FR-BOTL-01/02/07/09)', () => {
     expect(b.answer.reason).toBeNull();
     expect(b.current.at).toBeNull();
     expect(b.series.every((s) => s.workers === null)).toBe(true);
+    // FR-UI-01: no snapshot in the range is no data, never "as of now".
+    expect(b.data_as_of).toBeNull();
   });
 
   it('FR-BOTL-01: weighs each snapshot by the real af.live cadence (10 s on the live profile) and reports it', async () => {

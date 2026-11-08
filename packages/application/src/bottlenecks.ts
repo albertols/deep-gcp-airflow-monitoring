@@ -207,7 +207,8 @@ export async function bottlenecksInWindow(
   return {
     env_id: q.envId,
     range: { from: iso(from), to: iso(now) },
-    data_as_of: iso(latest?.snapshot.at ?? now),
+    // No snapshot in the range is no data, never "as of now" (FR-UI-01).
+    data_as_of: latest ? iso(latest.snapshot.at) : null,
     sources: usedSources(q.sources, {
       airflow: timed.length > 0 || neighbourTries.length > 0 || dags.length > 0,
       monitoring: samples.length > 0,

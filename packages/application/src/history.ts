@@ -3,7 +3,10 @@
  * (`TaskInstanceStore.historyStart`), else the earliest of the environment's tries a use case read. Before it,
  * pages show "no history", never zero, and baselines report partial coverage.
  *
- * @implements NFR-DATA-03, HM-009 (actual starts coverage), HM-016 (baseline coverage)
+ * Where it ends ({@link dataAsOf}): how far the store has read, the "data as of" of the pages that read task
+ * tries (FR-UI-01, §12.10).
+ *
+ * @implements NFR-DATA-03, HM-009 (actual starts coverage), HM-016 (baseline coverage), FR-UI-01
  */
 import type { StoredTaskTry, TaskInstanceStore } from '@dcam/ports';
 
@@ -34,4 +37,15 @@ export function historyStartOf(
   environmentTries: readonly StoredTaskTry[],
 ): number | null {
   return stored !== undefined ? stored : earliestTry(environmentTries);
+}
+
+/**
+ * "Data as of" a page that reads task tries: how far the store has read the environment
+ * (`TaskInstanceStore.readThrough`), never after `now`; `null` before anything was collected. A stalled
+ * collection reads as old, never as now. A store nothing collects into (demo) is complete up to `now`.
+ */
+export async function dataAsOf(store: TaskInstanceStore, envId: string, now: number): Promise<number | null> {
+  if (!store.readThrough) return now;
+  const read = await store.readThrough(envId);
+  return read === null ? null : Math.min(now, read);
 }

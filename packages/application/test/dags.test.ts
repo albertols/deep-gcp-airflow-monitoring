@@ -410,3 +410,39 @@ describe('FR-DAGD-01..04 DAG detail use case', () => {
     expect((await getDagDetail(deps(), { ...query, dagId: 'missing' })).kind).toBe('unknown-dag');
   });
 });
+
+describe('FR-UI-01 data as of: how far the store has read', () => {
+  const rows = [tryOf('heavy', runAt(NOW - 3 * H), 'a', NOW - 3 * H, NOW - H)];
+  const model = modelOf([dag('heavy', 'finance-data')]);
+  const reading = (readThrough: number | null): TaskInstanceStore => ({
+    ...storeOf(rows).store,
+    readThrough: async () => readThrough,
+  });
+  const leagueAsOf = async (readThrough: number | null) =>
+    (
+      await getDagLeague(
+        { store: reading(readThrough), model, clock },
+        { envId: 'acme-prod', range: '24h', sources: ['SRC-AF-API'] },
+      )
+    ).data_as_of;
+  const detailAsOf = async (readThrough: number | null) => {
+    const result = await getDagDetail(
+      { store: reading(readThrough), model, clock },
+      { envId: 'acme-prod', dagId: 'heavy', range: '24h', sources: ['SRC-AF-API'] },
+    );
+    if (result.kind !== 'ok') throw new Error(result.kind);
+    return result.detail.data_as_of;
+  };
+
+  it('FR-UI-01: the league and the DAG detail say how far the store has read, so a stalled collection reads as old', async () => {
+    expect(await leagueAsOf(NOW - 7 * H)).toBe(iso(NOW - 7 * H));
+    expect(await detailAsOf(NOW - 7 * H)).toBe(iso(NOW - 7 * H));
+  });
+
+  it('FR-UI-01: never after now, and null before anything was collected', async () => {
+    expect(await leagueAsOf(NOW + 5_000)).toBe(iso(NOW));
+    expect(await detailAsOf(NOW + 5_000)).toBe(iso(NOW));
+    expect(await leagueAsOf(null)).toBeNull();
+    expect(await detailAsOf(null)).toBeNull();
+  });
+});
