@@ -19,6 +19,12 @@ type Row = readonly [
   exp: string,
 ];
 
+/** IDs and names of the default alert pack, for the command palette (FR-UI-03). */
+export interface AlertPackRule {
+  readonly id: string;
+  readonly name: string;
+}
+
 const PACK: readonly Row[] = [
   [
     'AL-01',
@@ -165,6 +171,8 @@ const PACK: readonly Row[] = [
     'Yes',
   ],
 ];
+
+export const ALERT_PACK_RULES: readonly AlertPackRule[] = PACK.map(([id, name]) => ({ id, name }));
 
 export const alertPack: WikiPage = {
   slug: WIKI_SLUGS.alertPack,

@@ -64,3 +64,4 @@ export {
 } from './slugs';
 export { ADVISOR_RULES, type AdvisorRule } from './rules';
 export { GLOSSARY } from './pages/glossary';
+export { ALERT_PACK_RULES, type AlertPackRule } from './pages/alerts';
