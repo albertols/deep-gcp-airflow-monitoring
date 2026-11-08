@@ -72,8 +72,12 @@ all of it, plus each page's filters, selection and tabs, in the URL.
 
 ## Decisions (calls made where the spec is open)
 
-- "Live or paused" is shown as **Updating / Paused**: the shell's "Live" chip already means "reading your
-  environments, not demo data" (FR-COLL-11), so reusing the word would mean two different things.
+- "Live or paused" is shown as a **Pause / Resume** button and a "Paused" freshness chip: the shell's "Live"
+  chip already means "reading your environments, not demo data" (FR-COLL-11), so reusing the word would mean
+  two different things.
+- The schedule page follows the range for actual starts; its heatmaps stay in UTC whatever the toggle says,
+  because they are hours of the day of UTC cron schedules.
+- The bottleneck analysis reads a week at a time (one read for 7 days); the others a day at a time.
 - Time zone default is UTC: Airflow, the store and every timestamp DCAM receives are UTC.
 - Bucket sizes are fixed per preset (table above) rather than computed from the screen width, so a shared link
   shows the same buckets on every screen.

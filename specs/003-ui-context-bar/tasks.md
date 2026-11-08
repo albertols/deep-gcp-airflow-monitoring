@@ -11,6 +11,9 @@ Test tasks come before the code they cover.
 - [x] T-303 Test + code: server accepts every preset; 400 lists them (FR-UI-01)
 - [x] T-304 Benchmark: 7 days at 2,000 DAGs and 20,000 tries a day under 2 s; 30 and 90 days measured
       (NFR-PERF-01)
+- [x] T-305 Merge with features 004–007: league flakiness (observed, inferred, `flaky_inferred`), detail
+      baseline, schedule, and the bottleneck depth (top pools, pool activity, HM-017, HM-023, slots source,
+      thinned spans) from slices; a test that any bottleneck slice length gives the same analysis
 
 ## Context bar and URL
 
