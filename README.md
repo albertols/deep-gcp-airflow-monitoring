@@ -14,12 +14,15 @@ DCAM answers the questions the default dashboards leave open, for environments w
 It runs on your laptop, reads only public Google Cloud and Airflow APIs with your own identity, never
 changes anything, and keeps all data on your machine.
 
-> **Status: M1 connect and collect is code-complete; much of M2 and M3 is in.** Live mode reads Composer 3 /
-> Airflow 2.11.1 environments read-only and fills every page: the DAG league table, DAG detail (duration against a
-> 28-day baseline, failures and flakiness, an estimated critical path), bottlenecks with their evidence, schedule
-> collisions, the advisor and local alerts. A background backfill reads the last 7 days of task instances and 14
-> days of worker metrics, and the local store keeps to its retention and disk budget. Tested end to end against the
-> local Airflow 2.11.1 emulator; the reality check on a real environment is next: see
+> **Status: the M1 to M3 features are built; the reality check on a real environment is next.** Live mode reads
+> Composer 3 / Airflow 2.11.1 environments read-only and fills every page: the DAG league table, DAG detail (duration
+> against a 28-day baseline, failures and flakiness, an estimated critical path, concurrency against
+> `max_active_tasks`, impact on the environment, run comparison), DAG comparison across environments, bottlenecks
+> with their evidence, capacity with a 24-hour forecast, schedule collisions, the advisor and local alerts. A global
+> context bar sets the range (15 minutes to 90 days) and the time zone; every table exports as CSV; Ctrl/Cmd+K jumps
+> to any page, environment or DAG; "Open in" opens the Cloud console and the Airflow UI. A background backfill reads
+> the last 7 days of task instances and 14 days of worker metrics, and the local store keeps to its retention and
+> disk budget. Tested end to end against the local Airflow 2.11.1 emulator; see
 > [First run against a real environment](docs/first-run.md). `pnpm dcam --demo` shows every page on synthetic data.
 > See the [roadmap](docs/spec/dcam-spec.md#222-milestone-overview).
 

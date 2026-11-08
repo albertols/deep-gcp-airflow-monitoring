@@ -7,7 +7,8 @@ with evidence, and recommends copy-paste fixes that humans review and apply.
 - Product specification: `docs/spec/dcam-spec.md`. Read only the sections a task needs (it is ~6,000 lines).
   Start with "Changes in v2", §22.2 (roadmap) and the section of the epic you work on.
 - Engineering constitution: `docs/spec/constitution.md`. Decisions: `docs/adr/`.
-- Current milestone: **M0 foundations and demo-mode pages (specs/001) done → M1 connect and collect** (spec §22.2).
+- Current milestone: **M1–M3 features built (specs/001–011) → the M1 reality check on a real environment
+  (`docs/first-run.md`, spec §22.5), then the M2 and M3 exit demos** (spec §22.2, §22.6).
 
 ## Commands
 
