@@ -95,6 +95,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/environments/{env_id}/dags/{dag_id}/runs/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Compare two runs of one DAG (FR-DAGD-09)
+         * @description Per-task deltas of duration and queue wait, run b minus run a, with each task's contribution to the difference
+         *     in run duration: its time on run b's critical path minus its time on run a's (HM-007, estimated from timing).
+         *     Mapped tasks collapse to their longest map index; retries add their wait and run time.
+         */
+        get: operations["getRunComparison"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compare/dags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Compare 2 to 4 DAGs from the same or different environments (FR-DAGD-08)
+         * @description Aligned KPIs, duration distributions on shared bins, hourly load profiles and resource shares, with each
+         *     environment's capacity context. Times and hours of day are UTC.
+         */
+        get: operations["getDagComparison"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/environments/{env_id}/bottlenecks": {
         parameters: {
             query?: never;
@@ -444,7 +487,7 @@ export interface components {
                 share: number;
                 run_duration_p95: components["schemas"]["Quantile"];
                 queue_wait_p95: components["schemas"]["Quantile"];
-                /** @description Minutes at max_active_tasks with ready work ÷ active minutes (HM-005); null without live snapshots. */
+                /** @description Time at max_active_tasks with own ready work ÷ active time, from live snapshots, as the advisor evaluates REC-DAG-01 (HM-005, concurrency.self_throttling.at_limit_share); null without active time in the snapshots. */
                 self_throttled_ratio: number | null;
             };
             runs: {
@@ -558,6 +601,10 @@ export interface components {
                 critical_path_share?: number | null;
             }[];
             findings: components["schemas"]["FindingRef"][];
+            /** @description FR-DAGD-05, the S-12 tab "concurrency"; absent from older servers. */
+            concurrency?: components["schemas"]["DagConcurrency"];
+            /** @description FR-DAGD-06, the DAG's impact on its environment; absent from older servers. */
+            impact?: components["schemas"]["DagImpact"];
         };
         /** @description Durations of successful tries or runs, in seconds (FR-TASK-01). Below 20 samples p95 is the maximum and low_sample is true (spec §8.9). */
         DurationDistribution: {
@@ -608,6 +655,279 @@ export interface components {
             unrecovered: number;
             /** @description Mean time from the first failure to the next success; null without a recovery. */
             mttr_seconds: number | null;
+        };
+        /**
+         * @description FR-DAGD-05: the DAG's concurrent task instances over the range against max_active_tasks and its pools, per
+         *     bucket. Running is from task tries (HM-011 sweep, exact). In flight (running + queued, what max_active_tasks
+         *     counts on Airflow 2) and ready are the peaks in the bucket's live snapshots. Buckets without a snapshot, or
+         *     before the environment's task history starts, are null: gaps, never zero.
+         */
+        DagConcurrency: {
+            bucket_seconds: number;
+            max_active_tasks: number;
+            /** @description The DAG does not set max_active_tasks, so [core] max_active_tasks_per_dag applies. */
+            max_active_tasks_is_default: boolean;
+            /**
+             * @description dag: running and queued task instances across all active runs of the DAG count against the limit (Airflow 2, HM-005).
+             * @enum {string}
+             */
+            limit_scope: "dag";
+            /** @description Live snapshots in the range. */
+            snapshots: number;
+            /** @description Observed af.live cadence; null with fewer than two. */
+            snapshot_interval_seconds: number | null;
+            /** @description Most tries of the DAG running at once; null without task history in the range. */
+            peak_running: number | null;
+            /** @description Most running + queued task instances in one snapshot; null without snapshots. */
+            peak_in_flight: number | null;
+            series: {
+                /** Format: date-time */
+                start: string;
+                /** @description Time-weighted mean of running tries. */
+                running_avg: number | null;
+                running_max: number | null;
+                in_flight_max: number | null;
+                ready_max: number | null;
+                /** @description Time at max_active_tasks with own ready work (HM-005). */
+                at_limit_seconds: number | null;
+            }[];
+            /** @description The pools the DAG's task instances used in the range, by name. */
+            pools: {
+                name: string;
+                /** @description Pool size; null for a pool the environment does not define. */
+                slots: number | null;
+                /** @description Largest pool_slots of the DAG in this pool. */
+                pool_slots: number;
+                /** @description Per bucket of series, the peak pool slots held by the DAG's running tries. */
+                dag_slots_max: (number | null)[];
+                /** @description Per bucket of series, the peak slots occupied (running + queued) by every DAG, from snapshots. */
+                occupied_max: (number | null)[];
+            }[];
+            /**
+             * @description HM-005 as the advisor evaluates REC-DAG-01: each snapshot stands for the time to the next one (at most two
+             *     cadences); at the limit means running + queued ≥ max_active_tasks with own ready task instances.
+             *     raises_rec_dag_01 applies the rule's condition (at_limit_share ≥ threshold) to the range; finding_id is the
+             *     advisor's open finding for this DAG (last 24 h), null when there is none.
+             */
+            self_throttling: {
+                /** @enum {string} */
+                method: "HM-005/snapshots";
+                active_seconds: number;
+                at_limit_seconds: number;
+                at_limit_share: number | null;
+                /** @description Task-time its own ready task instances waited at the limit. */
+                own_waiting_task_seconds: number;
+                /** @description Most ready + queued + running task instances of the DAG at the limit. */
+                peak_demand: number;
+                /** @description Share of the at-limit snapshots with free worker slots; null when never at the limit or while worker_concurrency is unknown. */
+                headroom_share: number | null;
+                /** Format: date-time */
+                last_at_limit: string | null;
+                threshold: number;
+                raises_rec_dag_01: boolean;
+                finding_id: string | null;
+            };
+        };
+        /**
+         * @description FR-DAGD-06: the DAG's share of the environment's executor load over the range (HM-003), of the executor
+         *     slots where known (workers × worker_concurrency, HM-011), and its noisy-neighbour score (HM-017).
+         */
+        DagImpact: {
+            bucket_seconds: number;
+            /** @description Where the worker counts behind capacity_share came from, the weakest over the range (hostnames: an estimate, a lower bound); null when not known. */
+            slots_source: components["schemas"]["WorkerCountSource"] | null;
+            series: {
+                /** Format: date-time */
+                start: string;
+                dag_slot_seconds: number | null;
+                environment_slot_seconds: number | null;
+                /** @description DAG ÷ environment executor slot-seconds; null before the history start or when nothing ran. */
+                share: number | null;
+                /** @description DAG executor slot-seconds ÷ executor slots × time, over the bucket's minutes with known slots; null without any. */
+                capacity_share: number | null;
+            }[];
+            noisy_neighbour: components["schemas"]["DagNoisyNeighbour"];
+        };
+        /**
+         * @description HM-017 for this DAG, computed as on the bottlenecks page (same range, minimums and bootstrap): whether other
+         *     DAGs' queue waits were longer while it held ≥ active_share of the executor slots. Association, not causation.
+         *     status: not_evaluated (no known executor slots), inactive (never held active_share), below_minimum (missed a
+         *     minimum sample), not_associated (qualified, effect ≤ 0), associated (qualified, effect > 0).
+         */
+        DagNoisyNeighbour: {
+            /** @description For example HM-017/range. */
+            method: string;
+            /** @enum {string} */
+            status: "not_evaluated" | "inactive" | "below_minimum" | "not_associated" | "associated";
+            /** @description What the status means, in plain words, and what to do next. */
+            reason: string;
+            minutes_with_slots: number;
+            active_minutes: number;
+            affected_tries: number;
+            affected_minutes: number;
+            control_tries: number;
+            active_share: number;
+            min_active_minutes: number;
+            min_affected_tries: number;
+            min_affected_minutes: number;
+            min_control_tries: number;
+            resamples: number;
+            slots_source: components["schemas"]["WorkerCountSource"] | null;
+            /** @description The measurement with its 95 % interval and confidence when qualified; null otherwise. */
+            score: components["schemas"]["NoisyNeighbour"] | null;
+        };
+        /**
+         * @description FR-DAGD-08: 2 to 4 DAGs over the same range, in UTC. DCAM collects neither environment display time zones nor
+         *     DAG time zones, so every environment is compared in UTC (time_zone).
+         */
+        DagComparison: {
+            range: components["schemas"]["TimeRange"];
+            /** Format: date-time */
+            data_as_of: string;
+            sources: components["schemas"]["SourceId"][];
+            /** @constant */
+            time_zone: "UTC";
+            /** @description Log-spaced bin edges, in seconds, shared by every DAG's duration_histogram (bins + 1 edges); empty without a successful run. */
+            duration_bins_seconds: number[];
+            /** @description The capacity context of each environment of the DAGs compared. */
+            environments: components["schemas"]["CompareEnvironment"][];
+            dags: components["schemas"]["CompareDag"][];
+        };
+        CompareEnvironment: {
+            env_id: string;
+            /** @enum {string} */
+            tier: "dev" | "test" | "uat" | "prod" | "other";
+            airflow_version: string;
+            /** Format: date-time */
+            history_from: string | null;
+            /** @description Share of the range with collected task history. */
+            coverage: number;
+            /** @description The environment's executor slot-seconds in the range (HM-003). */
+            executor_slot_seconds: number;
+            /** @description max workers × worker_concurrency; null when worker_concurrency is unknown (HM-032). */
+            worker_slots: number | null;
+            worker_concurrency: number | null;
+            min_workers: number;
+            max_workers: number;
+            /** @description parallelism × schedulers; null when unknown. */
+            parallelism: number | null;
+            max_active_tasks_per_dag: number | null;
+            pools: {
+                name: string;
+                slots: number;
+            }[];
+            /** @description Executor slot-seconds ÷ (worker_slots × the covered time), the use of the maximum worker slots. Workers autoscale, so this is a lower bound of the use of the slots that were up. Null when worker_slots is unknown or nothing is covered. */
+            utilisation: number | null;
+        };
+        CompareDag: {
+            env_id: string;
+            dag_id: string;
+            team: string;
+            schedule: string;
+            paused: boolean;
+            max_active_tasks: number;
+            /** @description The league table's statistics of the DAG over the range (FR-DAGX-02). */
+            kpis: {
+                runs: number;
+                finished_runs: number;
+                success_rate: number | null;
+                tries: number;
+                retries: number;
+                flaky_rate: number | null;
+                flaky_inferred: number;
+                run_duration_p50: components["schemas"]["Quantile"];
+                run_duration_p95: components["schemas"]["Quantile"];
+                queue_wait_p95: components["schemas"]["Quantile"];
+                peak_concurrency: number;
+            };
+            /** @description Durations of the DAG's successful runs in the range, in seconds. */
+            duration: components["schemas"]["DurationDistribution"];
+            /** @description Successful runs per bin of duration_bins_seconds. */
+            duration_histogram: number[];
+            /** @description Per UTC hour of day (24 entries), over the hours with task history in the range. */
+            hourly_profile: {
+                hour: number;
+                covered_hours: number;
+                /** @description Mean running tries of the DAG, in slots. */
+                running_avg: number | null;
+                /** @description Share of the environment's executor slot-seconds in that hour of day. */
+                share: number | null;
+            }[];
+            resources: {
+                executor_slot_seconds: number;
+                /** @description Share of its environment's executor slot-seconds; null when nothing ran there. */
+                share: number | null;
+                pools: {
+                    pool: string;
+                    pool_slot_seconds: number;
+                    share: number | null;
+                }[];
+            };
+        };
+        /**
+         * @description FR-DAGD-09: run b against run a. Contributions are critical-path time in b minus in a (HM-007/timing, an
+         *     estimate); they sum to explained_seconds, which equals duration_delta_seconds unless a skipped task ended a run.
+         *     ranking: critical_path (both runs finished) or duration_delta (a run is in progress, so it has no path).
+         */
+        RunComparison: {
+            env_id: string;
+            dag_id: string;
+            range: components["schemas"]["TimeRange"];
+            /** Format: date-time */
+            data_as_of: string;
+            sources: components["schemas"]["SourceId"][];
+            /** @enum {string} */
+            method: "HM-007/timing";
+            /** @enum {string} */
+            ranking: "critical_path" | "duration_delta";
+            a: components["schemas"]["RunSide"];
+            b: components["schemas"]["RunSide"];
+            /** @description b's duration − a's; null while either runs. */
+            duration_delta_seconds: number | null;
+            /** @description Sum of the contributions. */
+            explained_seconds: number | null;
+            /** @description Ranked by contribution in the direction of the difference. */
+            tasks: {
+                task_id: string;
+                a: components["schemas"]["TaskInRun"] | null;
+                b: components["schemas"]["TaskInRun"] | null;
+                duration_delta_seconds: number | null;
+                queue_wait_delta_seconds: number | null;
+                contribution_seconds: number | null;
+                contribution_wait_seconds: number | null;
+                contribution_running_seconds: number | null;
+            }[];
+        };
+        RunSide: {
+            run_id: string;
+            /** @enum {string} */
+            state: "success" | "failed" | "running";
+            /** Format: date-time */
+            start: string;
+            /** Format: date-time */
+            end: string | null;
+            duration_seconds: number | null;
+            tries: number;
+            /** @description Null while the run is in progress. */
+            critical_path_seconds: number | null;
+        };
+        /** @description One task in one run, collapsed to its longest map index (HM-007); retries add. */
+        TaskInRun: {
+            state: string | null;
+            /** @description Map indexes that ran: 1 unmapped, 0 when it never ran. */
+            map_indexes: number;
+            map_index: number | null;
+            tries: number;
+            /** Format: date-time */
+            start: string | null;
+            /** Format: date-time */
+            end: string | null;
+            /** @description Running time over the tries of that map index. */
+            duration_seconds: number | null;
+            /** @description HM-001 over those tries. */
+            queue_wait_seconds: number | null;
+            on_critical_path: boolean;
+            critical_path_seconds: number;
         };
         /**
          * @description HM-011: where a worker count came from. monitoring: a Cloud Monitoring worker sample. config: the
@@ -792,33 +1112,35 @@ export interface components {
             resamples: number;
             /** @description Where the worker counts behind the executor slots came from, the weakest over the range (hostnames: an estimate, a lower bound); null when not known. */
             slots_source?: components["schemas"]["WorkerCountSource"] | null;
-            items: {
-                dag_id: string;
-                active_minutes: number;
-                /** @description Other DAGs' tries queued while the DAG was active. */
-                affected_tries: number;
-                /** @description Distinct active minutes in which those tries were queued: the blocks the bootstrap resamples. */
-                affected_minutes?: number;
-                /** @description Other DAGs' tries queued in matched inactive minutes. */
-                control_tries: number;
-                matched_share: number;
-                median_wait_active_seconds: number;
-                median_wait_inactive_seconds: number;
-                /** @description Difference in median queue wait. */
-                effect_seconds: number;
-                /** @description Bootstrap 95 % interval, lower end. */
-                ci_low_seconds: number | null;
-                ci_high_seconds: number | null;
-                /** @enum {string} */
-                confidence: "high" | "medium" | "low";
-                /** @description Ranking: effect × affected tries, in task-minutes; associated, not caused. */
-                associated_wait_task_minutes: number;
-                overlap_windows: {
-                    /** Format: date-time */
-                    from: string;
-                    /** Format: date-time */
-                    to: string;
-                }[];
+            items: components["schemas"]["NoisyNeighbour"][];
+        };
+        /** @description One DAG's HM-017 measurement with its 95 % interval; association, not causation. */
+        NoisyNeighbour: {
+            dag_id: string;
+            active_minutes: number;
+            /** @description Other DAGs' tries queued while the DAG was active. */
+            affected_tries: number;
+            /** @description Distinct active minutes in which those tries were queued: the blocks the bootstrap resamples. */
+            affected_minutes?: number;
+            /** @description Other DAGs' tries queued in matched inactive minutes. */
+            control_tries: number;
+            matched_share: number;
+            median_wait_active_seconds: number;
+            median_wait_inactive_seconds: number;
+            /** @description Difference in median queue wait. */
+            effect_seconds: number;
+            /** @description Bootstrap 95 % interval, lower end. */
+            ci_low_seconds: number | null;
+            ci_high_seconds: number | null;
+            /** @enum {string} */
+            confidence: "high" | "medium" | "low";
+            /** @description Ranking: effect × affected tries, in task-minutes; associated, not caused. */
+            associated_wait_task_minutes: number;
+            overlap_windows: {
+                /** Format: date-time */
+                from: string;
+                /** Format: date-time */
+                to: string;
             }[];
         };
         /** @description HM-023, the observable part: observed waits of waiting tries per priority_weight band within each pool. */
@@ -1791,6 +2113,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DagDetail"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getRunComparison: {
+        parameters: {
+            query: {
+                /** @description Run ID of the reference run. */
+                a: string;
+                /** @description Run ID of the run compared with it. */
+                b: string;
+                /** @description Both runs must have a try that started in this range. */
+                range?: "15m" | "1h" | "6h" | "24h" | "7d" | "30d" | "90d";
+            };
+            header?: never;
+            path: {
+                env_id: components["parameters"]["EnvId"];
+                dag_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The two runs compared. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunComparison"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getDagComparison: {
+        parameters: {
+            query: {
+                /**
+                 * @description 2 to 4 comma-separated items `env_id:dag_id`, for example `acme-prod:orders_daily,acme-test:orders_daily`.
+                 *     An item splits at its first colon.
+                 */
+                dags: string;
+                /**
+                 * @description Time range ending now (FR-UI-01): 15 minutes to 90 days, the raw retention of task instances
+                 *     (FR-STORE-02). Views that compare use the previous range of equal length. Charts use a bucket that
+                 *     keeps them at 360 points or fewer, named in the response (NFR-PERF-06).
+                 */
+                range?: components["parameters"]["Range"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The DAGs compared over the requested range. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DagComparison"];
                 };
             };
             400: components["responses"]["BadRequest"];

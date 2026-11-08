@@ -94,6 +94,67 @@ paths:
               schema: { $ref: '#/components/schemas/DagDetail' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/environments/{env_id}/dags/{dag_id}/runs/compare:
+    get:
+      operationId: getRunComparison
+      summary: Compare two runs of one DAG (FR-DAGD-09)
+      description: |
+        Per-task deltas of duration and queue wait, run b minus run a, with each task's contribution to the difference
+        in run duration: its time on run b's critical path minus its time on run a's (HM-007, estimated from timing).
+        Mapped tasks collapse to their longest map index; retries add their wait and run time.
+      parameters:
+        - $ref: '#/components/parameters/EnvId'
+        - name: dag_id
+          in: path
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 250 }
+        - name: a
+          in: query
+          required: true
+          description: Run ID of the reference run.
+          schema: { type: string, minLength: 1, maxLength: 250 }
+        - name: b
+          in: query
+          required: true
+          description: Run ID of the run compared with it.
+          schema: { type: string, minLength: 1, maxLength: 250 }
+        - name: range
+          in: query
+          required: false
+          description: Both runs must have a try that started in this range.
+          schema: { type: string, enum: ['15m', '1h', '6h', '24h', '7d', '30d', '90d'], default: '7d' }
+      responses:
+        '200':
+          description: The two runs compared.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunComparison' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/compare/dags:
+    get:
+      operationId: getDagComparison
+      summary: Compare 2 to 4 DAGs from the same or different environments (FR-DAGD-08)
+      description: |
+        Aligned KPIs, duration distributions on shared bins, hourly load profiles and resource shares, with each
+        environment's capacity context. Times and hours of day are UTC.
+      parameters:
+        - name: dags
+          in: query
+          required: true
+          description: |
+            2 to 4 comma-separated items `env_id:dag_id`, for example `acme-prod:orders_daily,acme-test:orders_daily`.
+            An item splits at its first colon.
+          schema: { type: string, minLength: 3, maxLength: 1100 }
+        - $ref: '#/components/parameters/Range'
+      responses:
+        '200':
+          description: The DAGs compared over the requested range.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DagComparison' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/environments/{env_id}/bottlenecks:
     get:
       operationId: getBottlenecks
@@ -609,7 +670,7 @@ components:
               type: ['number', 'null']
               minimum: 0
               maximum: 1
-              description: 'Minutes at max_active_tasks with ready work ÷ active minutes (HM-005); null without live snapshots.'
+              description: 'Time at max_active_tasks with own ready work ÷ active time, from live snapshots, as the advisor evaluates REC-DAG-01 (HM-005, concurrency.self_throttling.at_limit_share); null without active time in the snapshots.'
         runs:
           type: array
           items:
@@ -805,6 +866,12 @@ components:
                   description: 'critical_path_runs ÷ finished runs in the range; null without a finished run.',
                 }
         findings: { type: array, items: { $ref: '#/components/schemas/FindingRef' } }
+        concurrency:
+          allOf: [{ $ref: '#/components/schemas/DagConcurrency' }]
+          description: FR-DAGD-05, the S-12 tab "concurrency"; absent from older servers.
+        impact:
+          allOf: [{ $ref: '#/components/schemas/DagImpact' }]
+          description: FR-DAGD-06, the DAG's impact on its environment; absent from older servers.
     DurationDistribution:
       type: object
       additionalProperties: false
@@ -883,6 +950,540 @@ components:
           type: ['number', 'null']
           minimum: 0
           description: Mean time from the first failure to the next success; null without a recovery.
+    DagConcurrency:
+      type: object
+      additionalProperties: false
+      description: |
+        FR-DAGD-05: the DAG's concurrent task instances over the range against max_active_tasks and its pools, per
+        bucket. Running is from task tries (HM-011 sweep, exact). In flight (running + queued, what max_active_tasks
+        counts on Airflow 2) and ready are the peaks in the bucket's live snapshots. Buckets without a snapshot, or
+        before the environment's task history starts, are null: gaps, never zero.
+      required:
+        [
+          bucket_seconds,
+          max_active_tasks,
+          max_active_tasks_is_default,
+          limit_scope,
+          snapshots,
+          snapshot_interval_seconds,
+          peak_running,
+          peak_in_flight,
+          series,
+          pools,
+          self_throttling,
+        ]
+      properties:
+        bucket_seconds: { type: number, exclusiveMinimum: 0 }
+        max_active_tasks: { type: integer, minimum: 0 }
+        max_active_tasks_is_default:
+          {
+            type: boolean,
+            description: 'The DAG does not set max_active_tasks, so [core] max_active_tasks_per_dag applies.',
+          }
+        limit_scope:
+          type: string
+          enum: [dag]
+          description: 'dag: running and queued task instances across all active runs of the DAG count against the limit (Airflow 2, HM-005).'
+        snapshots: { type: integer, minimum: 0, description: 'Live snapshots in the range.' }
+        snapshot_interval_seconds:
+          {
+            type: ['number', 'null'],
+            minimum: 0,
+            description: 'Observed af.live cadence; null with fewer than two.',
+          }
+        peak_running:
+          {
+            type: ['integer', 'null'],
+            minimum: 0,
+            description: 'Most tries of the DAG running at once; null without task history in the range.',
+          }
+        peak_in_flight:
+          {
+            type: ['integer', 'null'],
+            minimum: 0,
+            description: 'Most running + queued task instances in one snapshot; null without snapshots.',
+          }
+        series:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [start, running_avg, running_max, in_flight_max, ready_max, at_limit_seconds]
+            properties:
+              start: { type: string, format: date-time }
+              running_avg:
+                { type: ['number', 'null'], minimum: 0, description: 'Time-weighted mean of running tries.' }
+              running_max: { type: ['integer', 'null'], minimum: 0 }
+              in_flight_max: { type: ['integer', 'null'], minimum: 0 }
+              ready_max: { type: ['integer', 'null'], minimum: 0 }
+              at_limit_seconds:
+                {
+                  type: ['number', 'null'],
+                  minimum: 0,
+                  description: 'Time at max_active_tasks with own ready work (HM-005).',
+                }
+        pools:
+          type: array
+          description: The pools the DAG's task instances used in the range, by name.
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, slots, pool_slots, dag_slots_max, occupied_max]
+            properties:
+              name: { type: string }
+              slots:
+                {
+                  type: ['integer', 'null'],
+                  minimum: 0,
+                  description: 'Pool size; null for a pool the environment does not define.',
+                }
+              pool_slots:
+                { type: integer, minimum: 1, description: 'Largest pool_slots of the DAG in this pool.' }
+              dag_slots_max:
+                type: array
+                description: Per bucket of series, the peak pool slots held by the DAG's running tries.
+                items: { type: ['number', 'null'], minimum: 0 }
+              occupied_max:
+                type: array
+                description: Per bucket of series, the peak slots occupied (running + queued) by every DAG, from snapshots.
+                items: { type: ['number', 'null'], minimum: 0 }
+        self_throttling:
+          type: object
+          additionalProperties: false
+          description: |
+            HM-005 as the advisor evaluates REC-DAG-01: each snapshot stands for the time to the next one (at most two
+            cadences); at the limit means running + queued ≥ max_active_tasks with own ready task instances.
+            raises_rec_dag_01 applies the rule's condition (at_limit_share ≥ threshold) to the range; finding_id is the
+            advisor's open finding for this DAG (last 24 h), null when there is none.
+          required:
+            [
+              method,
+              active_seconds,
+              at_limit_seconds,
+              at_limit_share,
+              own_waiting_task_seconds,
+              peak_demand,
+              headroom_share,
+              last_at_limit,
+              threshold,
+              raises_rec_dag_01,
+              finding_id,
+            ]
+          properties:
+            method: { type: string, enum: [HM-005/snapshots] }
+            active_seconds: { type: number, minimum: 0 }
+            at_limit_seconds: { type: number, minimum: 0 }
+            at_limit_share: { type: ['number', 'null'], minimum: 0, maximum: 1 }
+            own_waiting_task_seconds:
+              {
+                type: number,
+                minimum: 0,
+                description: 'Task-time its own ready task instances waited at the limit.',
+              }
+            peak_demand:
+              {
+                type: integer,
+                minimum: 0,
+                description: 'Most ready + queued + running task instances of the DAG at the limit.',
+              }
+            headroom_share:
+              type: ['number', 'null']
+              minimum: 0
+              maximum: 1
+              description: Share of the at-limit snapshots with free worker slots; null when never at the limit or while worker_concurrency is unknown.
+            last_at_limit: { type: ['string', 'null'], format: date-time }
+            threshold: { type: number, minimum: 0, maximum: 1 }
+            raises_rec_dag_01: { type: boolean }
+            finding_id: { type: ['string', 'null'] }
+    DagImpact:
+      type: object
+      additionalProperties: false
+      description: |
+        FR-DAGD-06: the DAG's share of the environment's executor load over the range (HM-003), of the executor
+        slots where known (workers × worker_concurrency, HM-011), and its noisy-neighbour score (HM-017).
+      required: [bucket_seconds, slots_source, series, noisy_neighbour]
+      properties:
+        bucket_seconds: { type: number, exclusiveMinimum: 0 }
+        slots_source:
+          description: 'Where the worker counts behind capacity_share came from, the weakest over the range (hostnames: an estimate, a lower bound); null when not known.'
+          oneOf: [{ $ref: '#/components/schemas/WorkerCountSource' }, { type: 'null' }]
+        series:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [start, dag_slot_seconds, environment_slot_seconds, share, capacity_share]
+            properties:
+              start: { type: string, format: date-time }
+              dag_slot_seconds: { type: ['number', 'null'], minimum: 0 }
+              environment_slot_seconds: { type: ['number', 'null'], minimum: 0 }
+              share:
+                type: ['number', 'null']
+                minimum: 0
+                maximum: 1
+                description: DAG ÷ environment executor slot-seconds; null before the history start or when nothing ran.
+              capacity_share:
+                type: ['number', 'null']
+                minimum: 0
+                maximum: 1
+                description: DAG executor slot-seconds ÷ executor slots × time, over the bucket's minutes with known slots; null without any.
+        noisy_neighbour: { $ref: '#/components/schemas/DagNoisyNeighbour' }
+    DagNoisyNeighbour:
+      type: object
+      additionalProperties: false
+      description: |
+        HM-017 for this DAG, computed as on the bottlenecks page (same range, minimums and bootstrap): whether other
+        DAGs' queue waits were longer while it held ≥ active_share of the executor slots. Association, not causation.
+        status: not_evaluated (no known executor slots), inactive (never held active_share), below_minimum (missed a
+        minimum sample), not_associated (qualified, effect ≤ 0), associated (qualified, effect > 0).
+      required:
+        [
+          method,
+          status,
+          reason,
+          minutes_with_slots,
+          active_minutes,
+          affected_tries,
+          affected_minutes,
+          control_tries,
+          active_share,
+          min_active_minutes,
+          min_affected_tries,
+          min_affected_minutes,
+          min_control_tries,
+          resamples,
+          slots_source,
+          score,
+        ]
+      properties:
+        method: { type: string, description: 'For example HM-017/range.' }
+        status: { type: string, enum: [not_evaluated, inactive, below_minimum, not_associated, associated] }
+        reason: { type: string, description: 'What the status means, in plain words, and what to do next.' }
+        minutes_with_slots: { type: integer, minimum: 0 }
+        active_minutes: { type: integer, minimum: 0 }
+        affected_tries: { type: integer, minimum: 0 }
+        affected_minutes: { type: integer, minimum: 0 }
+        control_tries: { type: integer, minimum: 0 }
+        active_share: { type: number, minimum: 0, maximum: 1 }
+        min_active_minutes: { type: integer, minimum: 0 }
+        min_affected_tries: { type: integer, minimum: 0 }
+        min_affected_minutes: { type: integer, minimum: 0 }
+        min_control_tries: { type: integer, minimum: 0 }
+        resamples: { type: integer, minimum: 0 }
+        slots_source:
+          oneOf: [{ $ref: '#/components/schemas/WorkerCountSource' }, { type: 'null' }]
+        score:
+          description: The measurement with its 95 % interval and confidence when qualified; null otherwise.
+          oneOf: [{ $ref: '#/components/schemas/NoisyNeighbour' }, { type: 'null' }]
+    DagComparison:
+      type: object
+      additionalProperties: false
+      description: |
+        FR-DAGD-08: 2 to 4 DAGs over the same range, in UTC. DCAM collects neither environment display time zones nor
+        DAG time zones, so every environment is compared in UTC (time_zone).
+      required: [range, data_as_of, sources, time_zone, duration_bins_seconds, environments, dags]
+      properties:
+        range: { $ref: '#/components/schemas/TimeRange' }
+        data_as_of: { type: string, format: date-time }
+        sources: { type: array, items: { $ref: '#/components/schemas/SourceId' } }
+        time_zone: { type: string, const: UTC }
+        duration_bins_seconds:
+          type: array
+          description: Log-spaced bin edges, in seconds, shared by every DAG's duration_histogram (bins + 1 edges); empty without a successful run.
+          items: { type: number, minimum: 0 }
+        environments:
+          type: array
+          description: The capacity context of each environment of the DAGs compared.
+          items: { $ref: '#/components/schemas/CompareEnvironment' }
+        dags:
+          type: array
+          minItems: 2
+          maxItems: 4
+          items: { $ref: '#/components/schemas/CompareDag' }
+    CompareEnvironment:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          env_id,
+          tier,
+          airflow_version,
+          history_from,
+          coverage,
+          executor_slot_seconds,
+          worker_slots,
+          worker_concurrency,
+          min_workers,
+          max_workers,
+          parallelism,
+          max_active_tasks_per_dag,
+          pools,
+          utilisation,
+        ]
+      properties:
+        env_id: { type: string }
+        tier: { type: string, enum: [dev, test, uat, prod, other] }
+        airflow_version: { type: string }
+        history_from: { type: ['string', 'null'], format: date-time }
+        coverage:
+          {
+            type: number,
+            minimum: 0,
+            maximum: 1,
+            description: 'Share of the range with collected task history.',
+          }
+        executor_slot_seconds:
+          {
+            type: number,
+            minimum: 0,
+            description: "The environment's executor slot-seconds in the range (HM-003).",
+          }
+        worker_slots:
+          {
+            type: ['integer', 'null'],
+            minimum: 0,
+            description: 'max workers × worker_concurrency; null when worker_concurrency is unknown (HM-032).',
+          }
+        worker_concurrency: { type: ['integer', 'null'], minimum: 0 }
+        min_workers: { type: integer, minimum: 0 }
+        max_workers: { type: integer, minimum: 0 }
+        parallelism:
+          {
+            type: ['integer', 'null'],
+            minimum: 0,
+            description: 'parallelism × schedulers; null when unknown.',
+          }
+        max_active_tasks_per_dag: { type: ['integer', 'null'], minimum: 0 }
+        pools:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, slots]
+            properties:
+              name: { type: string }
+              slots: { type: integer, minimum: 0 }
+        utilisation:
+          type: ['number', 'null']
+          minimum: 0
+          description: Executor slot-seconds ÷ (worker_slots × the covered time), the use of the maximum worker slots. Workers autoscale, so this is a lower bound of the use of the slots that were up. Null when worker_slots is unknown or nothing is covered.
+    CompareDag:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          env_id,
+          dag_id,
+          team,
+          schedule,
+          paused,
+          max_active_tasks,
+          kpis,
+          duration,
+          duration_histogram,
+          hourly_profile,
+          resources,
+        ]
+      properties:
+        env_id: { type: string }
+        dag_id: { type: string }
+        team: { type: string }
+        schedule: { type: string }
+        paused: { type: boolean }
+        max_active_tasks: { type: integer, minimum: 0 }
+        kpis:
+          type: object
+          additionalProperties: false
+          description: The league table's statistics of the DAG over the range (FR-DAGX-02).
+          required:
+            [
+              runs,
+              finished_runs,
+              success_rate,
+              tries,
+              retries,
+              flaky_rate,
+              flaky_inferred,
+              run_duration_p50,
+              run_duration_p95,
+              queue_wait_p95,
+              peak_concurrency,
+            ]
+          properties:
+            runs: { type: integer, minimum: 0 }
+            finished_runs: { type: integer, minimum: 0 }
+            success_rate: { type: ['number', 'null'], minimum: 0, maximum: 1 }
+            tries: { type: integer, minimum: 0 }
+            retries: { type: integer, minimum: 0 }
+            flaky_rate: { type: ['number', 'null'], minimum: 0, maximum: 1 }
+            flaky_inferred: { type: integer, minimum: 0 }
+            run_duration_p50: { $ref: '#/components/schemas/Quantile' }
+            run_duration_p95: { $ref: '#/components/schemas/Quantile' }
+            queue_wait_p95: { $ref: '#/components/schemas/Quantile' }
+            peak_concurrency: { type: integer, minimum: 0 }
+        duration:
+          allOf: [{ $ref: '#/components/schemas/DurationDistribution' }]
+          description: Durations of the DAG's successful runs in the range, in seconds.
+        duration_histogram:
+          type: array
+          description: Successful runs per bin of duration_bins_seconds.
+          items: { type: integer, minimum: 0 }
+        hourly_profile:
+          type: array
+          description: Per UTC hour of day (24 entries), over the hours with task history in the range.
+          minItems: 24
+          maxItems: 24
+          items:
+            type: object
+            additionalProperties: false
+            required: [hour, covered_hours, running_avg, share]
+            properties:
+              hour: { type: integer, minimum: 0, maximum: 23 }
+              covered_hours: { type: number, minimum: 0 }
+              running_avg:
+                {
+                  type: ['number', 'null'],
+                  minimum: 0,
+                  description: 'Mean running tries of the DAG, in slots.',
+                }
+              share:
+                {
+                  type: ['number', 'null'],
+                  minimum: 0,
+                  maximum: 1,
+                  description: "Share of the environment's executor slot-seconds in that hour of day.",
+                }
+        resources:
+          type: object
+          additionalProperties: false
+          required: [executor_slot_seconds, share, pools]
+          properties:
+            executor_slot_seconds: { type: number, minimum: 0 }
+            share:
+              {
+                type: ['number', 'null'],
+                minimum: 0,
+                maximum: 1,
+                description: "Share of its environment's executor slot-seconds; null when nothing ran there.",
+              }
+            pools:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [pool, pool_slot_seconds, share]
+                properties:
+                  pool: { type: string }
+                  pool_slot_seconds: { type: number, minimum: 0 }
+                  share: { type: ['number', 'null'], minimum: 0, maximum: 1 }
+    RunComparison:
+      type: object
+      additionalProperties: false
+      description: |
+        FR-DAGD-09: run b against run a. Contributions are critical-path time in b minus in a (HM-007/timing, an
+        estimate); they sum to explained_seconds, which equals duration_delta_seconds unless a skipped task ended a run.
+        ranking: critical_path (both runs finished) or duration_delta (a run is in progress, so it has no path).
+      required:
+        [
+          env_id,
+          dag_id,
+          range,
+          data_as_of,
+          sources,
+          method,
+          ranking,
+          a,
+          b,
+          duration_delta_seconds,
+          explained_seconds,
+          tasks,
+        ]
+      properties:
+        env_id: { type: string }
+        dag_id: { type: string }
+        range: { $ref: '#/components/schemas/TimeRange' }
+        data_as_of: { type: string, format: date-time }
+        sources: { type: array, items: { $ref: '#/components/schemas/SourceId' } }
+        method: { type: string, enum: [HM-007/timing] }
+        ranking: { type: string, enum: [critical_path, duration_delta] }
+        a: { $ref: '#/components/schemas/RunSide' }
+        b: { $ref: '#/components/schemas/RunSide' }
+        duration_delta_seconds:
+          { type: ['number', 'null'], description: "b's duration − a's; null while either runs." }
+        explained_seconds: { type: ['number', 'null'], description: 'Sum of the contributions.' }
+        tasks:
+          type: array
+          description: Ranked by contribution in the direction of the difference.
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              [
+                task_id,
+                a,
+                b,
+                duration_delta_seconds,
+                queue_wait_delta_seconds,
+                contribution_seconds,
+                contribution_wait_seconds,
+                contribution_running_seconds,
+              ]
+            properties:
+              task_id: { type: string }
+              a: { oneOf: [{ $ref: '#/components/schemas/TaskInRun' }, { type: 'null' }] }
+              b: { oneOf: [{ $ref: '#/components/schemas/TaskInRun' }, { type: 'null' }] }
+              duration_delta_seconds: { type: ['number', 'null'] }
+              queue_wait_delta_seconds: { type: ['number', 'null'] }
+              contribution_seconds: { type: ['number', 'null'] }
+              contribution_wait_seconds: { type: ['number', 'null'] }
+              contribution_running_seconds: { type: ['number', 'null'] }
+    RunSide:
+      type: object
+      additionalProperties: false
+      required: [run_id, state, start, end, duration_seconds, tries, critical_path_seconds]
+      properties:
+        run_id: { type: string }
+        state: { type: string, enum: [success, failed, running] }
+        start: { type: string, format: date-time }
+        end: { type: ['string', 'null'], format: date-time }
+        duration_seconds: { type: ['number', 'null'], minimum: 0 }
+        tries: { type: integer, minimum: 0 }
+        critical_path_seconds:
+          { type: ['number', 'null'], minimum: 0, description: 'Null while the run is in progress.' }
+    TaskInRun:
+      type: object
+      additionalProperties: false
+      description: One task in one run, collapsed to its longest map index (HM-007); retries add.
+      required:
+        [
+          state,
+          map_indexes,
+          map_index,
+          tries,
+          start,
+          end,
+          duration_seconds,
+          queue_wait_seconds,
+          on_critical_path,
+          critical_path_seconds,
+        ]
+      properties:
+        state: { type: ['string', 'null'] }
+        map_indexes:
+          { type: integer, minimum: 0, description: 'Map indexes that ran: 1 unmapped, 0 when it never ran.' }
+        map_index: { type: ['integer', 'null'], minimum: -1 }
+        tries: { type: integer, minimum: 0 }
+        start: { type: ['string', 'null'], format: date-time }
+        end: { type: ['string', 'null'], format: date-time }
+        duration_seconds:
+          {
+            type: ['number', 'null'],
+            minimum: 0,
+            description: 'Running time over the tries of that map index.',
+          }
+        queue_wait_seconds: { type: ['number', 'null'], minimum: 0, description: 'HM-001 over those tries.' }
+        on_critical_path: { type: boolean }
+        critical_path_seconds: { type: number, minimum: 0 }
     WorkerCountSource:
       type: string
       description: |
@@ -1263,68 +1864,62 @@ components:
         items:
           type: array
           maxItems: 10
+          items: { $ref: '#/components/schemas/NoisyNeighbour' }
+    NoisyNeighbour:
+      type: object
+      description: One DAG's HM-017 measurement with its 95 % interval; association, not causation.
+      additionalProperties: false
+      required:
+        [
+          dag_id,
+          active_minutes,
+          affected_tries,
+          control_tries,
+          matched_share,
+          median_wait_active_seconds,
+          median_wait_inactive_seconds,
+          effect_seconds,
+          ci_low_seconds,
+          ci_high_seconds,
+          confidence,
+          associated_wait_task_minutes,
+          overlap_windows,
+        ]
+      properties:
+        dag_id: { type: string }
+        active_minutes: { type: integer, minimum: 0 }
+        affected_tries:
+          { type: integer, minimum: 0, description: "Other DAGs' tries queued while the DAG was active." }
+        affected_minutes:
+          {
+            type: integer,
+            minimum: 0,
+            description: 'Distinct active minutes in which those tries were queued: the blocks the bootstrap resamples.',
+          }
+        control_tries:
+          { type: integer, minimum: 0, description: "Other DAGs' tries queued in matched inactive minutes." }
+        matched_share: { type: number, minimum: 0, maximum: 1 }
+        median_wait_active_seconds: { type: number, minimum: 0 }
+        median_wait_inactive_seconds: { type: number, minimum: 0 }
+        effect_seconds: { type: number, description: 'Difference in median queue wait.' }
+        ci_low_seconds: { type: ['number', 'null'], description: 'Bootstrap 95 % interval, lower end.' }
+        ci_high_seconds: { type: ['number', 'null'] }
+        confidence: { type: string, enum: [high, medium, low] }
+        associated_wait_task_minutes:
+          {
+            type: number,
+            description: 'Ranking: effect × affected tries, in task-minutes; associated, not caused.',
+          }
+        overlap_windows:
+          type: array
+          maxItems: 5
           items:
             type: object
             additionalProperties: false
-            required:
-              [
-                dag_id,
-                active_minutes,
-                affected_tries,
-                control_tries,
-                matched_share,
-                median_wait_active_seconds,
-                median_wait_inactive_seconds,
-                effect_seconds,
-                ci_low_seconds,
-                ci_high_seconds,
-                confidence,
-                associated_wait_task_minutes,
-                overlap_windows,
-              ]
+            required: [from, to]
             properties:
-              dag_id: { type: string }
-              active_minutes: { type: integer, minimum: 0 }
-              affected_tries:
-                {
-                  type: integer,
-                  minimum: 0,
-                  description: "Other DAGs' tries queued while the DAG was active.",
-                }
-              affected_minutes:
-                {
-                  type: integer,
-                  minimum: 0,
-                  description: 'Distinct active minutes in which those tries were queued: the blocks the bootstrap resamples.',
-                }
-              control_tries:
-                {
-                  type: integer,
-                  minimum: 0,
-                  description: "Other DAGs' tries queued in matched inactive minutes.",
-                }
-              matched_share: { type: number, minimum: 0, maximum: 1 }
-              median_wait_active_seconds: { type: number, minimum: 0 }
-              median_wait_inactive_seconds: { type: number, minimum: 0 }
-              effect_seconds: { type: number, description: 'Difference in median queue wait.' }
-              ci_low_seconds: { type: ['number', 'null'], description: 'Bootstrap 95 % interval, lower end.' }
-              ci_high_seconds: { type: ['number', 'null'] }
-              confidence: { type: string, enum: [high, medium, low] }
-              associated_wait_task_minutes:
-                {
-                  type: number,
-                  description: 'Ranking: effect × affected tries, in task-minutes; associated, not caused.',
-                }
-              overlap_windows:
-                type: array
-                maxItems: 5
-                items:
-                  type: object
-                  additionalProperties: false
-                  required: [from, to]
-                  properties:
-                    from: { type: string, format: date-time }
-                    to: { type: string, format: date-time }
+              from: { type: string, format: date-time }
+              to: { type: string, format: date-time }
     PriorityFairness:
       type: object
       additionalProperties: false
