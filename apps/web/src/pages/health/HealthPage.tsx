@@ -213,7 +213,12 @@ function CollectorsTable({ env, reference }: { env: CollectionEnvironment; refer
                 {formatDuration(c.lag_seconds)}
               </TableCell>
               <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                {c.cadence_seconds > 0 ? `every ${formatDuration(c.cadence_seconds)}` : '—'}
+                {c.cadence_seconds <= 0
+                  ? '—'
+                  : // The DAG inventory runs every few minutes but refreshes the whole list once an hour.
+                    (c.refresh_seconds ?? 0) > c.cadence_seconds
+                    ? `every ${formatDuration(c.cadence_seconds)}; data refreshed every ${formatDuration(c.refresh_seconds ?? 0)}`
+                    : `every ${formatDuration(c.cadence_seconds)}`}
               </TableCell>
               <TableCell align="right" sx={numeric}>
                 {formatInt(c.consecutive_failures)}

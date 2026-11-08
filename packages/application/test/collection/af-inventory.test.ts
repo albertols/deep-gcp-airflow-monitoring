@@ -273,4 +273,8 @@ describe('FR-COLL-01 af.inventory: manifest', () => {
     });
     expect(composerEntry.source.kind).toBe('composer');
   });
+
+  it('§12.10: refreshes the DAG list once an hour, so its data is up to an hour old while it is fresh', () => {
+    expect(afInventoryCollector().manifest.refreshMs).toBe(60 * 60_000);
+  });
 });

@@ -120,14 +120,15 @@ export const HEALTH_EXPLANATIONS = {
     summary: 'Age of the newest data this collector saved, at the time of this status.',
     whyItMatters: 'Pages for this environment are at least this old for the data this collector provides.',
     howToRead:
-      'A healthy lag stays close to one cadence. Cloud Monitoring data is read only after its ingestion delay (FR-COLL-07), so its lag never drops below that delay.',
+      'A healthy lag stays close to one cadence, or to how often the data is refreshed where that is longer: the DAG inventory runs every few minutes but refreshes the whole list once an hour, so its lag is up to an hour while it is healthy. Cloud Monitoring data is read only after its ingestion delay (FR-COLL-07), so its lag never drops below that delay.',
     sources: [ENGINE],
   },
   'health-cadence': {
     id: 'health-cadence',
     title: 'Cadence',
     summary: "How often the collector runs under this environment's profile.",
-    howToRead: 'A request budget can stretch the cadence for a while; the state then shows Degraded.',
+    howToRead:
+      'A request budget can stretch the cadence for a while; the state then shows Degraded. A collector that reads its data in parts also says how often the whole is refreshed: the DAG inventory trickles one full listing across each hour (spec §7.5).',
     sources: ['dcam.config.yaml', ENGINE],
   },
   'health-failures': {

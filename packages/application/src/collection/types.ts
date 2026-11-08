@@ -28,6 +28,12 @@ export interface CollectorManifest {
   readonly api: ApiId;
   /** Which profile cadence drives it. */
   readonly cadence: keyof ProfileCadences;
+  /**
+   * How often its data is refreshed, when that is less often than it runs: the DAG inventory runs every few
+   * minutes but makes one full pass an hour (§7.5). Staleness (§12.10) compares the lag with the longer of
+   * this and the cadence.
+   */
+  readonly refreshMs?: number;
   /** Priority class (§7.11 item 2): live > standard > background; background work always yields. */
   readonly priority: 'live' | 'standard' | 'background';
   /** Most requests one cycle may make before it must stop and report reduced fidelity. */

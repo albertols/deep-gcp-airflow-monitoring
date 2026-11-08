@@ -41,7 +41,8 @@ const secondsText = (s: number) =>
   s < 120 ? `${Math.round(s)} s` : s < 7_200 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3_600)} h`;
 
 /**
- * §12.10 stale: data older than 2 × the collector's cadence is stale (amber), older than 5 × very stale
+ * §12.10 stale: data older than 2 × how often the collector refreshes it (its cadence, or the DAG
+ * inventory's hourly pass) is stale (amber), older than 5 × very stale
  * (red). Disabled collectors do not count. Cloud Monitoring data is read only after its ingestion delay
  * (FR-COLL-07), so its lag is always above its cadence; it is named but does not colour the chip.
  */
@@ -55,9 +56,11 @@ export function freshnessOf(env: CollectionEnvironment | undefined): Freshness |
   const parts: string[] = [];
   for (const c of withData) {
     const lag = c.lag_seconds as number;
-    parts.push(`${c.id}: ${secondsText(lag)} old, every ${secondsText(c.cadence_seconds)}`);
-    if (c.source === 'SRC-MON' || c.cadence_seconds <= 0) continue;
-    worst = Math.max(worst, lag / c.cadence_seconds);
+    // How often its data is refreshed: the DAG inventory runs every few minutes but refreshes once an hour.
+    const every = c.refresh_seconds ?? c.cadence_seconds;
+    parts.push(`${c.id}: ${secondsText(lag)} old, every ${secondsText(every)}`);
+    if (c.source === 'SRC-MON' || every <= 0) continue;
+    worst = Math.max(worst, lag / every);
   }
   const level: FreshnessLevel = worst > 5 ? 'very-stale' : worst > 2 ? 'stale' : 'fresh';
   const lead =

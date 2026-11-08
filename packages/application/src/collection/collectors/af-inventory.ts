@@ -98,6 +98,7 @@ export function afInventoryCollector(): Collector {
       source: 'SRC-AF-API',
       api: 'airflow',
       cadence: 'airflowInventory',
+      refreshMs: PASS_EVERY_MS,
       priority: 'background',
       maxRequestsPerCycle: MAX_REQUESTS,
       outputs: ['dags'],

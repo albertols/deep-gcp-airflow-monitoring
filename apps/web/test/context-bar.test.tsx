@@ -328,6 +328,17 @@ describe('§12.10 freshness in live mode', () => {
     expect(freshnessOf(env([collector({ lag_seconds: 151 })]))?.detail).toMatch(/Open DCAM health/);
   });
 
+  it('§12.10: a collector is stale against how often it refreshes its data (the DAG inventory: once an hour)', () => {
+    const inventory = (lag: number) =>
+      collector({ id: 'af.inventory', cadence_seconds: 300, refresh_seconds: 3_600, lag_seconds: lag });
+    // 46 min after the hourly pass is normal, not 9 × the 5-minute cadence.
+    expect(freshnessOf(env([inventory(2_782)]))?.level).toBe('fresh');
+    expect(freshnessOf(env([inventory(2_782)]))?.detail).toMatch(/af\.inventory: 46 min old, every 60 min/);
+    expect(freshnessOf(env([inventory(7_300)]))?.level).toBe('stale');
+    // A status without refresh_seconds is judged by its cadence.
+    expect(freshnessOf(env([collector({ lag_seconds: 61 })]))?.level).toBe('stale');
+  });
+
   it('§12.10: disabled collectors and the Monitoring ingestion delay do not make data stale; no data yet says so', () => {
     const monitoring = collector({
       id: 'mon.core',

@@ -295,6 +295,27 @@ describe('DCAM health page (FR-SELF-01, FR-COLL-11, HM-030)', () => {
     expect(within(disabled).getByText('Not scheduled')).toBeInTheDocument();
   });
 
+  it('§12.10: a collector that refreshes its data less often than it runs says how often', async () => {
+    const [prod, ...rest] = LIVE.environments;
+    const inventory = collector({
+      id: 'af.inventory',
+      cadence_seconds: 300,
+      refresh_seconds: 3_600,
+      lag_seconds: 2_782,
+    });
+    const live = {
+      ...LIVE,
+      environments: [{ ...prod!, collectors: [...prod!.collectors, inventory] }, ...rest],
+    };
+    renderPage(fakeApi(async () => live));
+    const region = await screen.findByRole('region', { name: 'acme-prod' });
+    const row = within(region).getByRole('row', { name: /af\.inventory/ });
+    expect(within(row).getByText(/every 5m; data refreshed every 1h/)).toBeInTheDocument();
+    // Collectors whose data follows their cadence keep the plain text.
+    const ok = within(region).getByRole('row', { name: /af\.live/ });
+    expect(within(ok).getByText('every 30s')).toBeInTheDocument();
+  });
+
   it('FR-COLL-11: the last error comes with its fix hint in a copyable block', async () => {
     renderPage(fakeApi(async () => LIVE));
     const prod = await screen.findByRole('region', { name: 'acme-prod' });

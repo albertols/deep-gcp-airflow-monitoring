@@ -166,6 +166,22 @@ describe('collector health (FR-COLL-11, NFR-OBS-06)', () => {
     expect(live()).toMatchObject({ error_rate_1h: null, next_run_at: null });
   });
 
+  it('§12.10 / FR-COLL-11: a collector that refreshes its data less often than it runs says how often', async () => {
+    const { time, engine } = setup(
+      [airflowEnv('acme-emulator', 'live')],
+      [
+        collector(manifest({ id: 'af.live' }), async (ctx) => ({ dataAsOf: ctx.now() })),
+        collector(manifest({ id: 'af.inventory', refreshMs: HOUR }), async () => ({ dataAsOf: null })),
+      ],
+    );
+    engine.start();
+    await time.advance(15_000);
+    const status = (id: string) => environment(engine, 'acme-emulator').collectors.find((c) => c.id === id);
+    expect(status('af.live')).toMatchObject({ cadence_seconds: 10, refresh_seconds: 10 });
+    expect(status('af.inventory')).toMatchObject({ cadence_seconds: 600, refresh_seconds: 3_600 });
+    await engine.stop();
+  });
+
   it('FR-COLL-06: the environment shows reduced fidelity for 15 min after a cycle reported it', async () => {
     let first = true;
     const { time, engine } = setup(

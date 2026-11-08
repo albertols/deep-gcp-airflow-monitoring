@@ -7,6 +7,8 @@
  *   budget cut it short, or its API is parked after a VPC Service Controls denial), `waiting` (no cycle
  *   finished yet), `ok`. A cycle cut short by a budget is not a failure.
  * - `lag_seconds`: age of the newest data a collector committed (`CollectorResult.dataAsOf`).
+ * - `refresh_seconds`: how often that data is refreshed, the longer of the cadence and the manifest's
+ *   `refreshMs` (the DAG inventory's hourly pass); §12.10 staleness compares the lag with it.
  * - `error_rate_1h`: failed cycles / finished cycles in the last hour (minute buckets, see `footprint.ts`);
  *   `null` when no cycle finished in that hour.
  * - `last_error` keeps the most recent error after a recovery, so the page can say what happened.
@@ -96,6 +98,9 @@ export function collectorStatus(task: TaskView, now: number, extras: TaskExtras)
     source: task.manifest.source,
     state: stateOf(task, extras),
     cadence_seconds: Math.round(task.cadenceMs / 1_000),
+    // A disabled collector (cadence 0) refreshes nothing.
+    refresh_seconds:
+      task.cadenceMs <= 0 ? 0 : Math.round(Math.max(task.cadenceMs, task.manifest.refreshMs ?? 0) / 1_000),
     last_attempt_at: isoOrNull(task.lastAttemptAt),
     last_success_at: isoOrNull(task.lastSuccessAt),
     next_run_at: isoOrNull(extras.nextRunAt),

@@ -3176,6 +3176,10 @@ components:
             budget slowed it down. failing: three or more consecutive failures. disabled: not used for this
             environment (profile off, or the source does not apply).
         cadence_seconds: { type: integer, minimum: 0 }
+        refresh_seconds:
+          type: integer
+          minimum: 0
+          description: 'How often the collector refreshes its data: its cadence, or longer when each cycle reads only part of it (the DAG inventory makes one full pass an hour, spec §7.5). Staleness (§12.10) is the lag against this.'
         last_attempt_at: { type: ['string', 'null'], format: date-time }
         last_success_at: { type: ['string', 'null'], format: date-time }
         next_run_at: { type: ['string', 'null'], format: date-time }
