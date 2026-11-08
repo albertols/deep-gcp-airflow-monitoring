@@ -31,6 +31,7 @@ import { LimitsPanel, PoolSlotsPanel, WorkersPanel, WorkloadsPanel } from './Cap
 import { capacityColours } from './colours';
 import { CAPACITY_EXPLANATIONS as X } from './explanations';
 import { NO_DATA, bucketName, formatCount, formatRatio, periodText, spreadP95 } from './format';
+import { SaturationPanel } from './SaturationPanel';
 import { ChartKey, LineKey, SwatchKey, TimeChart, type ChartLimit } from './TimeChart';
 
 type Bucket = Capacity['series'][number];
@@ -387,6 +388,7 @@ export function CapacityTab({
       <Kpis c={c} />
       <SlotsPanel c={c} />
       <PeriodsPanel c={c} />
+      <SaturationPanel c={c} />
       <WorkersPanel c={c} />
       <Stack direction={{ xs: 'column', lg: 'row' }} sx={{ gap: 4 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>

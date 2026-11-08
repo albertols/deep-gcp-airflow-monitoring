@@ -29,7 +29,7 @@ Test tasks come before the code they cover.
       HM-011)
 - [x] T-990c Test + code: limits with their provenance (unknown reads as unknown, never zero), workers against
       min and max with scale events, worker CPU and memory, pools (FR-ENV-02, HM-012, HM-032)
-- [ ] T-990d Test + code: a colour-blind-safe sequential scale for the light and dark themes; the UTC day × hour
+- [x] T-990d Test + code: a colour-blind-safe sequential scale for the light and dark themes; the UTC day × hour
       saturation heatmap with the selected cell in the URL and a table view (FR-ENV-02, FR-UI-06)
 - [ ] T-990e Test + code: DAG × hour-of-day load heatmap of the top DAGs, the selected cell in the URL and a
       table view (FR-DAGX-06)

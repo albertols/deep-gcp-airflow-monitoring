@@ -285,3 +285,103 @@ describe('S-04 capacity tab: limits, workers, workloads and pools (FR-ENV-02, HM
     expect(api).toHaveTextContent(/4.*No data.*No data.*No data.*No data/);
   });
 });
+
+describe('S-04 saturation heatmap (FR-ENV-02, FR-UI-06, FR-UI-02)', () => {
+  const grid = async (name: RegExp) => within(await panel('Saturation heatmap')).getByRole('group', { name });
+
+  it('FR-ENV-02: one cell per UTC day and hour, named with its figures, capacity-bound hours marked', async () => {
+    renderPage();
+    const g = await grid(
+      /^Worker slot utilisation by UTC day and hour\. Busiest: 5 Nov, 02:00 UTC at 100%\./,
+    );
+    expect(within(g).getAllByRole('button')).toHaveLength(24);
+    const nightly = within(g).getByRole('button', { name: /^5 Nov, 02:00 UTC: utilisation 100%/ });
+    expect(nightly).toHaveAccessibleName(
+      '5 Nov, 02:00 UTC: utilisation 100%, 60 min at max workers, 52 capacity-bound min',
+    );
+    expect(nightly).toHaveAttribute('data-bound', 'true');
+    expect(within(g).getByRole('button', { name: /^5 Nov, 05:00 UTC/ })).not.toHaveAttribute('data-bound');
+  });
+
+  it('FR-UI-06: the cells re-theme: the busiest hour is bright in the dark theme and dark in the light theme', async () => {
+    const { unmount } = renderPage(capacityApi(), { mode: 'dark' });
+    const busiest = (await grid(/Worker slot utilisation/)).querySelector('[aria-label^="5 Nov, 02:00 UTC"]');
+    expect(busiest).toHaveStyle({ backgroundColor: 'rgb(253, 231, 37)' });
+    unmount();
+    renderPage(capacityApi(), { mode: 'light' });
+    const light = (await grid(/Worker slot utilisation/)).querySelector('[aria-label^="5 Nov, 02:00 UTC"]');
+    expect(light).toHaveStyle({ backgroundColor: 'rgb(68, 1, 84)' });
+  });
+
+  it('FR-ENV-02: colours by utilisation, minutes at max workers or capacity-bound minutes', async () => {
+    renderPage();
+    const p = await panel('Saturation heatmap');
+    await userEvent.click(within(p).getByRole('button', { name: 'Capacity-bound minutes' }));
+    expect(
+      await grid(/^Capacity-bound minutes by UTC day and hour\. Busiest: 5 Nov, 02:00 UTC at 52 min\./),
+    ).toBeInTheDocument();
+  });
+
+  it('NFR-DATA-03: hours without worker figures are empty and say so, not the lowest colour', async () => {
+    const gap: Capacity = {
+      ...capacityFixture,
+      heatmap: {
+        time_zone: 'UTC',
+        cells: capacityFixture.heatmap.cells.map((c, i) =>
+          i === 0
+            ? {
+                ...c,
+                observed_minutes: 0,
+                utilisation_mean: null,
+                minutes_at_max: null,
+                capacity_bound_minutes: null,
+              }
+            : c,
+        ),
+      },
+    };
+    renderPage(capacityApi(gap));
+    const empty = within(await grid(/Worker slot utilisation/)).getByRole('button', {
+      name: '4 Nov, 12:00 UTC: no data, not observed',
+    });
+    expect(empty).toHaveAttribute('data-empty', 'true');
+    expect(empty.style.backgroundColor).toBe('transparent');
+  });
+
+  it('HM-032: without worker_concurrency utilisation is unknown, and the panel offers minutes at max workers', async () => {
+    renderPage(capacityApi(unknownConcurrency));
+    const p = await panel('Saturation heatmap');
+    expect(p).toHaveTextContent(
+      'Utilisation needs worker_concurrency, which is not known. Colour by minutes at max workers instead.',
+    );
+    expect(
+      within(await grid(/Worker slot utilisation/)).getByRole('button', {
+        name: /^5 Nov, 02:00 UTC: utilisation unknown/,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it('NFR-A11Y-01: the heatmap has a table view with every observed hour', async () => {
+    renderPage();
+    const p = await panel('Saturation heatmap');
+    await userEvent.click(within(p).getByRole('button', { name: 'View as a table' }));
+    const table = within(p).getByRole('table', { name: 'Saturation by UTC day and hour' });
+    expect(within(table).getAllByRole('row')).toHaveLength(1 + 24);
+    expect(within(table).getByText('5 Nov, 02:00').closest('tr')).toHaveTextContent(/100%.*60.*52/);
+  });
+
+  it('FR-UI-02: the selected cell is in the URL, shows its figures, and a shared link restores it', async () => {
+    window.location.hash = '#/capacity?env=acme-prod&cell=2026-11-05T02';
+    renderApp();
+    const p = await panel('Saturation heatmap');
+    expect(within(p).getByRole('button', { name: /^5 Nov, 02:00 UTC/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(p).toHaveTextContent(
+      'Selected: 5 Nov, 02:00–03:00 UTC. 60 of 60 minutes observed; utilisation 100%; 60 min at max workers; 52 capacity-bound min.',
+    );
+    await userEvent.click(within(p).getByRole('button', { name: /^4 Nov, 19:00 UTC/ }));
+    await waitFor(() => expect(window.location.hash).toContain('cell=2026-11-04T19'));
+  });
+});
