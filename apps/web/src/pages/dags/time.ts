@@ -21,4 +21,12 @@ export const formatClock = (ms: number) => clock.format(ms);
 /** `5 Nov, 11:02 UTC`. */
 export const formatUtc = (iso: string | number) => `${dayClock.format(new Date(iso))} UTC`;
 
-export const RANGE_LABEL: Record<Range, string> = { '1h': '1 h', '6h': '6 h', '24h': '24 h' };
+export const RANGE_LABEL: Record<Range, string> = {
+  '15m': '15 min',
+  '1h': '1 h',
+  '6h': '6 h',
+  '24h': '24 h',
+  '7d': '7 days',
+  '30d': '30 days',
+  '90d': '90 days',
+};

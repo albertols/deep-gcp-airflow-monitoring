@@ -105,9 +105,11 @@ const tries: StoredTaskTry[] = [
   ).flat(),
 ];
 
+// As the port says: started tries whose running interval overlaps [from, to), or that are still running.
 const store: TaskInstanceStore = {
   upsertTaskTries: async () => {},
-  taskTries: async () => tries,
+  taskTries: async (_env, from, to) =>
+    tries.filter((t) => t.startAt !== null && t.startAt < to && (t.endAt === null || t.endAt > from)),
   countTaskTries: async () => tries.length,
 };
 const modelWith = (c: EnvironmentConfig): EnvironmentModelSource => ({
@@ -178,7 +180,8 @@ describe('getBottlenecks in depth (FR-BOTL-01, FR-BOTL-06, FR-ENV-08, HM-023)', 
       active_minutes: 180,
       affected_tries: 360,
       affected_minutes: 180,
-      control_tries: 360,
+      // The two tries of the last minute start at "now", after the range: not in it.
+      control_tries: 358,
       median_wait_active_seconds: 300,
       median_wait_inactive_seconds: 60,
       effect_seconds: 240,

@@ -33,11 +33,25 @@ afterAll(async () => {
 const get = (url: string) => app.inject({ method: 'GET', url, headers: { host: '127.0.0.1:8787' } });
 
 describe('GET /api/v1/environments/{env_id}/bottlenecks (FR-BOTL-01, HM-006)', { timeout: 60_000 }, () => {
-  it.each(['1h', '6h', '24h'])('ADR-0003: conforms to the contract for range %s', async (range) => {
-    const res = await get(`/api/v1/environments/acme-prod/bottlenecks?range=${range}`);
-    expect(res.statusCode).toBe(200);
-    expect(conforms('Bottlenecks', res.json())).toBe(true);
-  });
+  it.each([
+    ['15m', 60, 15],
+    ['1h', 60, 60],
+    ['6h', 300, 72],
+    ['24h', 900, 96],
+    ['7d', 3_600, 168],
+    ['30d', 10_800, 240],
+    ['90d', 21_600, 360],
+  ])(
+    'ADR-0003 / NFR-PERF-06: range %s conforms to the contract with %i-second buckets (%i points)',
+    async (range, bucketSeconds, points) => {
+      const res = await get(`/api/v1/environments/acme-prod/bottlenecks?range=${range}`);
+      expect(res.statusCode).toBe(200);
+      const b = res.json<Bottlenecks>();
+      expect(conforms('Bottlenecks', b)).toBe(true);
+      expect(b.bucket_seconds).toBe(bucketSeconds);
+      expect(b.series).toHaveLength(points);
+    },
+  );
 
   it('FR-BOTL-01: acme-prod waiting is explained by platform limits, led by the starved pool or worker capacity', async () => {
     const b = (await get('/api/v1/environments/acme-prod/bottlenecks')).json<Bottlenecks>();
@@ -55,7 +69,7 @@ describe('GET /api/v1/environments/{env_id}/bottlenecks (FR-BOTL-01, HM-006)', {
 
   it('answers unknown environments with 404 and bad ranges with 400 problems', async () => {
     expect((await get('/api/v1/environments/acme-nope/bottlenecks')).statusCode).toBe(404);
-    const bad = await get('/api/v1/environments/acme-prod/bottlenecks?range=7d');
+    const bad = await get('/api/v1/environments/acme-prod/bottlenecks?range=2d');
     expect(bad.statusCode).toBe(400);
     expect(bad.headers['content-type']).toContain('application/problem+json');
   });

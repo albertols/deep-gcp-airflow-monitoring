@@ -2,26 +2,28 @@
  * Use case: schedule intelligence (S-17). Planned starts from the DAG inventory's cron schedules and
  * actual run starts from task instance tries, by hour of day and minute of hour (UTC), with the HM-009
  * collision index against the REC-SCHED-01 threshold and the minutes and schedules that collide most.
+ * Any range preset; tries are read a day at a time (NFR-PERF-01).
  *
  * The store returns the tries that overlap a window, so a run whose first task ended before the range would
  * start at its next task: the read reaches {@link RUN_START_LOOKBACK_MS} before the range to find each run's
  * first start. A run whose earlier tries all ended longer before (a task cleared days later) still counts
  * as starting at its later try. Before the environment's history starts the range is uncovered, not zero.
  *
- * @implements FR-BOTL-03, HM-009
+ * @implements FR-BOTL-03, HM-009, FR-UI-01, NFR-PERF-01
  */
 import type { Range, Schedule, SourceId } from '@dcam/contracts';
 import {
   RULE_THRESHOLDS,
-  actualRunStarts,
   collidingMinutes,
+  createActualRunStarts,
   collidingSchedules,
   collisionDensity,
   plannedStarts,
 } from '@dcam/domain';
 import type { Clock, EnvironmentModelSource, TaskInstanceStore } from '@dcam/ports';
-import { historyStartOf, readHistoryStart } from './history';
+import { readHistoryStart } from './history';
 import { RANGE_MS } from './range';
+import { earliestOf, sliceTries, slicesOf } from './slices';
 import { NO_SOURCE_USE, usedSources } from './sources';
 
 /** How far before the range tries are read to find where runs that overlap it started. */
@@ -51,25 +53,36 @@ function nonEmpty(cells: readonly number[]): Array<{ hour: number; minute: numbe
 export async function getScheduleIntelligence(deps: ScheduleDeps, q: ScheduleQuery): Promise<Schedule> {
   const now = deps.clock.now();
   const from = now - RANGE_MS[q.range];
-  const [dags, tries, storedHistory] = await Promise.all([
+  const readFrom = from - RUN_START_LOOKBACK_MS;
+  const [dags, storedHistory] = await Promise.all([
     deps.model.dags(q.envId),
-    deps.store.taskTries(q.envId, from - RUN_START_LOOKBACK_MS, now),
     readHistoryStart(deps.store, q.envId),
   ]);
   const planned = plannedStarts(dags);
   const density = collisionDensity(dags);
-  const historyFrom = historyStartOf(storedHistory, tries);
-  const actual = actualRunStarts(tries, { from, to: now, historyFrom });
+  // A run's first start, the newest activity and the earliest try are the same however often a try is read,
+  // so the slices need no de-duplication; a slice read 1 ms early must not add a try that ended then.
+  const starts = createActualRunStarts({ from, to: now });
+  let earliest = Infinity;
+  let newest: number | null = null;
+  for (const slice of slicesOf(readFrom, now)) {
+    const tries = (await sliceTries(deps.store, q.envId, slice)).filter(
+      (t) => t.startAt !== null && (t.endAt === null || t.endAt > readFrom),
+    );
+    starts.add(tries);
+    earliest = earliestOf(tries, earliest);
+    for (const t of tries) {
+      const at = Math.min(now, Math.max(t.startAt ?? from, t.endAt ?? from));
+      if (newest === null || at > newest) newest = at;
+    }
+  }
+  const historyFrom =
+    storedHistory !== undefined ? storedHistory : Number.isFinite(earliest) ? earliest : null;
+  const actual = starts.result(historyFrom);
 
   // The newest activity the page shows; without runs the inventory is as fresh as this request.
   let latest: number | null = dags.length > 0 ? now : null;
-  if (tries.length > 0) {
-    latest = from;
-    for (const t of tries) {
-      const at = Math.min(now, Math.max(t.startAt ?? from, t.endAt ?? from));
-      if (at > latest) latest = at;
-    }
-  }
+  if (newest !== null) latest = Math.max(from, newest);
 
   return {
     env_id: q.envId,

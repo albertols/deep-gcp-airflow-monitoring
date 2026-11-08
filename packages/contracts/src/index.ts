@@ -43,9 +43,10 @@ export type CollectorStatus = Schemas['CollectorStatus'];
 export type ApiFootprint = Schemas['ApiFootprint'];
 export type BackfillStatus = Schemas['BackfillStatus'];
 export type ConfigIssue = Schemas['ConfigIssue'];
-export type Range = '1h' | '6h' | '24h';
-/** The capacity page's range: the shared ranges and 7 days (`CapacityRange` in openapi.yaml). */
-export type CapacityRange = Range | '7d';
+/** Time range preset of the `range` query parameter (FR-UI-01). */
+export type Range = components['parameters']['Range'];
+/** The capacity page's range, up to 7 days (`CapacityRange` in openapi.yaml). */
+export type CapacityRange = components['parameters']['CapacityRange'];
 
 /** Typed client for DCAM's own API, generated from openapi.yaml. */
 export function createApiClient(baseUrl = '') {

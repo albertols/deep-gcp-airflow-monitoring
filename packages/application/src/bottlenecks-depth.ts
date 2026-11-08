@@ -11,14 +11,11 @@ import {
   HM017_DEFAULTS,
   limitKnown,
   noisyNeighbours,
-  slotsPerMinute,
-  slotsSourceOf,
   type EnvironmentConfig,
-  type LiveSnapshot,
   type NeighbourTry,
   type PoolActivity,
   type PoolPriority,
-  type WorkerSample,
+  type WorkerCountSource,
 } from '@dcam/domain';
 
 type Pool = Bottlenecks['pools'][number];
@@ -55,8 +52,10 @@ export function poolDetail(p: PoolActivity | undefined): Partial<Pool> {
 export interface NeighbourInput {
   readonly config: EnvironmentConfig;
   readonly tries: readonly NeighbourTry[];
-  readonly samples: readonly WorkerSample[];
-  readonly snapshots: readonly LiveSnapshot[];
+  /** Executor slots per minute from `from` (domain `slotsPerMinute` or `createSlotsPerMinute`). */
+  readonly slots: readonly (number | null)[];
+  /** Where the worker counts behind `slots` came from (domain `slotsSourceOf`), the weakest minute's. */
+  readonly slotsSource: WorkerCountSource | null;
   readonly from: number;
   readonly to: number;
   readonly now: number;
@@ -64,9 +63,14 @@ export interface NeighbourInput {
 
 /** HM-017 over the window, with the reason when it cannot be evaluated. */
 export function noisyNeighboursIn(input: NeighbourInput): NoisyNeighbours {
-  const slots = slotsPerMinute({ ...input, config: input.config });
-  const slotsSource = slotsSourceOf({ ...input, config: input.config });
-  const r = noisyNeighbours({ tries: input.tries, slots, from: input.from, to: input.to, now: input.now });
+  const r = noisyNeighbours({
+    tries: input.tries,
+    slots: input.slots,
+    from: input.from,
+    to: input.to,
+    now: input.now,
+  });
+  const slotsSource = input.slotsSource;
   let notEvaluated: string | null = null;
   if (!r.evaluated)
     notEvaluated = !limitKnown(input.config, 'workerConcurrency')

@@ -2,8 +2,11 @@
  * Use cases: the DAG league table (S-11) and one DAG in detail (S-12), over task tries, the environment
  * model and the injected clock.
  *
+ * Every range preset works the same way; ranges are read from the store a day at a time, so a 30-day
+ * league never holds 60 days of tries at once (NFR-PERF-01).
+ *
  * @implements FR-DAGX-01, FR-DAGX-02, FR-DAGX-03, FR-DAGD-01, FR-DAGD-02, FR-DAGD-03, FR-DAGD-04,
- *   FR-TASK-01, FR-TASK-02, HM-001, HM-003, HM-005, HM-007, HM-015, HM-016
+ *   FR-TASK-01, FR-TASK-02, HM-001, HM-003, HM-005, HM-007, HM-015, HM-016, FR-UI-01, NFR-PERF-01
  */
 import type {
   DagDetail,
@@ -19,20 +22,21 @@ import type {
 import {
   DURATION_REGRESSION_RULE,
   SNAPSHOT_GAP_CADENCES,
+  createCapacityAccumulator,
+  createLeagueAccumulator,
+  createSelfThrottle,
   criticalPath,
   criticalPathFrequency,
   dagDurationRegression,
-  dagLeague,
   dagReliability,
   dagRuns,
   dagWindowStats,
   emptyDagStats,
   limitKnown,
   observedCadenceMs,
+  ownsTry,
   runGantt,
   runKey,
-  selfThrottledRatio,
-  slotSeconds,
   taskStats,
   type DagMeta,
   type DurationDistribution as DomainDistribution,
@@ -45,15 +49,13 @@ import {
 } from '@dcam/domain';
 import type { Clock, EnvironmentModelSource, StoredTaskTry, TaskInstanceStore } from '@dcam/ports';
 import { DEFAULT_SNAPSHOT_CADENCE_MS } from './bottlenecks';
-import { earliestTry, historyStartOf, readHistoryStart } from './history';
+import { readHistoryStart } from './history';
 import { paretoCount } from './overview';
+import { RANGE_MS } from './range';
+import { earliestOf, historyCoverage, sliceSnapshots, sliceTries, slicesOf } from './slices';
 
-const RANGE_MS: Record<Range, number> = {
-  '1h': 3_600_000,
-  '6h': 6 * 3_600_000,
-  '24h': 24 * 3_600_000,
-};
-
+/** Snapshots that show the current `af.live` cadence, newest last. */
+const RECENT_SNAPSHOT_COUNT = 10;
 /** How far back the league looks for the latest live snapshot: five eco-profile cadences (120 s). */
 const RECENT_SNAPSHOTS_MS = 10 * 60_000;
 /** Team shown for DAGs that have tries but no metadata (for example deleted DAGs). */
@@ -88,7 +90,7 @@ function windowsFor(now: number, range: Range): { current: SweepWindow; previous
 function freshLatest(snapshots: readonly LiveSnapshot[], now: number): LiveSnapshot | null {
   const latest = snapshots.at(-1);
   if (!latest) return null;
-  const cadenceMs = observedCadenceMs(snapshots.slice(-10)) ?? DEFAULT_SNAPSHOT_CADENCE_MS;
+  const cadenceMs = observedCadenceMs(snapshots.slice(-RECENT_SNAPSHOT_COUNT)) ?? DEFAULT_SNAPSHOT_CADENCE_MS;
   return now - latest.at <= SNAPSHOT_GAP_CADENCES * cadenceMs ? latest : null;
 }
 
@@ -109,32 +111,39 @@ export interface DagLeagueQuery {
 }
 
 /**
- * Share of a window with collected task history, from where the environment's history starts. History
- * starts at the earliest stored try of the environment (`history.ts`): `af.facts` reads one hour before
- * DCAM's first cycle, and `af.backfill` (FR-COLL-04) reads the days before that newest first, so the stored
- * history stays contiguous back to that try. A quiet start of the window reads as uncovered, so DCAM says
- * "no data" rather than claim a DAG did not run.
+ * The league over the range and the previous range of equal length, with the share of each that has
+ * collected task history (`historyCoverage`, from where the environment's history starts: `history.ts`).
+ * History starts at the earliest stored try: `af.facts` reads one hour before DCAM's first cycle, and
+ * `af.backfill` (FR-COLL-04) reads the days before that newest first, so the stored history stays contiguous
+ * back to that try. A quiet start of the window reads as uncovered, so DCAM says "no data" rather than claim
+ * a DAG did not run.
  */
-function historyCoverage(historyFrom: number | null, w: SweepWindow): number {
-  if (historyFrom === null) return 0;
-  return Math.min(1, Math.max(0, (w.to - Math.max(w.from, historyFrom)) / (w.to - w.from)));
-}
-
 export async function getDagLeague(deps: DagsDeps, q: DagLeagueQuery): Promise<DagLeague> {
   const now = deps.clock.now();
   const { current, previous } = windowsFor(now, q.range);
-  const [tries, dags, recent] = await Promise.all([
-    deps.store.taskTries(q.envId, previous.from, now),
+  const [dags, recent] = await Promise.all([
     deps.model.dags(q.envId),
     deps.model.snapshots(q.envId, now - RECENT_SNAPSHOTS_MS, now + 1),
   ]);
-  const league = dagLeague({
-    tries,
+  // The current window first, then the previous one newest first: earlier tries then only count for the
+  // runs and task instances of the current window, so neither window's tries are held at once.
+  const acc = createLeagueAccumulator({
     window: current,
     previousWindow: previous,
-    dagIds: dags.map((d) => d.dagId),
     inProgress: waitingIn(freshLatest(recent, now)),
   });
+  let earliest = Infinity;
+  for (const slice of slicesOf(current.from, current.to)) {
+    const tries = await sliceTries(deps.store, q.envId, slice);
+    earliest = earliestOf(tries, earliest);
+    acc.addCurrent(tries, slice);
+  }
+  for (const slice of slicesOf(previous.from, previous.to).reverse()) {
+    const tries = await sliceTries(deps.store, q.envId, slice);
+    earliest = earliestOf(tries, earliest);
+    acc.addPrevious(tries, slice);
+  }
+  const league = acc.result(dags.map((d) => d.dagId));
   const metaById = new Map(dags.map((d) => [d.dagId, d]));
   const rows = league.rows.map((r): DagLeague['rows'][number] => {
     const meta = metaById.get(r.dagId);
@@ -168,7 +177,8 @@ export async function getDagLeague(deps: DagsDeps, q: DagLeagueQuery): Promise<D
     env_id: q.envId,
     range: { from: iso(current.from), to: iso(current.to) },
     previous_range: { from: iso(previous.from), to: iso(previous.to) },
-    previous_coverage: historyCoverage(earliestTry(tries), previous),
+    coverage: historyCoverage(earliest, current),
+    previous_coverage: historyCoverage(earliest, previous),
     data_as_of: iso(now),
     sources: [...q.sources],
     total_executor_slot_seconds: league.totalExecutorSlotSeconds,
@@ -274,8 +284,9 @@ const tryIdentity = (t: StoredTaskTry) =>
 
 /**
  * HM-016: the DAG's tries from `from` up to `to` (the start of the range's previous period, which the
- * environment-wide read already covers), through the store's per-DAG read where it has one. The fallback reads
- * the environment and filters; it also returns other DAGs' tries, which date the start of the history.
+ * environment-wide read already covers), through the store's per-DAG read where it has one, with the
+ * earliest try seen. The fallback reads the environment a day at a time (NFR-PERF-01) and keeps the DAG's
+ * tries; it also sees other DAGs' tries, which date the start of the history.
  */
 async function olderTries(
   store: TaskInstanceStore,
@@ -283,9 +294,21 @@ async function olderTries(
   dagId: string,
   from: number,
   to: number,
-): Promise<StoredTaskTry[]> {
-  if (from >= to) return [];
-  return store.dagTaskTries ? store.dagTaskTries(envId, dagId, from, to) : store.taskTries(envId, from, to);
+): Promise<{ tries: StoredTaskTry[]; earliest: number }> {
+  if (from >= to) return { tries: [], earliest: Infinity };
+  if (store.dagTaskTries) {
+    const tries = await store.dagTaskTries(envId, dagId, from, to);
+    return { tries, earliest: earliestOf(tries, Infinity) };
+  }
+  const kept: StoredTaskTry[] = [];
+  let earliest = Infinity;
+  for (const slice of slicesOf(from, to)) {
+    const tries = await sliceTries(store, envId, slice);
+    earliest = earliestOf(tries, earliest);
+    const first = slice.from <= from;
+    for (const t of tries) if (t.dagId === dagId && ownsTry(t, slice, first)) kept.push(t);
+  }
+  return { tries: kept, earliest };
 }
 
 /** The DAG's tries over the whole baseline and range: recent ones plus older ones not already read. */
@@ -308,21 +331,43 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
     to: current.from,
     now,
   };
-  // Tries from the previous range too, so runs that began before the range are seen whole; older ones of
-  // this DAG for its baseline.
-  const [tries, snapshots, older, storedHistory] = await Promise.all([
-    deps.store.taskTries(q.envId, previous.from, now),
-    deps.model.snapshots(q.envId, current.from, now + 1),
-    olderTries(deps.store, q.envId, q.dagId, baselineWindow.from, previous.from),
-    readHistoryStart(deps.store, q.envId),
-  ]);
-  const dagTries = tries.filter((t) => t.dagId === q.dagId);
+  // Tries from the previous range too, so runs that began before the range are seen whole. The store is
+  // read a day at a time: only this DAG's tries, the environment's slot-seconds and where the history
+  // starts are kept. Older tries of this DAG for its baseline come through the per-DAG read.
+  const storedHistory = await readHistoryStart(deps.store, q.envId);
+  const dagTries: StoredTaskTry[] = [];
+  const environment = createCapacityAccumulator(current);
+  let earliest = Infinity;
+  const reach = { from: previous.from, to: now };
+  for (const slice of slicesOf(reach.from, reach.to)) {
+    const tries = await sliceTries(deps.store, q.envId, slice);
+    earliest = earliestOf(tries, earliest);
+    if (slice.from >= current.from) environment.add(tries, slice);
+    else if (slice.to > current.from) environment.add(tries, { from: current.from, to: slice.to });
+    const first = slice.from <= reach.from;
+    for (const t of tries) if (t.dagId === q.dagId && ownsTry(t, slice, first)) dagTries.push(t);
+  }
+  const { tries: older, earliest: olderEarliest } = await olderTries(
+    deps.store,
+    q.envId,
+    q.dagId,
+    baselineWindow.from,
+    previous.from,
+  );
   if (q.runId !== undefined && !dagTries.some((t) => t.runId === q.runId)) return { kind: 'unknown-run' };
 
-  const latest = freshLatest(snapshots, now);
+  // HM-005 over the window's snapshots, a day at a time; the newest ones also give the latest snapshot.
+  const throttle = createSelfThrottle(q.dagId, meta.maxActiveTasks);
+  let recent: LiveSnapshot[] = [];
+  for (const slice of slicesOf(current.from, now + 1)) {
+    const snapshots = await sliceSnapshots(deps.model, q.envId, slice);
+    throttle.add(snapshots);
+    recent = recent.concat(snapshots.slice(-RECENT_SNAPSHOT_COUNT)).slice(-RECENT_SNAPSHOT_COUNT);
+  }
+  const latest = freshLatest(recent, now);
   const options = { inProgress: waitingIn(latest) };
   const stats = dagWindowStats(dagTries, current, options).get(q.dagId) ?? emptyDagStats(q.dagId);
-  const environmentSeconds = slotSeconds(tries, current).totalExecutorSlotSeconds;
+  const environmentSeconds = environment.result().totalExecutorSlotSeconds;
   const runs = dagRuns(dagTries, current, options, meta.schedule);
   // Default to the latest finished run: the newest one is often still starting and shows little.
   const ganttRunId =
@@ -345,7 +390,13 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
   const rowIndex = new Map(gantt.map((g, i) => [`${g.taskId}\u0000${g.mapIndex}\u0000${g.tryNumber}`, i]));
   // The environment's history, not this DAG's: a DAG first seen 3 days ago did not run before (HM-016). The
   // per-DAG read holds this DAG's tries only, so without the store's history start it does not date it.
-  const historyFrom = historyStartOf(storedHistory, deps.store.dagTaskTries ? tries : [...older, ...tries]);
+  const environmentEarliest = deps.store.dagTaskTries ? earliest : Math.min(earliest, olderEarliest);
+  const historyFrom =
+    storedHistory !== undefined
+      ? storedHistory
+      : Number.isFinite(environmentEarliest)
+        ? environmentEarliest
+        : null;
 
   return {
     kind: 'ok',
@@ -372,7 +423,7 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
         share: environmentSeconds > 0 ? Math.min(1, stats.executorSlotSeconds / environmentSeconds) : 0,
         run_duration_p95: toQuantile(stats.runDurationP95),
         queue_wait_p95: toQuantile(stats.queueWaitP95),
-        self_throttled_ratio: selfThrottledRatio(snapshots, q.dagId, meta.maxActiveTasks),
+        self_throttled_ratio: throttle.ratio(),
       },
       runs: runs.map((r) => ({
         run_id: r.runId,
@@ -411,7 +462,7 @@ export async function getDagDetail(deps: DagsDeps, q: DagDetailQuery): Promise<D
         from: iso(baselineWindow.from),
         to: iso(baselineWindow.to),
         history_from: historyFrom === null ? null : iso(historyFrom),
-        coverage: historyCoverage(historyFrom, baselineWindow),
+        coverage: historyCoverage(historyFrom ?? Infinity, baselineWindow),
         margin: DURATION_REGRESSION_RULE.margin,
       },
       regression: toRegression(regression.run),

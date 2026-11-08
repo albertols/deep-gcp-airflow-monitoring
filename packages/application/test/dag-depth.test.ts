@@ -183,7 +183,9 @@ describe('HM-016 / FR-TASK-01 duration against the 28-day baseline in DAG detail
     if (result.kind !== 'ok') throw new Error(result.kind);
     expect(calls.sort()).toEqual([
       `dag search_ranking_refresh ${iso(NOW - D - 28 * D)} ${iso(NOW - 2 * D)}`,
-      `env ${iso(NOW - 2 * D)} ${iso(NOW)}`,
+      // The environment a day at a time, each day read 1 ms early (NFR-PERF-01 slices).
+      `env ${iso(NOW - 2 * D - 1)} ${iso(NOW - D)}`,
+      `env ${iso(NOW - D - 1)} ${iso(NOW)}`,
     ]);
     // A try overlapping both reads is counted once.
     expect(result.detail.regression?.baseline.samples).toBe(144);

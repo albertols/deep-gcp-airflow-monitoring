@@ -43,8 +43,11 @@ const HOUR = 60 * MIN;
 /** 1970-01-01 was a Thursday: hours from a Monday 00:00 UTC are epoch hours + 72. */
 const EPOCH_HOUR_OF_WEEK = 72;
 
-/** A try with the timestamps HM-017 needs. `StoredTaskTry` from the ports is structurally compatible. */
-export interface NeighbourTry extends TaskTry {
+/**
+ * A try with the fields HM-017 reads. `StoredTaskTry` from the ports is structurally compatible; a long range
+ * passes only these four, one small record per try (NFR-PERF-01).
+ */
+export interface NeighbourTry extends Pick<TaskTry, 'dagId' | 'startAt' | 'endAt'> {
   readonly queuedAt: number | null;
 }
 

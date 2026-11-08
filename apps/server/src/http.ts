@@ -3,10 +3,13 @@
  */
 import type { FastifyReply } from 'fastify';
 import type { CapacityRange, Meta, Problem, Range, SourceId } from '@dcam/contracts';
+import { RANGES } from '@dcam/application';
 import type { Workspace } from './workspace';
 
 const ERRORS = 'https://github.com/albertols/deep-gcp-airflow-monitoring/blob/main/docs/errors.md';
-const RANGES: ReadonlySet<string> = new Set<Range>(['1h', '6h', '24h']);
+/** "15m, 1h, 6h, 24h, 7d, 30d or 90d". */
+const listed = (xs: readonly string[]) =>
+  xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} or ${xs.at(-1) ?? ''}`;
 
 export function problem(reply: FastifyReply, p: Problem) {
   return reply.code(p.status).type('application/problem+json').send(p);
@@ -28,11 +31,10 @@ export function findEnvironment(ws: Workspace, reply: FastifyReply, envId: strin
   return null;
 }
 
-/** The capacity page's ranges (`CapacityRange`): the shared ones and 7 days. */
+/** The capacity page's ranges (`CapacityRange`): up to 7 days, the longest its per-minute analysis reads. */
 export const CAPACITY_RANGES: ReadonlySet<CapacityRange> = new Set<CapacityRange>(['1h', '6h', '24h', '7d']);
-
-const listed = (xs: readonly string[]) =>
-  xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} or ${xs.at(-1) ?? ''}`;
+/** The global range presets (FR-UI-01). */
+const PRESETS: ReadonlySet<Range> = new Set(RANGES);
 
 /** The requested range (24 h by default) among `allowed`, or `null` after sending a 400 problem. */
 export function parseRange(reply: FastifyReply, raw: string | undefined): Range | null;
@@ -44,7 +46,7 @@ export function parseRange<R extends string>(
 export function parseRange(
   reply: FastifyReply,
   raw: string | undefined,
-  allowed: ReadonlySet<string> = RANGES,
+  allowed: ReadonlySet<string> = PRESETS,
 ): string | null {
   const range = raw ?? '24h';
   if (allowed.has(range)) return range;

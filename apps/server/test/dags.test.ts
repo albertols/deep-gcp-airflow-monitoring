@@ -34,10 +34,22 @@ const get = (url: string) => app.inject({ method: 'GET', url, headers: { host: '
 const ENV = '/api/v1/environments';
 
 describe('FR-DAGX-01..03 GET /api/v1/environments/{env_id}/dags', () => {
-  it.each(['1h', '6h', '24h'])('FR-DAGX-02: the %s league conforms to DagLeague', async (range) => {
-    const res = await get(`${ENV}/acme-prod/dags?range=${range}`);
-    expect(res.statusCode).toBe(200);
-    expect(conforms('DagLeague', res.json())).toBe(true);
+  it.each(['15m', '1h', '6h', '24h', '7d', '30d', '90d'])(
+    'FR-DAGX-02 / FR-UI-01: the %s league conforms to DagLeague',
+    async (range) => {
+      const res = await get(`${ENV}/acme-prod/dags?range=${range}`);
+      expect(res.statusCode).toBe(200);
+      expect(conforms('DagLeague', res.json())).toBe(true);
+    },
+  );
+
+  it('FR-UI-01 / §8.1: a range longer than the demo history says how much of it has data', async () => {
+    const league = (await get(`${ENV}/acme-prod/dags?range=7d`)).json<DagLeague>();
+    // The demo simulates 48 h (runs in flight at its start began a little earlier): about 2 of the 7 days,
+    // and nothing of the previous 7 days.
+    expect(league.coverage).toBeGreaterThan(0.28);
+    expect(league.coverage).toBeLessThan(0.3);
+    expect(league.previous_coverage).toBe(0);
   });
 
   it('FR-DAGX-02 / FR-DAGX-03: every known DAG, ranked by share, with Pareto and Gini', async () => {
@@ -75,13 +87,23 @@ describe('FR-DAGX-01..03 GET /api/v1/environments/{env_id}/dags', () => {
     expect(missing.statusCode).toBe(404);
     expect(missing.headers['content-type']).toContain('application/problem+json');
     expect(conforms('Problem', missing.json())).toBe(true);
-    const bad = await get(`${ENV}/acme-prod/dags?range=7d`);
+    const bad = await get(`${ENV}/acme-prod/dags?range=2d`);
     expect(bad.statusCode).toBe(400);
     expect(conforms('Problem', bad.json())).toBe(true);
+    expect(bad.json<{ fix_hint: string }>().fix_hint).toBe('Use one of 15m, 1h, 6h, 24h, 7d, 30d or 90d.');
   });
 });
 
 describe('FR-DAGD-01..04 GET /api/v1/environments/{env_id}/dags/{dag_id}', () => {
+  it.each(['15m', '7d', '90d'])(
+    'FR-DAGD-01 / FR-UI-01: the %s detail conforms to DagDetail',
+    async (range) => {
+      const res = await get(`${ENV}/acme-prod/dags/customer_360_rebuild?range=${range}`);
+      expect(res.statusCode).toBe(200);
+      expect(conforms('DagDetail', res.json())).toBe(true);
+    },
+  );
+
   it('FR-DAGD-01: conforms to DagDetail with every limit that can throttle the DAG', async () => {
     const res = await get(`${ENV}/acme-prod/dags/customer_360_rebuild?range=24h`);
     expect(res.statusCode).toBe(200);

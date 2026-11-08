@@ -137,7 +137,11 @@ describe('FR-DAGX-01..03 DAG league use case', () => {
       { store, model, clock },
       { envId: 'acme-prod', range: '24h', sources: ['DEMO'], openFindings: new Map([['heavy', 2]]) },
     );
-    expect(calls).toEqual([[NOW - 48 * H, NOW]]);
+    // The current day, then the previous day, each read 1 ms early (NFR-PERF-01 slices).
+    expect(calls).toEqual([
+      [NOW - 24 * H - 1, NOW],
+      [NOW - 48 * H - 1, NOW - 24 * H],
+    ]);
     expect(league).toMatchObject({
       env_id: 'acme-prod',
       range: { from: iso(NOW - 24 * H), to: iso(NOW) },

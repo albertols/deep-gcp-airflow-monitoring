@@ -42,10 +42,7 @@ paths:
           in: path
           required: true
           schema: { type: string, pattern: '^[a-z0-9][a-z0-9-]{0,62}$' }
-        - name: range
-          in: query
-          required: false
-          schema: { type: string, enum: ['1h', '6h', '24h'], default: '24h' }
+        - $ref: '#/components/parameters/Range'
       responses:
         '200':
           description: Overview for the requested range.
@@ -227,12 +224,18 @@ components:
       name: range
       in: query
       required: false
-      schema: { type: string, enum: ['1h', '6h', '24h'], default: '24h' }
+      description: |
+        Time range ending now (FR-UI-01): 15 minutes to 90 days, the raw retention of task instances
+        (FR-STORE-02). Views that compare use the previous range of equal length. Charts use a bucket that
+        keeps them at 360 points or fewer, named in the response (NFR-PERF-06).
+      schema: { type: string, enum: ['15m', '1h', '6h', '24h', '7d', '30d', '90d'], default: '24h' }
     CapacityRange:
       name: range
       in: query
       required: false
-      description: The shared ranges, and 7d for the day × hour heatmap. Buckets are 1 min, 5 min, 15 min and 1 h.
+      description: |
+        Time range ending now, up to 7 days: the capacity analysis works per minute. Buckets are 1 min, 5 min,
+        15 min and 1 h.
       schema: { type: string, enum: ['1h', '6h', '24h', '7d'], default: '24h' }
   responses:
     BadRequest:
@@ -331,6 +334,13 @@ components:
       properties:
         env_id: { type: string }
         range: { $ref: '#/components/schemas/TimeRange' }
+        coverage:
+          {
+            type: number,
+            minimum: 0,
+            maximum: 1,
+            description: 'Share of the range with collected task history (from the earliest try read). Below 1, the range starts before DCAM collected, so totals cover less than the range; 0 means no data yet.',
+          }
         data_as_of: { type: string, format: date-time }
         sources:
           type: array
@@ -402,6 +412,13 @@ components:
         env_id: { type: string }
         range: { $ref: '#/components/schemas/TimeRange' }
         previous_range: { $ref: '#/components/schemas/TimeRange' }
+        coverage:
+          {
+            type: number,
+            minimum: 0,
+            maximum: 1,
+            description: 'Share of the range with collected task history (from the earliest try read). Below 1, the range starts before DCAM collected, so totals cover less than the range; 0 means no data yet.',
+          }
         previous_coverage:
           {
             type: number,
@@ -907,7 +924,10 @@ components:
         range: { $ref: '#/components/schemas/TimeRange' }
         data_as_of: { type: string, format: date-time }
         sources: { type: array, items: { $ref: '#/components/schemas/SourceId' } }
-        bucket_seconds: { type: integer, minimum: 1 }
+        bucket_seconds:
+          type: integer
+          minimum: 1
+          description: 'Length of each series bucket: 60 s for 15m and 1h, 300 s for 6h, 900 s for 24h, 3,600 s for 7d, 10,800 s for 30d, 21,600 s for 90d (at most 360 buckets, NFR-PERF-06).'
         snapshot_interval_seconds:
           {
             type: ['integer', 'null'],

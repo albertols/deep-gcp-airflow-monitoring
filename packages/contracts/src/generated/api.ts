@@ -308,6 +308,8 @@ export interface components {
         EnvironmentOverview: {
             env_id: string;
             range: components["schemas"]["TimeRange"];
+            /** @description Share of the range with collected task history (from the earliest try read). Below 1, the range starts before DCAM collected, so totals cover less than the range; 0 means no data yet. */
+            coverage?: number;
             /** Format: date-time */
             data_as_of: string;
             sources: ("SRC-AF-API" | "SRC-MON" | "SRC-COMPOSER" | "DEMO")[];
@@ -341,6 +343,8 @@ export interface components {
             env_id: string;
             range: components["schemas"]["TimeRange"];
             previous_range: components["schemas"]["TimeRange"];
+            /** @description Share of the range with collected task history (from the earliest try read). Below 1, the range starts before DCAM collected, so totals cover less than the range; 0 means no data yet. */
+            coverage?: number;
             /** @description Share of the previous range with collected task history (from the earliest stored try). Below 1, a DAG absent then may have run before DCAM collected; 0 means no data for the previous range. */
             previous_coverage: number;
             /** Format: date-time */
@@ -611,6 +615,7 @@ export interface components {
             /** Format: date-time */
             data_as_of: string;
             sources: components["schemas"]["SourceId"][];
+            /** @description Length of each series bucket: 60 s for 15m and 1h, 300 s for 6h, 900 s for 24h, 3,600 s for 7d, 10,800 s for 30d, 21,600 s for 90d (at most 360 buckets, NFR-PERF-06). */
             bucket_seconds: number;
             /** @description The af.live cadence observed in the range (median gap between snapshots); null with fewer than two snapshots. Each snapshot stands for the gap to the next one, at most twice this. */
             snapshot_interval_seconds: number | null;
@@ -1616,8 +1621,16 @@ export interface components {
     };
     parameters: {
         EnvId: string;
-        Range: "1h" | "6h" | "24h";
-        /** @description The shared ranges, and 7d for the day × hour heatmap. Buckets are 1 min, 5 min, 15 min and 1 h. */
+        /**
+         * @description Time range ending now (FR-UI-01): 15 minutes to 90 days, the raw retention of task instances
+         *     (FR-STORE-02). Views that compare use the previous range of equal length. Charts use a bucket that
+         *     keeps them at 360 points or fewer, named in the response (NFR-PERF-06).
+         */
+        Range: "15m" | "1h" | "6h" | "24h" | "7d" | "30d" | "90d";
+        /**
+         * @description Time range ending now, up to 7 days: the capacity analysis works per minute. Buckets are 1 min, 5 min,
+         *     15 min and 1 h.
+         */
         CapacityRange: "1h" | "6h" | "24h" | "7d";
     };
     requestBodies: never;
@@ -1669,7 +1682,12 @@ export interface operations {
     getEnvironmentOverview: {
         parameters: {
             query?: {
-                range?: "1h" | "6h" | "24h";
+                /**
+                 * @description Time range ending now (FR-UI-01): 15 minutes to 90 days, the raw retention of task instances
+                 *     (FR-STORE-02). Views that compare use the previous range of equal length. Charts use a bucket that
+                 *     keeps them at 360 points or fewer, named in the response (NFR-PERF-06).
+                 */
+                range?: components["parameters"]["Range"];
             };
             header?: never;
             path: {
@@ -1702,6 +1720,11 @@ export interface operations {
     getDagLeague: {
         parameters: {
             query?: {
+                /**
+                 * @description Time range ending now (FR-UI-01): 15 minutes to 90 days, the raw retention of task instances
+                 *     (FR-STORE-02). Views that compare use the previous range of equal length. Charts use a bucket that
+                 *     keeps them at 360 points or fewer, named in the response (NFR-PERF-06).
+                 */
                 range?: components["parameters"]["Range"];
             };
             header?: never;
@@ -1728,6 +1751,11 @@ export interface operations {
     getDagDetail: {
         parameters: {
             query?: {
+                /**
+                 * @description Time range ending now (FR-UI-01): 15 minutes to 90 days, the raw retention of task instances
+                 *     (FR-STORE-02). Views that compare use the previous range of equal length. Charts use a bucket that
+                 *     keeps them at 360 points or fewer, named in the response (NFR-PERF-06).
+                 */
                 range?: components["parameters"]["Range"];
                 /** @description Run shown in the Gantt chart; the latest run by default. */
                 run_id?: string;
@@ -1757,6 +1785,11 @@ export interface operations {
     getBottlenecks: {
         parameters: {
             query?: {
+                /**
+                 * @description Time range ending now (FR-UI-01): 15 minutes to 90 days, the raw retention of task instances
+                 *     (FR-STORE-02). Views that compare use the previous range of equal length. Charts use a bucket that
+                 *     keeps them at 360 points or fewer, named in the response (NFR-PERF-06).
+                 */
                 range?: components["parameters"]["Range"];
             };
             header?: never;
@@ -1783,6 +1816,11 @@ export interface operations {
     getSchedule: {
         parameters: {
             query?: {
+                /**
+                 * @description Time range ending now (FR-UI-01): 15 minutes to 90 days, the raw retention of task instances
+                 *     (FR-STORE-02). Views that compare use the previous range of equal length. Charts use a bucket that
+                 *     keeps them at 360 points or fewer, named in the response (NFR-PERF-06).
+                 */
                 range?: components["parameters"]["Range"];
             };
             header?: never;
@@ -1809,7 +1847,10 @@ export interface operations {
     getCapacity: {
         parameters: {
             query?: {
-                /** @description The shared ranges, and 7d for the day × hour heatmap. Buckets are 1 min, 5 min, 15 min and 1 h. */
+                /**
+                 * @description Time range ending now, up to 7 days: the capacity analysis works per minute. Buckets are 1 min, 5 min,
+                 *     15 min and 1 h.
+                 */
                 range?: components["parameters"]["CapacityRange"];
             };
             header?: never;

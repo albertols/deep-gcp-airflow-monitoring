@@ -5,8 +5,15 @@
  * noisy neighbours (HM-017) and priority bands (HM-023). Where the store's retention deleted or thinned
  * snapshots of the range, the response says from when (FR-STORE-02, FR-STORE-07).
  *
+ * Any range preset: the chart bucket keeps the series at 360 points or fewer (NFR-PERF-06), and snapshots
+ * and tries are read a week at a time (NFR-PERF-01, {@link BOTTLENECK_SLICE_MS}). Snapshots are read twice
+ * for ranges over a week: their times and spans first, for the window's `af.live` cadence, then in full for
+ * the attribution, pool activity, priority bands and executor slots, which all take batches and equal a
+ * single read. HM-017 needs every try of the range at once; beyond a week it keeps one small record per try
+ * (DAG, queued, start, end), not the tries themselves.
+ *
  * @implements FR-BOTL-01, FR-BOTL-02, FR-BOTL-06, FR-BOTL-07, FR-BOTL-09, FR-ENV-08, FR-STORE-02, FR-STORE-07,
- *   HM-006, HM-008, HM-011, HM-012, HM-017, HM-023
+ *   HM-006, HM-008, HM-011, HM-012, HM-017, HM-023, FR-UI-01, NFR-PERF-01, NFR-PERF-06
  */
 import type { Bottlenecks, Range, SourceId } from '@dcam/contracts';
 import {
@@ -14,17 +21,24 @@ import {
   UNEVALUATED_REASONS,
   WAIT_REASONS,
   adviceGap,
-  attributeWaiting,
   capacityStats,
+  createAttribution,
+  createPoolActivity,
+  createPriorityFairness,
+  createSlotsPerMinute,
   limitKnown,
-  poolActivity,
-  priorityFairness,
+  ownsTry,
   quantile,
+  rawCadenceMs,
+  type LiveSnapshot,
+  type NeighbourTry,
+  type TimedSnapshot,
   type WaitReasonId,
 } from '@dcam/domain';
-import type { Clock, EnvironmentModelSource, TaskInstanceStore } from '@dcam/ports';
+import type { Clock, EnvironmentModelSource, StoredTaskTry, TaskInstanceStore } from '@dcam/ports';
 import { noisyNeighboursIn, poolDetail, priorityFairnessOf, topPools } from './bottlenecks-depth';
-import { RANGE_MS } from './range';
+import { CHART_BUCKET_MS, RANGE_MS } from './range';
+import { SLICE_MS, sliceSnapshots, sliceTries, slicesOf } from './slices';
 import { composerConfig, usedSources } from './sources';
 
 /**
@@ -33,7 +47,12 @@ import { composerConfig, usedSources } from './sources';
  * two cadences (domain `snapshot-time.ts`): the live profile collects every 10 s, eco every 120 s.
  */
 export const DEFAULT_SNAPSHOT_CADENCE_MS = 30_000;
-const BUCKET_MS: Record<Range, number> = { '1h': 60_000, '6h': 300_000, '24h': 900_000 };
+/**
+ * Slices of the bottleneck analysis: a week, so 7 days are read once, as one query, and longer ranges a week
+ * at a time. A week of snapshots and tries at 2,000 DAGs is about 20,000 snapshots (30 s cadence) and
+ * 140,000 tries, which fits; reading a 7-day range in day slices would read its snapshots twice for nothing.
+ */
+export const BOTTLENECK_SLICE_MS = 7 * SLICE_MS;
 const PLATFORM_REASONS = WAIT_REASONS.filter((r) => r !== 'normal-latency');
 
 export interface BottleneckDeps {
@@ -66,7 +85,7 @@ export async function getBottlenecks(deps: BottleneckDeps, q: BottleneckQuery): 
     envId: q.envId,
     from: now - RANGE_MS[q.range],
     to: now,
-    bucketMs: BUCKET_MS[q.range],
+    bucketMs: CHART_BUCKET_MS[q.range],
     sources: q.sources,
   });
 }
@@ -75,29 +94,60 @@ export async function getBottlenecks(deps: BottleneckDeps, q: BottleneckQuery): 
 export async function bottlenecksInWindow(
   deps: Pick<BottleneckDeps, 'store' | 'model'>,
   q: BottleneckWindowQuery,
+  /** Store slice length; tests vary it to prove the result does not depend on it. */
+  { sliceMs = BOTTLENECK_SLICE_MS }: { readonly sliceMs?: number } = {},
 ): Promise<Bottlenecks> {
   const { from, to: now, bucketMs } = q;
   const config = await deps.model.config(q.envId);
   if (!config) throw new Error(`No configuration collected for environment "${q.envId}".`);
-  const [dags, snapshots, samples, tries, horizon] = await Promise.all([
+  const [dags, samples, horizon] = await Promise.all([
     deps.model.dags(q.envId),
-    deps.model.snapshots(q.envId, from, now),
     deps.model.workerSamples(q.envId, from, now),
-    deps.store.taskTries(q.envId, from, now),
     deps.model.snapshotHorizon?.(q.envId),
   ]);
+  const slices = slicesOf(from, now, sliceMs);
   // A horizon at or before the range start changes nothing in it; thinned data older than the deleted is gone.
   const inside = (t: number | null, after: number) =>
     t !== null && t > after ? iso(Math.min(t, now)) : null;
   const deletedFrom = Math.max(from, horizon?.deletedBefore ?? from);
 
-  const a = attributeWaiting(
-    snapshots,
+  // The raw snapshots' cadence over the whole window comes first: a raw snapshot stands for the gap to the
+  // next one, capped at two cadences; a thinned one for its stored span. One slice is read once and kept.
+  let kept: LiveSnapshot[] | null = null;
+  let timed: readonly TimedSnapshot[] = [];
+  if (slices.length === 1 && slices[0]) {
+    kept = await sliceSnapshots(deps.model, q.envId, slices[0]);
+    timed = kept;
+  } else {
+    const times: TimedSnapshot[] = [];
+    for (const slice of slices)
+      for (const s of await sliceSnapshots(deps.model, q.envId, slice))
+        times.push(s.spanMs === undefined ? { at: s.at } : { at: s.at, spanMs: s.spanMs });
+    timed = times;
+  }
+  const window = {
+    from,
+    to: now,
+    bucketMs,
+    fallbackCadenceMs: DEFAULT_SNAPSHOT_CADENCE_MS,
+    cadenceMs: rawCadenceMs(timed),
+  };
+  const attribution = createAttribution(
     { config, dagMaxActiveTasks: new Map(dags.map((d) => [d.dagId, d.maxActiveTasks])) },
-    { from, to: now, bucketMs, fallbackCadenceMs: DEFAULT_SNAPSHOT_CADENCE_MS },
+    window,
   );
-  const window = { from, to: now, bucketMs, fallbackCadenceMs: DEFAULT_SNAPSHOT_CADENCE_MS };
-  const activity = new Map(poolActivity(snapshots, config, window).map((p) => [p.name, p]));
+  const pools = createPoolActivity(config, window);
+  const bands = createPriorityFairness(window);
+  const slots = createSlotsPerMinute({ samples, config, from, to: now });
+  for (const slice of slices) {
+    const snapshots = kept ?? (await sliceSnapshots(deps.model, q.envId, slice));
+    attribution.add(snapshots);
+    pools.add(snapshots);
+    bands.add(snapshots);
+    slots.add(snapshots);
+  }
+  const a = attribution.result();
+  const activity = new Map(pools.result().map((p) => [p.name, p]));
   const waitingMs = PLATFORM_REASONS.reduce((s, r) => s + (a.totals.get(r) ?? 0), 0);
   const share = (part: number, whole: number) => (whole > 0 ? part / whole : 0);
   const top = PLATFORM_REASONS.reduce<WaitReasonId | null>(
@@ -117,7 +167,7 @@ export async function bottlenecksInWindow(
   const capacity = capacityStats(samples, config);
   // The advisor's data gate over this range: the headline never advises what the advisor would not.
   const rangeMs = now - from;
-  const inRange = snapshots.filter((s) => s.at >= from && s.at < now).length;
+  const inRange = timed.length;
   const quality = {
     coverage: {
       snapshots: Math.min(1, a.coveredMs / rangeMs),
@@ -127,15 +177,30 @@ export async function bottlenecksInWindow(
     snapshotCount: inRange,
     sampleCount: samples.length,
   };
+  // HM-008: worker slot time held by poke-mode sensors; HM-017 needs each try's DAG, queue and run times.
+  // Each try counts in the slice it started in.
   const sensors = new Map<string, { dag_id: string; task_id: string; slot_seconds: number }>();
-  for (const t of tries) {
-    if (!t.operator?.endsWith('Sensor') || t.startAt === null) continue;
+  const addSensor = (t: StoredTaskTry) => {
+    if (!t.operator?.endsWith('Sensor') || t.startAt === null) return;
     const held = (Math.min(t.endAt ?? now, now) - Math.max(t.startAt, from)) / 1000;
-    if (held <= 0) continue;
+    if (held <= 0) return;
     const key = `${t.dagId}\u0000${t.taskId}`;
     const s = sensors.get(key) ?? { dag_id: t.dagId, task_id: t.taskId, slot_seconds: 0 };
     s.slot_seconds += held;
     sensors.set(key, s);
+  };
+  // One slice (up to a week) keeps the tries themselves, which HM-017 reads fastest; longer ranges keep only
+  // the four fields HM-017 reads, so a month of tries never stays in memory whole.
+  const neighbourTries: NeighbourTry[] = [];
+  const compact = slices.length > 1;
+  for (const slice of slices) {
+    for (const t of await sliceTries(deps.store, q.envId, slice)) {
+      if (!ownsTry(t, slice, slice.from <= from)) continue;
+      addSensor(t);
+      neighbourTries.push(
+        compact ? { dagId: t.dagId, queuedAt: t.queuedAt, startAt: t.startAt, endAt: t.endAt } : t,
+      );
+    }
   }
 
   return {
@@ -143,7 +208,7 @@ export async function bottlenecksInWindow(
     range: { from: iso(from), to: iso(now) },
     data_as_of: iso(latest?.snapshot.at ?? now),
     sources: usedSources(q.sources, {
-      airflow: snapshots.length > 0 || tries.length > 0 || dags.length > 0,
+      airflow: timed.length > 0 || neighbourTries.length > 0 || dags.length > 0,
       monitoring: samples.length > 0,
       composer: composerConfig(config),
     }),
@@ -212,8 +277,16 @@ export async function bottlenecksInWindow(
         ...poolDetail(activity.get(p.name)),
       };
     }),
-    noisy_neighbours: noisyNeighboursIn({ config, tries, samples, snapshots, from, to: now, now }),
-    priority_fairness: priorityFairnessOf(priorityFairness(snapshots, { from, to: now })),
+    noisy_neighbours: noisyNeighboursIn({
+      config,
+      tries: neighbourTries,
+      slots: slots.result(),
+      slotsSource: slots.source(),
+      from,
+      to: now,
+      now,
+    }),
+    priority_fairness: priorityFairnessOf(bands.result()),
     capacity: {
       capacity_bound_minutes: capacity.capacityBoundMinutes,
       minutes_at_max_workers: capacity.minutesAtMax,

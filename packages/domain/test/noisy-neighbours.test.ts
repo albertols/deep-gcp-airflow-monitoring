@@ -7,8 +7,12 @@ import {
   type EnvironmentConfig,
   type LiveSnapshot,
   type NeighbourTry,
+  type TaskTry,
   type WorkerSample,
 } from '../src/index';
+
+/** HM-017 reads four fields of a try; the tests build whole tries, as the store returns them. */
+type Try = NeighbourTry & TaskTry;
 
 const SEC = 1_000;
 const MIN = 60 * SEC;
@@ -16,13 +20,7 @@ const H = 60 * MIN;
 /** A Monday 00:00 UTC, so that hours of the week are easy to read. */
 const T0 = Date.UTC(2026, 10, 2, 0, 0, 0);
 
-const t = (
-  dagId: string,
-  queuedMin: number,
-  waitSec: number,
-  runSec = 1,
-  extra: Partial<NeighbourTry> = {},
-): NeighbourTry => {
+const t = (dagId: string, queuedMin: number, waitSec: number, runSec = 1, extra: Partial<Try> = {}): Try => {
   const queuedAt = T0 + queuedMin * MIN;
   const startAt = queuedAt + waitSec * SEC;
   return {
@@ -45,8 +43,8 @@ const t = (
  * Each minute four small DAGs queue one try each: in hour 0 they wait 120 s while hog runs and 60 s while it
  * does not; in hour 1, 300 s and 120 s; in hour 2 (hog never runs) 600 s.
  */
-function golden(): NeighbourTry[] {
-  const tries: NeighbourTry[] = [
+function golden(): Try[] {
+  const tries: Try[] = [
     t('hog', 0, 0, 30 * 60, { taskId: 'big_1' }),
     t('hog', 60, 0, 40 * 60, { taskId: 'big_2' }),
   ];
@@ -158,7 +156,7 @@ describe('HM-017 noisy-neighbour effect (FR-BOTL-06)', () => {
   });
 
   it('HM-017: deterministic, and the effect does not change when every other wait shifts by the same time', () => {
-    const shift = (tries: readonly NeighbourTry[], sec: number) =>
+    const shift = (tries: readonly Try[], sec: number) =>
       tries.map((x) => (x.dagId === 'hog' ? x : { ...x, startAt: (x.startAt as number) + sec * SEC }));
     fc.assert(
       fc.property(fc.integer({ min: 0, max: 600 }), (sec) => {

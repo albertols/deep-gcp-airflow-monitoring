@@ -52,13 +52,16 @@ describe('GET /api/v1/environments/{env_id}/capacity (FR-ENV-02, FR-DAGX-06)', {
     expect(c.dag_load.covered_hours.every((h) => h >= 1)).toBe(true);
   });
 
-  it('answers unknown environments with 404 and bad ranges with 400; 7d stays a capacity range only', async () => {
+  it('answers unknown environments with 404, and global presets outside 1 h to 7 days with 400 (FR-UI-01)', async () => {
     expect((await get('/api/v1/environments/acme-nope/capacity')).statusCode).toBe(404);
-    const bad = await get('/api/v1/environments/acme-prod/capacity?range=30d');
-    expect(bad.statusCode).toBe(400);
-    expect(bad.headers['content-type']).toContain('application/problem+json');
-    expect(bad.json<{ fix_hint: string }>().fix_hint).toContain('7d');
-    expect((await get('/api/v1/environments/acme-prod/bottlenecks?range=7d')).statusCode).toBe(400);
+    for (const range of ['15m', '30d', '90d']) {
+      const bad = await get(`/api/v1/environments/acme-prod/capacity?range=${range}`);
+      expect(bad.statusCode).toBe(400);
+      expect(bad.headers['content-type']).toContain('application/problem+json');
+      expect(bad.json<{ fix_hint: string }>().fix_hint).toBe('Use one of 1h, 6h, 24h or 7d.');
+    }
+    // The other pages take every preset, 7 days included.
+    expect((await get('/api/v1/environments/acme-prod/bottlenecks?range=7d')).statusCode).toBe(200);
   });
 });
 

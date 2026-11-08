@@ -104,31 +104,52 @@ export function plannedStarts(dags: readonly DagMeta[]): PlannedStarts {
 }
 
 export function actualRunStarts(tries: readonly TaskTry[], window: ActualStartsWindow): ActualStarts {
-  const first = new Map<string, number>();
-  for (const t of tries) {
-    if (t.startAt === null) continue;
-    const key = `${t.dagId}\u0000${t.runId}`;
-    const seen = first.get(key);
-    if (seen === undefined || t.startAt < seen) first.set(key, t.startAt);
-  }
-  const cells = new Array<number>(CELLS).fill(0);
-  let runs = 0;
-  for (const at of first.values()) {
-    if (at < window.from || at >= window.to) continue;
-    const d = new Date(at);
-    const i = d.getUTCHours() * 60 + d.getUTCMinutes();
-    cells[i] = (cells[i] ?? 0) + 1;
-    runs++;
-  }
-  const historyFrom = window.historyFrom === undefined ? window.from : window.historyFrom;
-  const length = window.to - window.from;
-  const covered = historyFrom === null ? 0 : Math.max(0, window.to - Math.max(window.from, historyFrom));
+  const acc = createActualRunStarts(window);
+  acc.add(tries);
+  return acc.result(window.historyFrom);
+}
+
+/**
+ * {@link actualRunStarts} over tries added in batches, for example one store slice a day at a time
+ * (NFR-PERF-01). A run's start is its earliest try start, so a try read in two slices changes nothing. The
+ * history start, often known only once the tries are read, is given to `result`.
+ */
+export function createActualRunStarts(window: Pick<ActualStartsWindow, 'from' | 'to'>) {
+  // Nested on the tries' own strings: no composite key per try.
+  const first = new Map<string, Map<string, number>>();
   return {
-    cells,
-    runs,
-    days: covered / DAY_MS,
-    historyFrom,
-    coverage: length > 0 ? Math.min(1, covered / length) : 0,
+    add(tries: readonly TaskTry[]): void {
+      for (const t of tries) {
+        if (t.startAt === null) continue;
+        let runs = first.get(t.dagId);
+        if (!runs) first.set(t.dagId, (runs = new Map<string, number>()));
+        const seen = runs.get(t.runId);
+        if (seen === undefined || t.startAt < seen) runs.set(t.runId, t.startAt);
+      }
+    },
+    /** `historyFrom` as in {@link ActualStartsWindow}: absent means the history covers the range. */
+    result(historyFrom: number | null | undefined = undefined): ActualStarts {
+      const cells = new Array<number>(CELLS).fill(0);
+      let runs = 0;
+      for (const byRun of first.values())
+        for (const at of byRun.values()) {
+          if (at < window.from || at >= window.to) continue;
+          const d = new Date(at);
+          const i = d.getUTCHours() * 60 + d.getUTCMinutes();
+          cells[i] = (cells[i] ?? 0) + 1;
+          runs++;
+        }
+      const start = historyFrom === undefined ? window.from : historyFrom;
+      const length = window.to - window.from;
+      const covered = start === null ? 0 : Math.max(0, window.to - Math.max(window.from, start));
+      return {
+        cells,
+        runs,
+        days: covered / DAY_MS,
+        historyFrom: start,
+        coverage: length > 0 ? Math.min(1, covered / length) : 0,
+      };
+    },
   };
 }
 

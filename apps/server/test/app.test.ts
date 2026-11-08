@@ -75,6 +75,12 @@ describe('ADR-0003 contract: responses conform to openapi.yaml', () => {
     expect(bad.statusCode).toBe(400);
     expect(conforms('Problem', bad.json())).toBe(true);
   });
+
+  it.each(['15m', '7d', '30d', '90d'])('FR-UI-01: the overview accepts the %s preset', async (range) => {
+    const res = await get(`/api/v1/environments/acme-prod/overview?range=${range}`);
+    expect(res.statusCode).toBe(200);
+    expect(conforms('EnvironmentOverview', res.json())).toBe(true);
+  });
 });
 
 describe('NFR-SEC-02 local web security', () => {

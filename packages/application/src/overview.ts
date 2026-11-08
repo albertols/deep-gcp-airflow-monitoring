@@ -1,20 +1,16 @@
 /**
- * Use case: capacity overview for one environment (the M0 slice of the league table).
+ * Use case: capacity overview for one environment (the M0 slice of the league table), over any range
+ * preset; long ranges are read a day at a time (NFR-PERF-01).
  *
- * @implements HM-003, HM-011, FR-DAGX-03
+ * @implements HM-003, HM-011, FR-DAGX-03, FR-UI-01, NFR-PERF-01
  */
-import type { EnvironmentOverview } from '@dcam/contracts';
-import { TOTAL_KEY, occupancySeries, slotSeconds } from '@dcam/domain';
+import type { EnvironmentOverview, Range } from '@dcam/contracts';
+import { createCapacityAccumulator } from '@dcam/domain';
 import type { Clock, TaskInstanceStore } from '@dcam/ports';
+import { RANGE_MS } from './range';
+import { earliestOf, historyCoverage, sliceTries, slicesOf } from './slices';
 
-export type OverviewRange = '1h' | '6h' | '24h';
 export type SourceId = EnvironmentOverview['sources'][number];
-
-const RANGE_MS: Record<OverviewRange, number> = {
-  '1h': 3_600_000,
-  '6h': 6 * 3_600_000,
-  '24h': 24 * 3_600_000,
-};
 
 export interface OverviewDeps {
   readonly store: TaskInstanceStore;
@@ -23,7 +19,7 @@ export interface OverviewDeps {
 
 export interface OverviewQuery {
   readonly envId: string;
-  readonly range: OverviewRange;
+  readonly range: Range;
   readonly sources: readonly SourceId[];
 }
 
@@ -46,22 +42,28 @@ export async function getEnvironmentOverview(
 ): Promise<EnvironmentOverview> {
   const now = deps.clock.now();
   const window = { from: now - RANGE_MS[q.range], to: now, now };
-  const tries = await deps.store.taskTries(q.envId, window.from, window.to);
-  const seconds = slotSeconds(tries, window);
+  const capacity = createCapacityAccumulator(window);
+  let earliest = Infinity;
+  for (const slice of slicesOf(window.from, window.to)) {
+    const tries = await sliceTries(deps.store, q.envId, slice);
+    earliest = earliestOf(tries, earliest);
+    capacity.add(tries, slice);
+  }
+  const seconds = capacity.result();
   const total = seconds.totalExecutorSlotSeconds;
   const ranked = [...seconds.byDag.entries()]
-    .map(([dagId, s]) => ({ dag_id: dagId, executor_slot_seconds: s.executorSlotSeconds }))
+    .map(([dagId, s]) => ({ dag_id: dagId, executor_slot_seconds: s }))
     .filter((d) => d.executor_slot_seconds > 0)
     .sort((a, b) => b.executor_slot_seconds - a.executor_slot_seconds || a.dag_id.localeCompare(b.dag_id));
-  const occupancy = occupancySeries(tries, window).get(TOTAL_KEY) ?? [];
   return {
     env_id: q.envId,
     range: { from: new Date(window.from).toISOString(), to: new Date(window.to).toISOString() },
+    coverage: historyCoverage(earliest, window),
     data_as_of: new Date(now).toISOString(),
     sources: [...q.sources],
     approximate: false,
     total_executor_slot_seconds: total,
-    peak_concurrency: occupancy.reduce((m, b) => Math.max(m, b.max), 0),
+    peak_concurrency: seconds.peakConcurrency,
     dag_count: ranked.length,
     pareto_80_dag_count: paretoCount(ranked.map((d) => d.executor_slot_seconds)),
     top_dags: ranked
