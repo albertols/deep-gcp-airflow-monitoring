@@ -5,7 +5,8 @@
   REC-DAG-01, NFR-DATA-03, NFR-DATA-04, NFR-PERF
 - **Scope:** backend only (domain, application, contract, server, store read). The web panels for S-12
   "concurrency", S-13 run comparison and S-14 compare DAGs come in a later task.
-- **Status:** implemented (backend); web panels, browser validation and code review pending
+- **Status:** implemented (backend), rebased on feature 003's sliced reads and range presets; web panels, browser
+  validation and code review pending
 
 ## Requirements extracted from docs/spec/dcam-spec.md
 
@@ -43,14 +44,14 @@
 2. **Profile series.** Running task instances per bucket from tries (HM-011 sweep: mean and peak, exact),
    running + queued and ready from live snapshots (peak per bucket; `null` in buckets without snapshots), time at
    the limit per bucket, and per pool the DAG's slots in use (from tries) against the pool's occupied slots (from
-   snapshots). Buckets as on the bottlenecks page: 1 min, 5 min, 15 min for 1 h, 6 h, 24 h.
+   snapshots). Buckets are the context bar's chart buckets (`CHART_BUCKET_MS`, at most 360 per range).
 3. **Share of load.** Per bucket: the DAG's executor slot-seconds ÷ the environment's (HM-003), and ÷ the executor
    slots (workers × `worker_concurrency`, HM-011) where they are known. Buckets before the environment's history
    start, or without load, are `null`.
 4. **Noisy-neighbour score.** HM-017 exactly as the bottlenecks page computes it (same window, inputs, minimums and
    seeded minute-block bootstrap), evaluated for this one DAG; the status says why there is no score
    (not evaluated, inactive, below the minimums, not associated). The interval is computed for any qualified DAG.
-5. **Compare DAGs.** Range 1 h, 6 h, 24 h or 7 d (default 24 h). KPIs are the league's (`dagWindowStats`); duration
+5. **Compare DAGs.** Any range preset, 15 min to 90 days (default 24 h). KPIs are the league's (`dagWindowStats`); duration
    distributions are successful run durations with shared log-spaced bins; hourly load profiles are mean running
    slots per UTC hour of day over the hours DCAM has history for; resource shares are executor and pool
    slot-seconds against each environment's totals. The API is UTC (`time_zone: UTC`): DCAM collects neither
@@ -63,7 +64,7 @@
    timing-estimated critical path (HM-007/timing) of run b − run a; contributions sum to the run duration
    difference. Tasks are ranked by contribution in the direction of the difference; with a run still in progress
    (no critical path) by the duration delta, and the response says so.
-8. **Reads.** DAG detail keeps its environment-wide read (HM-017 needs other DAGs' queue waits). Compare reads each
+8. **Reads.** DAG detail reads the environment a day at a time (feature 003's slices): each try counts once, and only the DAG's tries, the environment's load per bucket and the four fields of each try HM-017 reads are kept; snapshots are fed to `createConcurrencyProfile`, which assigns spans with the window's cadence at the end. Compare reads each
    DAG through `dagTaskTries` and each environment's totals through a new, optional store aggregate
    (`environmentLoad`); run comparison reads one DAG.
 

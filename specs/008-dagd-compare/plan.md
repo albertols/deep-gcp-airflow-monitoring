@@ -23,7 +23,7 @@ server  routes/dags.ts         + GET …/dags/{dag_id}/runs/compare; DAG finding
 DAG detail is extended, not split: `DagDetail.concurrency` and `DagDetail.impact` are optional fields (the S-12
 tabs read one response, as for the baseline and reliability). Comparisons are new endpoints:
 
-- `GET /api/v1/compare/dags?dags=<env>:<dag>,…&range=` → `DagComparison` (2 to 4 items; `range` 1h, 6h, 24h, 7d).
+- `GET /api/v1/compare/dags?dags=<env>:<dag>,…&range=` → `DagComparison` (2 to 4 items; `range` any preset, the global `Range` parameter).
   An item splits at its first colon: environment IDs have none (`^[a-z0-9][a-z0-9-]{0,62}$`), and Airflow DAG IDs
   match `^[\w.-]+$` (`KEY_REGEX`, `airflow/utils/helpers.py`), so they have no comma.
 - `GET /api/v1/environments/{env_id}/dags/{dag_id}/runs/compare?a=<run>&b=<run>&range=` → `RunComparison`
@@ -36,9 +36,9 @@ tabs read one response, as for the baseline and reliability). Comparisons are ne
 | `packages/domain`                | New modules above; `advisor-signals.ts` uses the shared HM-005; `noisy-neighbours.ts` split                                                                                                               |
 | `packages/ports`                 | Optional `TaskInstanceStore.environmentLoad(envId, from, to, now, bucketMs)`                                                                                                                              |
 | `packages/adapters/duckdb-store` | `environmentLoad` as one SQL aggregate, checked against the domain function                                                                                                                               |
-| `packages/application`           | `getDagDetail` fields; `getDagComparison`, `getRunComparison`; shared bucket sizes                                                                                                                        |
+| `packages/application`           | `getDagDetail` fields in its slice loop; `getDagComparison`, `getRunComparison`                                                                                                                           |
 | `packages/contracts`             | Additive: `DagDetail.concurrency`, `.impact`; schemas `DagConcurrency`, `DagImpact`, `DagNoisyNeighbour`, `NoisyNeighbour` (the item, extracted), `DagComparison`, `RunComparison`; two paths; `pnpm gen` |
-| `apps/server`                    | Routes, range parsing for `7d`, demo conformance and stories                                                                                                                                              |
+| `apps/server`                    | Routes (ranges through `parseRange`), demo conformance and stories                                                                                                                                        |
 
 No web changes. No collector or fakes changes: the demo already has the throttled fan-out DAG
 (`customer_360_rebuild`), the noisy neighbour (`search_index_rebuild`) and a regressed task (`search_ranking_refresh`).
@@ -56,8 +56,9 @@ No web changes. No collector or fakes changes: the demo already has the throttle
 
 ## Performance
 
-- DAG detail: the concurrency profile is linear in the DAG's tries and the snapshots; impact adds one sweep of the
-  environment's tries already read and HM-017 for one DAG (one wait index, one bootstrap). Test: the 7-day domain
+- DAG detail: the concurrency profile is linear in the DAG's tries and the snapshots, fed a day at a time; impact
+  adds one pass over the environment's tries already read in slices and HM-017 for one DAG (one wait index, one
+  bootstrap). Test: the 7-day domain
   computations stay < 1 s.
 - Compare: per DAG one `dagTaskTries` read; per environment one `environmentLoad` aggregate (a measured DuckDB read
   of 42,000 tries took ~0.8 s, so 7 days of a 20,000-tries-a-day environment would not fit). Test: 4 DAGs over 7 days
