@@ -14,6 +14,7 @@
  *
  * @implements FR-DAGD-05, HM-005, HM-011
  */
+import { coveredBuckets } from './environment-load';
 import type { EnvironmentConfig, LiveSnapshot } from './model';
 import { TOTAL_KEY, occupancySeries, type SweepWindow, type TaskTry } from './occupancy';
 import {
@@ -90,10 +91,7 @@ export function concurrencyProfile(input: ConcurrencyProfileInput): ConcurrencyP
   const count = Math.max(0, Math.ceil((w.to - w.from) / bucketMs));
   const starts = Array.from({ length: count }, (_, k) => w.from + k * bucketMs);
   // A bucket that ends before the history start was not collected; one that has not begun yet has not happened.
-  const covered = starts.map(
-    (start) =>
-      input.historyFrom !== null && start + bucketMs > input.historyFrom && start < Math.max(w.from, w.now),
-  );
+  const covered = coveredBuckets(w, bucketMs, input.historyFrom);
 
   const own = input.tries.filter((t) => t.dagId === dagId);
   const running = occupancySeries(own, w, { bucketMs }).get(TOTAL_KEY) ?? [];
