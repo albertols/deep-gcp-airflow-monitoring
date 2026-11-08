@@ -56,6 +56,21 @@ describe('ADR-0003 contract: responses conform to openapi.yaml', () => {
     expect(res.json()).not.toHaveProperty('setup');
   });
 
+  it('FR-UI-04: demo environments say where they live, with fictitious acme places', async () => {
+    const body = (await get('/api/v1/meta')).json();
+    expect(conforms('Meta', body)).toBe(true);
+    expect(body.environments).toContainEqual({
+      env_id: 'acme-prod',
+      display_name: 'acme-prod',
+      tier: 'prod',
+      composer: { project_id: 'acme-prod-123', location: 'us-central1', environment: 'acme-composer-prod' },
+      airflow_uri: 'https://acme-composer-prod.airflow.example',
+    });
+    for (const env of body.environments as Array<{ airflow_uri: string }>)
+      // RFC 2606 reserves .example: a demo link never reaches a real host.
+      expect(new URL(env.airflow_uri).hostname).toMatch(/\.example$/);
+  });
+
   it('HM-003: GET /api/v1/environments/acme-prod/overview', async () => {
     const res = await get('/api/v1/environments/acme-prod/overview?range=24h');
     expect(res.statusCode).toBe(200);

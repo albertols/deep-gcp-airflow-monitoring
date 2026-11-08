@@ -334,6 +334,25 @@ export interface components {
             display_name: string;
             /** @enum {string} */
             tier: "dev" | "test" | "uat" | "prod" | "other";
+            /**
+             * @description The Composer environment DCAM reads, for the "Open in" Cloud console links (FR-UI-04): from the
+             *     configuration file in live mode, fictitious acme values in demo mode. Absent for a self-managed
+             *     Airflow.
+             */
+            composer?: {
+                project_id: string;
+                /** @description Region, for example us-central1. */
+                location: string;
+                /** @description Composer environment name. */
+                environment: string;
+            };
+            /**
+             * @description Base URL of the Airflow web server, for the "Open in" Airflow UI links (FR-UI-04): Composer's
+             *     config.airflowUri, which the composer.config collector reads, or the configured baseUrl of a
+             *     self-managed Airflow. Null until DCAM knows it; absent from older servers. Never carries a
+             *     credential.
+             */
+            airflow_uri?: string | null;
         };
         TimeRange: {
             /** Format: date-time */

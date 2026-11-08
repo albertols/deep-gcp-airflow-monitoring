@@ -3,6 +3,8 @@
  * organisation. Task tries go into an in-memory DuckDB store; configuration, live snapshots, worker
  * samples and platform health are served by the in-memory environment model. No credentials and no
  * network access.
+ *
+ * @implements FR-EMU-01, FR-UI-04
  */
 import type { Meta } from '@dcam/contracts';
 import { openStore } from '@dcam/duckdb-store';
@@ -26,6 +28,26 @@ const ENVIRONMENTS: ReadonlyArray<{ id: AcmeEnvironment; tier: Meta['environment
   { id: 'acme-dev', tier: 'dev' },
 ];
 
+/**
+ * Where the demo environments "live", for the "Open in" links (FR-UI-04): fictitious projects and
+ * environments, and Airflow addresses under `.example` (reserved by RFC 2606), so a demo link never reaches
+ * a real environment. The UI says so.
+ */
+function demoSummary(e: (typeof ENVIRONMENTS)[number]): Meta['environments'][number] {
+  const stage = e.id.replace(/^acme-/, '');
+  return {
+    env_id: e.id,
+    display_name: e.id,
+    tier: e.tier,
+    composer: {
+      project_id: `acme-${stage}-123`,
+      location: 'us-central1',
+      environment: `acme-composer-${stage}`,
+    },
+    airflow_uri: `https://acme-composer-${stage}.airflow.example`,
+  };
+}
+
 export async function createDemoWorkspace(
   options: { now?: () => number; seed?: number; hours?: number } = {},
 ): Promise<Workspace> {
@@ -47,7 +69,7 @@ export async function createDemoWorkspace(
   for (const r of results) await store.upsertTaskTries(r.tries);
   return {
     mode: 'demo',
-    environments: ENVIRONMENTS.map((e) => ({ env_id: e.id, display_name: e.id, tier: e.tier })),
+    environments: ENVIRONMENTS.map(demoSummary),
     store,
     model: new InMemoryEnvironmentModel(results),
     clock,
