@@ -5,14 +5,18 @@
  *
  * Clipping is `slotSeconds`'s: a try without a start, or ending before it starts, is no load; a running try ends at
  * `now`; time after `now` has not happened. Executor slot-seconds count one slot per running try; pool
- * slot-seconds weigh by `pool_slots`.
+ * slot-seconds weigh by `pool_slots`. Buckets start at an origin at or before the window start: the window start
+ * itself by default, or a UTC-aligned time (the hour, for hour-of-day profiles); a store's grid is aligned so.
  *
  * @implements HM-003, FR-DAGD-06, FR-DAGD-08
  */
 import type { SweepWindow, TaskTry } from './occupancy';
 
 export interface EnvironmentLoad {
-  /** Executor slot-seconds per bucket of the given size from the window start; `ceil(window ÷ bucket)` entries. */
+  /** Start of the first bucket, at or before the window start. */
+  readonly origin: number;
+  readonly bucketMs: number;
+  /** Executor slot-seconds per bucket from the origin, `ceil((to − origin) ÷ bucket)` entries. */
   readonly executorSlotSeconds: readonly number[];
   /** Pool slot-seconds per pool over the window. */
   readonly poolSlotSeconds: ReadonlyMap<string, number>;
@@ -22,10 +26,12 @@ export function environmentLoad(
   tries: readonly TaskTry[],
   w: SweepWindow,
   bucketMs: number,
+  origin: number = w.from,
 ): EnvironmentLoad {
   if (!Number.isInteger(bucketMs) || bucketMs <= 0)
     throw new RangeError(`bucketMs must be a positive integer, not ${bucketMs}`);
-  const count = Math.max(0, Math.ceil((w.to - w.from) / bucketMs));
+  if (origin > w.from) throw new RangeError('the bucket origin must be at or before the window start');
+  const count = Math.max(0, Math.ceil((w.to - origin) / bucketMs));
   const end = Math.min(w.to, Math.max(w.from, w.now));
   const executorMs = new Array<number>(count).fill(0);
   const poolMs = new Map<string, number>();
@@ -37,14 +43,16 @@ export function environmentLoad(
     const to = Math.min(stop, end);
     if (!(to > from)) continue;
     poolMs.set(t.pool, (poolMs.get(t.pool) ?? 0) + (to - from) * t.poolSlots);
-    for (let k = Math.floor((from - w.from) / bucketMs); k < count; k++) {
-      const bFrom = w.from + k * bucketMs;
+    for (let k = Math.floor((from - origin) / bucketMs); k < count; k++) {
+      const bFrom = origin + k * bucketMs;
       if (bFrom >= to) break;
       const overlap = Math.min(to, bFrom + bucketMs) - Math.max(from, bFrom);
       if (overlap > 0) executorMs[k] = (executorMs[k] as number) + overlap;
     }
   }
   return {
+    origin,
+    bucketMs,
     executorSlotSeconds: executorMs.map((ms) => ms / 1000),
     poolSlotSeconds: new Map([...poolMs].map(([pool, ms]) => [pool, ms / 1000])),
   };

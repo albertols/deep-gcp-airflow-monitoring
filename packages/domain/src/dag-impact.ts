@@ -18,7 +18,7 @@ const MIN = 60_000;
 export interface LoadShareInput {
   /** The DAG's tries. */
   readonly dagTries: readonly TaskTry[];
-  /** The environment's load over the same window and buckets (`environmentLoad`). */
+  /** The environment's load over the same window and buckets, from the window start (`environmentLoad`). */
   readonly environment: EnvironmentLoad;
   readonly window: SweepWindow;
   readonly bucketMs: number;
@@ -43,6 +43,8 @@ const ratio = (part: number, whole: number) => Math.min(1, Math.max(0, part / wh
 
 export function loadShare(input: LoadShareInput): LoadShareBucket[] {
   const { window: w, bucketMs } = input;
+  if (input.environment.origin !== w.from || input.environment.bucketMs !== bucketMs)
+    throw new RangeError('the environment load must have the same buckets as the window');
   const covered = coveredBuckets(w, bucketMs, input.historyFrom);
   const dag = environmentLoad(input.dagTries, w, bucketMs).executorSlotSeconds;
   const perMinute = environmentLoad(input.dagTries, w, MIN).executorSlotSeconds;

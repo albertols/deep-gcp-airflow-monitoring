@@ -21,6 +21,7 @@ export * from './self-throttling';
 export * from './concurrency-profile';
 export * from './environment-load';
 export * from './dag-impact';
+export * from './dag-compare';
 export * from './advisor-signals';
 export * from './advisor-rule';
 export * from './advisor';
