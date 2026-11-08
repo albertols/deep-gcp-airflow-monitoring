@@ -1,8 +1,8 @@
 /**
  * Capacity overview (M0): the first slice of the DAG league table (spec §12.4 S-05, FR-DAGX-02/03), over
- * the context bar's range.
+ * the context bar's range, with "Open in" links to the environment in the Cloud console and the Airflow UI.
  *
- * @implements HM-003, HM-011, FR-DAGX-03, FR-UI-01, FR-UI-05, FR-UI-07, FR-UI-08
+ * @implements HM-003, HM-011, FR-DAGX-03, FR-UI-01, FR-UI-04, FR-UI-05, FR-UI-07, FR-UI-08
  */
 import { useQuery } from '@tanstack/react-query';
 import Alert from '@mui/material/Alert';
@@ -20,6 +20,7 @@ import Typography from '@mui/material/Typography';
 import { InfoPopover } from '@dcam/ui-kit';
 import type { DcamApi } from './api';
 import { clause } from './components/format';
+import { OpenInMenu } from './components/OpenInMenu';
 import { CoverageNote, PageHeader } from './components/PageHeader';
 import { ProvenanceFooter } from './components/Panel';
 import { RANGE_PRESETS, loadingText } from './components/range';
@@ -79,7 +80,9 @@ export function OverviewPage({ api, envId }: { api: DcamApi; envId: string }) {
       <PageHeader
         title="Capacity overview"
         subtitle={`${RANGE_PRESETS[range].label}. Executor slot-hours and peak concurrency, and the DAGs that use most.`}
-      />
+      >
+        {overview.data && <OpenInMenu target={{ page: 'environment' }} timeWindow={overview.data.range} />}
+      </PageHeader>
       {overview.data && <CoverageNote coverage={overview.data.coverage} range={range} />}
 
       {overview.isError && (

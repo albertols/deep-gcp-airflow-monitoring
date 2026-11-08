@@ -2,10 +2,11 @@
  * S-16 "Why is work waiting?": waiting task-time attributed to the limit that binds (HM-006), with
  * worker capacity, top contributors, noisy neighbours, pools, priority fairness and sensor waste, over the
  * context bar's range. The chart's bucket keeps it at 360 bars or fewer and is named in the chart; chart or
- * table view is in the URL.
+ * table view is in the URL. "Open in" adds the Airflow pools list and the environment's logs over the range;
+ * the DAGs in the tables link to DCAM's DAG page, which has its own menu.
  *
  * @implements FR-BOTL-01, FR-BOTL-02, FR-BOTL-06, FR-BOTL-07, FR-BOTL-09, FR-ENV-08, HM-017, HM-023,
- *   FR-UI-01, FR-UI-02, FR-UI-05, FR-UI-07, FR-UI-08, NFR-PERF-06
+ *   FR-UI-01, FR-UI-02, FR-UI-04, FR-UI-05, FR-UI-07, FR-UI-08, NFR-PERF-06
  */
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
@@ -26,6 +27,7 @@ import { InfoPopover } from '@dcam/ui-kit';
 import { HistoryNote } from '../../components/backfill';
 import { Legend, StackedBars, ValueBars, bucketLabels } from '../../components/charts';
 import { formatCadence, formatDuration, formatInt, formatShare } from '../../components/format';
+import { OpenInMenu } from '../../components/OpenInMenu';
 import { PageHeader } from '../../components/PageHeader';
 import { Kpi, KpiRow, Panel, ProvenanceFooter, QueryState } from '../../components/Panel';
 import { RANGE_PRESETS } from '../../components/range';
@@ -100,7 +102,9 @@ export function BottlenecksPage({ api, envId, linkTo }: PageProps) {
       <PageHeader
         title="Bottlenecks"
         subtitle={`${RANGE_PRESETS[range].label}. Why ready work is not running: waiting attributed to the limit that binds.`}
-      />
+      >
+        {b && <OpenInMenu target={{ page: 'bottlenecks' }} timeWindow={b.range} />}
+      </PageHeader>
       <QueryState isPending={q.isPending} error={q.error} what="the bottleneck analysis" range={range} />
       {b && (
         <>

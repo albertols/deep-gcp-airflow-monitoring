@@ -2,10 +2,11 @@
  * One DAG in detail (spec §12.4 S-12): header with every limit that can throttle it, KPIs, a runs
  * timeline, the Gantt chart of one run with its critical path, per-task statistics, durations against
  * their baseline, and failures, retries and flakiness. The range comes from the context bar; the run shown
- * in the Gantt chart is in the URL (`run`), so a shared link opens the same run.
+ * in the Gantt chart is in the URL (`run`), so a shared link opens the same run. "Open in" opens the DAG and
+ * that run in the Airflow UI and the Cloud console, and each task row opens the task in that run.
  *
  * @implements FR-DAGD-01, FR-DAGD-02, FR-DAGD-03, FR-DAGD-04, FR-TASK-01, HM-005, HM-007, HM-015, HM-016,
- *   FR-UI-01, FR-UI-02, FR-UI-05, FR-UI-07, FR-UI-08
+ *   FR-UI-01, FR-UI-02, FR-UI-04, FR-UI-05, FR-UI-07, FR-UI-08
  */
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -27,7 +28,11 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import type { DagDetail } from '@dcam/contracts';
 import { InfoPopover } from '@dcam/ui-kit';
+import type { RunRef } from '../../components/deep-links';
+import { triesWindow } from '../../components/open-in-links';
+import { OpenInMenu } from '../../components/OpenInMenu';
 import { PageHeader } from '../../components/PageHeader';
+import { EXPLANATIONS } from '../../explanations';
 import { Kpi, KpiRow, Panel, ProvenanceFooter } from '../../components/Panel';
 import {
   clause,
@@ -224,7 +229,15 @@ const TASK_COLUMNS: ReadonlyArray<{ id: DagExplanationId; numeric: boolean }> = 
   { id: 'dagd-col-contribution', numeric: true },
 ];
 
-function Tasks({ tasks }: { tasks: DagDetail['tasks'] }) {
+/** The run shown in the Gantt chart, as the "Open in" links select it; `null` without one. */
+function selectedRun(d: DagDetail): RunRef | null {
+  const run = d.runs.find((r) => r.run_id === d.gantt.run_id);
+  return run ? { runId: run.run_id, logicalDate: run.logical_date } : null;
+}
+
+function Tasks({ detail }: { detail: DagDetail }) {
+  const tasks = detail.tasks;
+  const run = selectedRun(detail);
   if (tasks.length === 0)
     return (
       <Typography variant="body2" color="text.secondary">
@@ -242,6 +255,10 @@ function Tasks({ tasks }: { tasks: DagDetail['tasks'] }) {
                 <InfoPopover explanation={E[c.id]} />
               </TableCell>
             ))}
+            <TableCell sx={{ whiteSpace: 'nowrap' }}>
+              In the selected run
+              <InfoPopover explanation={EXPLANATIONS['open-in']} />
+            </TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -262,6 +279,23 @@ function Tasks({ tasks }: { tasks: DagDetail['tasks'] }) {
               <TableCell align="right">{formatShare(task.failure_rate)}</TableCell>
               <TableCell align="right">{formatShare(task.slot_seconds_share)}</TableCell>
               <TableCell align="right">{formatDuration(task.contribution_seconds)}</TableCell>
+              <TableCell>
+                <OpenInMenu
+                  target={{
+                    page: 'task',
+                    dagId: detail.dag_id,
+                    taskId: task.task_id,
+                    run,
+                    tries: triesWindow(
+                      detail.gantt.rows.filter((r) => r.task_id === task.task_id),
+                      detail.range.to,
+                    ),
+                  }}
+                  timeWindow={detail.range}
+                  label={`Open ${task.task_id} in`}
+                  info={false}
+                />
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -300,7 +334,11 @@ export function DagDetailPage({ api, envId, route, linkTo }: PageProps) {
       <PageHeader
         title={dagId}
         subtitle={d ? `Team ${d.meta.team} · ${rangeLabel.toLowerCase()}` : rangeLabel}
-      />
+      >
+        {d && (
+          <OpenInMenu target={{ page: 'dag', dagId: d.dag_id, run: selectedRun(d) }} timeWindow={d.range} />
+        )}
+      </PageHeader>
 
       {detail.error && (
         <Alert
@@ -364,7 +402,7 @@ export function DagDetailPage({ api, envId, route, linkTo }: PageProps) {
           </Panel>
 
           <Panel explanation={E['dagd-tasks']}>
-            <Tasks tasks={d.tasks} />
+            <Tasks detail={d} />
           </Panel>
 
           <DurationPanel detail={d} api={api} envId={envId} healthHref={linkTo({ page: 'health' })} />

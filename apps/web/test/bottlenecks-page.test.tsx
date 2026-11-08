@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import type { Bottlenecks } from '@dcam/contracts';
 import { createDcamTheme } from '@dcam/ui-kit';
 import type { DcamApi } from '../src/api';
+import { EnvironmentPlaceContext } from '../src/components/OpenInMenu';
 import { linkTo } from '../src/router';
 import { BottlenecksPage } from '../src/pages/bottlenecks/BottlenecksPage';
 import { BOTTLENECK_EXPLANATIONS, BOTTLENECK_PANELS } from '../src/pages/bottlenecks/explanations';
@@ -218,5 +219,40 @@ describe('S-16 bottlenecks page (FR-BOTL-01)', () => {
       'No advice yet. Only 2% of the window has live snapshots; the rule needs 80%.',
     );
     expect(answer).not.toHaveTextContent(REASONS.parallelism.action);
+  });
+});
+
+describe('"Open in" on the bottleneck page (FR-UI-04)', () => {
+  it('FR-UI-04: opens the Airflow pools list and the environment logs over the range of the analysis', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const place = {
+      composer: { project_id: 'acme-prod-123', location: 'us-central1', environment: 'acme-composer-prod' },
+      airflow_uri: 'https://acme-composer-prod.airflow.example',
+    };
+    render(
+      <ThemeProvider theme={createDcamTheme('dark')}>
+        <QueryClientProvider client={client}>
+          <EnvironmentPlaceContext.Provider value={{ mode: 'live', place }}>
+            <BottlenecksPage
+              api={apiFor(fixture)}
+              envId="acme-prod"
+              route={{ page: 'bottlenecks' }}
+              linkTo={(r) => linkTo(r, 'acme-prod')}
+              navigate={() => {}}
+            />
+          </EnvironmentPlaceContext.Provider>
+        </QueryClientProvider>
+      </ThemeProvider>,
+    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Open in' }));
+    const menu = await screen.findByRole('menu');
+    expect(within(menu).getByRole('menuitem', { name: /^Pools/ })).toHaveAttribute(
+      'href',
+      'https://acme-composer-prod.airflow.example/pool/list/',
+    );
+    const logs = within(menu).getByRole('menuitem', { name: /Logs Explorer: environment logs/ });
+    expect(decodeURIComponent(logs.getAttribute('href') ?? '')).toContain(
+      `timestamp>="${fixture.range.from}"`,
+    );
   });
 });

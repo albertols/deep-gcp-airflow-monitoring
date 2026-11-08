@@ -2,9 +2,11 @@
  * Application shell (spec §12.2): the global context bar (environment, time range, time zone, live or
  * paused, freshness), the live or demo indicator and the selected environment's collection badges, left
  * navigation, demo banner, routed content. The URL holds the bar's state and each page's own state
- * (FR-UI-02). Pages are separate chunks loaded on first visit (NFR-PERF-05).
+ * (FR-UI-02). Pages are separate chunks loaded on first visit (NFR-PERF-05). Pages learn where the selected
+ * environment lives for their "Open in" menus from the shell (FR-UI-04).
  *
- * @implements FR-UI-01, FR-UI-02, FR-UI-06, FR-EMU-01, FR-SELF-01, FR-SETUP-02, FR-COLL-11, FR-COLL-06
+ * @implements FR-UI-01, FR-UI-02, FR-UI-04, FR-UI-06, FR-EMU-01, FR-SELF-01, FR-SETUP-02, FR-COLL-11,
+ *   FR-COLL-06
  */
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Suspense, lazy, useCallback, useMemo, useSyncExternalStore, type ComponentType } from 'react';
@@ -21,6 +23,7 @@ import Typography from '@mui/material/Typography';
 import type { DcamApi } from './api';
 import { CollectionBadges, LiveChip, useCollection } from './components/collection';
 import { ContextBar, freshnessOf, type RangeScope } from './components/ContextBar';
+import { EnvironmentPlaceContext, type EnvironmentPlaceValue } from './components/OpenInMenu';
 import { PageErrorBoundary } from './components/PageErrorBoundary';
 import { localTimeZone as browserTimeZone, timeFormat } from './components/time';
 import {
@@ -126,6 +129,13 @@ export function App({ api, localTimeZone }: { api: DcamApi; localTimeZone?: stri
   const environments = meta.data?.environments ?? [];
   const envId =
     environments.find((e) => e.env_id === location.envId)?.env_id ?? environments[0]?.env_id ?? null;
+  // Where the selected environment lives, for the pages' "Open in" menus (FR-UI-04).
+  const mode = meta.data?.mode;
+  const summary = environments.find((e) => e.env_id === envId);
+  const place = useMemo<EnvironmentPlaceValue | null>(
+    () => (mode && summary ? { mode, place: summary } : null),
+    [mode, summary],
+  );
   const local = localTimeZone ?? browserTimeZone();
   const time = timeFormat(view.tz, local);
   const pageView = useMemo<View>(() => ({ ...view, time }), [view, time]);
@@ -268,20 +278,22 @@ export function App({ api, localTimeZone }: { api: DcamApi; localTimeZone?: stri
             )}
             <ViewContext.Provider value={pageView}>
               <PageParamsContext.Provider value={pageParams}>
-                <PageErrorBoundary resetKey={linkTo(route, envId, view)}>
-                  {envId && route.page === 'overview' && <OverviewPage api={api} envId={envId} />}
-                  {envId && PageComponent && (
-                    <Suspense fallback={LOADING}>
-                      <PageComponent
-                        api={api}
-                        envId={envId}
-                        route={route}
-                        linkTo={link}
-                        navigate={navigate}
-                      />
-                    </Suspense>
-                  )}
-                </PageErrorBoundary>
+                <EnvironmentPlaceContext.Provider value={place}>
+                  <PageErrorBoundary resetKey={linkTo(route, envId, view)}>
+                    {envId && route.page === 'overview' && <OverviewPage api={api} envId={envId} />}
+                    {envId && PageComponent && (
+                      <Suspense fallback={LOADING}>
+                        <PageComponent
+                          api={api}
+                          envId={envId}
+                          route={route}
+                          linkTo={link}
+                          navigate={navigate}
+                        />
+                      </Suspense>
+                    )}
+                  </PageErrorBoundary>
+                </EnvironmentPlaceContext.Provider>
               </PageParamsContext.Provider>
             </ViewContext.Provider>
           </Box>
