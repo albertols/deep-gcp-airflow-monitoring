@@ -1,0 +1,15 @@
+pnpm-lock.yaml
+**/dist/**
+**/src/generated/**
+docs/spec/**
+docs/diagrams/**
+.remember/**
+**/*.drawio
+**/*.drawio.svg
+
+# Harness guardrails change only in maintenance mode, by a human (spec §21.4), so the format check must
+# never require a Claude Code session to rewrite them.
+.claude/hooks/**
+.claude/settings*.json
+# Generated from the Zod schema by `pnpm gen`; a test compares it byte for byte.
+packages/adapters/config-file/dcam.config.schema.json

@@ -1,0 +1,6 @@
+{
+  "providers": [
+    { "package_name": "apache-airflow-providers-celery", "description": "Celery", "version": "3.10.0" }
+  ],
+  "total_entries": 24
+}

@@ -1,0 +1,7 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "gen": { "outputs": ["dcam.config.schema.json"] }
+  }
+}

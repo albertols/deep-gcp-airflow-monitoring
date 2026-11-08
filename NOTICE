@@ -1,0 +1,10 @@
+deep-gcp-airflow-monitoring (DCAM)
+Copyright 2026 The DCAM authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+DCAM is an independent open-source project. It is not affiliated with, endorsed by, or sponsored by
+Google LLC or the Apache Software Foundation. "Google Cloud", "GCP", "Cloud Composer", "Managed
+Service for Apache Airflow", "Cloud Monitoring", "Cloud Logging" and "Google Kubernetes Engine" are
+trademarks of Google LLC. "Apache", "Apache Airflow" and "Airflow" are trademarks of The Apache
+Software Foundation. These names are used only to describe what DCAM works with.

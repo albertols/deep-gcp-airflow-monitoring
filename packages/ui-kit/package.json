@@ -1,0 +1,26 @@
+{
+  "name": "@dcam/ui-kit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Design tokens, MUI theme and shared components such as the (i) explanation popover (spec §12.5, §12.9).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@emotion/react": "11.14.0",
+    "@emotion/styled": "11.14.1",
+    "@mui/icons-material": "9.5.0",
+    "@mui/material": "9.5.0"
+  },
+  "peerDependencies": {
+    "react": "^19"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "react": "19.3.1"
+  }
+}

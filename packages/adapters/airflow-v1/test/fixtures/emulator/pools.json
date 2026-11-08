@@ -1,0 +1,29 @@
+{
+  "pools": [
+    {
+      "deferred_slots": 0,
+      "description": "Default pool",
+      "include_deferred": false,
+      "name": "default_pool",
+      "occupied_slots": 0,
+      "open_slots": 128,
+      "queued_slots": 0,
+      "running_slots": 0,
+      "scheduled_slots": 0,
+      "slots": 128
+    },
+    {
+      "deferred_slots": 0,
+      "description": "Two slots: makes acme work wait",
+      "include_deferred": false,
+      "name": "acme_small_pool",
+      "occupied_slots": 2,
+      "open_slots": 0,
+      "queued_slots": 1,
+      "running_slots": 1,
+      "scheduled_slots": 0,
+      "slots": 2
+    }
+  ],
+  "total_entries": 2
+}

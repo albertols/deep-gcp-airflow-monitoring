@@ -1,0 +1,33 @@
+# Dependencies and build output
+node_modules/
+dist/
+.turbo/
+coverage/
+*.tsbuildinfo
+
+# DCAM local state (never commit: real project IDs and data, spec §18.12)
+dcam.config.yaml
+*.local.yaml
+.dcam/
+data/
+tmp/
+tools/fixtures/raw/
+.dcam-denylist
+
+# Secrets and environment
+.env
+.env.*
+!.env.example
+
+# Claude Code personal state
+.claude/settings.local.json
+.claude/.stop-attempts
+
+# OS and editors
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Claude Code agent worktrees (local, never committed)
+.claude/worktrees/
