@@ -7,6 +7,8 @@ import type { Bottlenecks } from '@dcam/contracts';
 import { createDcamTheme } from '@dcam/ui-kit';
 import type { DcamApi } from '../src/api';
 import { linkTo } from '../src/router';
+import { timeFormat } from '../src/components/time';
+import { DEFAULT_PAGE_VIEW, ViewContext, type View } from '../src/components/view';
 import { BottlenecksPage } from '../src/pages/bottlenecks/BottlenecksPage';
 import { BOTTLENECK_EXPLANATIONS } from '../src/pages/bottlenecks/explanations';
 import { DEPTH_EXPLANATIONS } from '../src/pages/bottlenecks/explanations-depth';
@@ -196,18 +198,20 @@ const apiFor = (data: Bottlenecks): DcamApi => ({
   getCollection: reject,
 });
 
-function renderPage(data: Bottlenecks = fixture) {
+function renderPage(data: Bottlenecks = fixture, view: View = DEFAULT_PAGE_VIEW) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <ThemeProvider theme={createDcamTheme('dark')}>
       <QueryClientProvider client={client}>
-        <BottlenecksPage
-          api={apiFor(data)}
-          envId="acme-prod"
-          route={{ page: 'bottlenecks' }}
-          linkTo={(r) => linkTo(r, 'acme-prod')}
-          navigate={() => {}}
-        />
+        <ViewContext.Provider value={view}>
+          <BottlenecksPage
+            api={apiFor(data)}
+            envId="acme-prod"
+            route={{ page: 'bottlenecks' }}
+            linkTo={(r) => linkTo(r, 'acme-prod')}
+            navigate={() => {}}
+          />
+        </ViewContext.Provider>
       </QueryClientProvider>
     </ThemeProvider>,
   );
@@ -247,6 +251,15 @@ describe('S-16 bottleneck evidence (M3 demo steps 2–3)', () => {
     expect(p).toHaveTextContent(/associated with/i);
     expect(p).not.toHaveTextContent(/\bcaus(es|ed)\b/i);
     expect(within(p).getByText(/Data as of/)).toBeInTheDocument();
+  });
+
+  it("FR-UI-01: the overlap windows are in the context bar's time zone, and the column header names it", async () => {
+    const madrid = timeFormat('local', 'Europe/Madrid');
+    renderPage(fixture, { ...DEFAULT_PAGE_VIEW, tz: 'local', time: madrid });
+    const p = await panel('Noisy neighbours');
+    const zone = madrid.zoneName(fixture.range.to);
+    expect(within(p).getByRole('columnheader', { name: `When it was active (${zone})` })).toBeInTheDocument();
+    expect(within(p).queryByRole('columnheader', { name: 'When it was active (UTC)' })).toBeNull();
   });
 
   it('HM-011: worker slots counted from worker hostnames are labelled as an estimate', async () => {

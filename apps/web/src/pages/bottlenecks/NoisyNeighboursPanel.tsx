@@ -106,7 +106,10 @@ function Body({ n, linkTo }: { n: NoisyNeighbours; linkTo: PageProps['linkTo'] }
               <TableCell align="right">Affected tries</TableCell>
               <TableCell align="right">Active min</TableCell>
               <TableCell align="right">Associated wait (task-min)</TableCell>
-              <TableCell>When it was active (UTC)</TableCell>
+              {/* The windows are shown in the context bar's zone (windowText). */}
+              <TableCell>
+                When it was active ({time.zoneName(n.items[0]?.overlap_windows[0]?.from)})
+              </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
